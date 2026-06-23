@@ -1,0 +1,14 @@
+[package]
+name = "gt-git"
+version = "0.1.0"
+edition = "2021"
+description = "GitTributary Git 基础能力层"
+
+[dependencies]
+git2 = "0.19"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
+tempfile = "3"
