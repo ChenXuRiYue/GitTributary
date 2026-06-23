@@ -1,9 +1,9 @@
-import { RefreshCw, Brain, Sparkles, Database, Settings } from "lucide-react";
+import { GitBranch, Brain, Sparkles, Database, Settings } from "lucide-react";
 
 import type { PluginDescriptor } from "./types";
 import {
   AiPanel,
-  BackupPanel,
+  GitPanel,
   DatabasePanel,
   ReviewPanel,
   SettingsPanel,
@@ -15,11 +15,11 @@ import {
  */
 export const plugins: PluginDescriptor[] = [
   {
-    id: "backup",
-    name: "备份",
-    description: "查看仓库变更，一键提交并推送到 GitHub。",
-    icon: RefreshCw,
-    panel: BackupPanel,
+    id: "git",
+    name: "Git",
+    description: "仓库状态、变更管理与提交 —— 平台级 Git 基础能力。",
+    icon: GitBranch,
+    panel: GitPanel,
   },
   {
     id: "review",
