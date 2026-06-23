@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- 三条支流从左侧不同高度出发,汇入右侧主干 -->
+  <!-- 支流 1(上) -->
+  <path d="M3 5 C8 5, 10 9, 14 10" />
+  <!-- 支流 2(中) -->
+  <path d="M3 12 C7 12, 10 11, 14 12" />
+  <!-- 支流 3(下) -->
+  <path d="M3 19 C8 19, 10 15, 14 14" />
+  <!-- 主干:汇聚后向右流向大海 -->
+  <path d="M14 10 C16 11, 16 13, 14 14" />
+  <path d="M14 12 C17 12, 19 12, 21 12" />
+  <!-- 入海散开的微小三角 -->
+  <path d="M20 10 C21 11, 21 13, 20 14" />
+</svg>
