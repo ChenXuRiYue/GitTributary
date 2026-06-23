@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from "react";
-import { GitBranch, PanelLeftClose, PanelLeft } from "lucide-react";
+import { PanelLeftClose, PanelLeft } from "lucide-react";
+
+import { BrandIcon } from "@/components/BrandIcon";
 
 import {
   plugins,
@@ -118,7 +120,7 @@ function App() {
           >
             {!collapsed && (
               <div className="flex items-center gap-2 overflow-hidden">
-                <GitBranch className="text-foreground size-[18px] shrink-0" />
+                <BrandIcon className="text-primary size-[18px] shrink-0" />
                 <span className="truncate text-sm font-semibold">
                   GitTributary
                 </span>
