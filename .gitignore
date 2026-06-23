@@ -23,5 +23,5 @@ dist-ssr
 *.sln
 *.sw?
 
-# Local docs symlink (points to personal notes repo, machine-specific)
-doc/
+# Local symlink to personal notes repo (machine-specific, not tracked)
+doc/GitTributary
