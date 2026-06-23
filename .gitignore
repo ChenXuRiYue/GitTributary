@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local docs symlink (points to personal notes repo, machine-specific)
+doc/
