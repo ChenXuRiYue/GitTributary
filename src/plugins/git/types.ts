@@ -11,4 +11,10 @@ export interface GitViewDescriptor {
   icon: LucideIcon;
   /** 内容区组件 */
   panel: ComponentType;
+  /**
+   * 是否固定展示在二级栏中。
+   * true(默认):直接显示图标
+   * false:归入 「...」折叠区,点击后才展开
+   */
+  pinned?: boolean;
 }

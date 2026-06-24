@@ -1,41 +1,50 @@
 import { useCallback, useRef, useState } from "react";
-import { PanelLeftClose, PanelLeft } from "lucide-react";
+import { PanelLeftClose, PanelLeft, MoreHorizontal } from "lucide-react";
 
 import { BrandIcon } from "@/components/BrandIcon";
+import { IconNav, type NavItem } from "@/components/IconNav";
 
-import {
-  plugins,
-  extensionPlugins,
-  systemPlugins,
-} from "./plugins/registry";
+import { plugins } from "./plugins/registry";
 import type { PluginDescriptor } from "./plugins/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
-  Tooltip,
-  TooltipContent,
   TooltipProvider,
-  TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 /** 侧边栏宽度边界（px） */
 const COLLAPSED_WIDTH = 56;
-const MIN_WIDTH = 180; // 展开态下限
-const MAX_WIDTH = 360; // 展开态上限
+const MIN_WIDTH = 180;
+const MAX_WIDTH = 360;
 const DEFAULT_WIDTH = 208;
-/** 拖拽到此阈值以下则自动收起 */
 const COLLAPSE_THRESHOLD = 140;
+
+/** 将 PluginDescriptor 转换为通用 NavItem(收起态使用 IconNav) */
+const navItems: NavItem[] = plugins.map((p) => ({
+  id: p.id,
+  name: p.name,
+  icon: p.icon,
+  pinned: p.pinned,
+  group: p.category === "system" ? "system" : "extension",
+}));
 
 function App() {
   const [activeId, setActiveId] = useState(plugins[0]?.id ?? "");
   const [collapsed, setCollapsed] = useState(true);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [dragging, setDragging] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const asideRef = useRef<HTMLElement>(null);
 
   const active = plugins.find((p) => p.id === activeId) ?? plugins[0];
   const ActivePanel = active?.panel;
+
+  // 分组(展开态用)
+  const extensionPlugins = plugins.filter((p) => (p.category ?? "extension") === "extension");
+  const systemPlugins = plugins.filter((p) => p.category === "system");
+  const pinnedExtensions = extensionPlugins.filter((p) => p.pinned !== false);
+  const overflowExtensions = extensionPlugins.filter((p) => p.pinned === false);
 
   const startResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -47,11 +56,9 @@ function App() {
     const onMove = (ev: MouseEvent) => {
       const raw = ev.clientX - left;
       if (raw < COLLAPSE_THRESHOLD) {
-        // 拖得过窄：自动收起
         setCollapsed(true);
       } else {
         setCollapsed(false);
-        // 钳制在下限与上限之间
         setWidth(Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, raw)));
       }
     };
@@ -68,41 +75,31 @@ function App() {
     window.addEventListener("mouseup", onUp);
   }, []);
 
-  function SidebarButton({ plugin }: { plugin: PluginDescriptor }) {
+  /** 展开态按钮(带文字) */
+  function ExpandedButton({ plugin }: { plugin: PluginDescriptor }) {
     const Icon = plugin.icon;
     const isActive = plugin.id === active?.id;
-
-    const button = (
+    return (
       <button
         type="button"
         onClick={() => setActiveId(plugin.id)}
         className={cn(
-          "flex h-9 items-center rounded-md text-sm transition-colors",
-          collapsed ? "w-9 justify-center" : "w-full gap-3 px-3",
+          "flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm transition-colors",
           isActive
             ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
             : "text-muted-foreground hover:bg-sidebar-accent/60",
         )}
       >
         <Icon className="size-[18px] shrink-0" />
-        {!collapsed && <span className="truncate">{plugin.name}</span>}
+        <span className="truncate">{plugin.name}</span>
       </button>
-    );
-
-    // 收起时用 tooltip 补充名称；展开时文字已可见，无需 tooltip
-    if (!collapsed) return button;
-    return (
-      <Tooltip>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent side="right">{plugin.name}</TooltipContent>
-      </Tooltip>
     );
   }
 
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-screen overflow-hidden">
-        {/* 左侧可收缩 + 可拖拽调宽的侧边栏 */}
+        {/* 左侧侧边栏 */}
         <aside
           ref={asideRef}
           style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
@@ -121,9 +118,7 @@ function App() {
             {!collapsed && (
               <div className="flex items-center gap-2 overflow-hidden">
                 <BrandIcon className="text-primary size-[18px] shrink-0" />
-                <span className="truncate text-sm font-semibold">
-                  GitTributary
-                </span>
+                <span className="truncate text-sm font-semibold">GitTributary</span>
               </div>
             )}
             <button
@@ -132,36 +127,67 @@ function App() {
               className="text-muted-foreground hover:bg-sidebar-accent/60 flex size-9 shrink-0 items-center justify-center rounded-md transition-colors"
               title={collapsed ? "展开" : "收起"}
             >
-              {collapsed ? (
-                <PanelLeft className="size-[18px]" />
-              ) : (
-                <PanelLeftClose className="size-[18px]" />
-              )}
+              {collapsed ? <PanelLeft className="size-[18px]" /> : <PanelLeftClose className="size-[18px]" />}
             </button>
           </div>
 
           <Separator className="bg-sidebar-border my-2" />
 
-          {/* 上部：扩展插件区（后续可选安装） */}
-          <ScrollArea className="flex-1">
-            <nav className="flex flex-col gap-1">
-              {extensionPlugins.map((p) => (
-                <SidebarButton key={p.id} plugin={p} />
-              ))}
-            </nav>
-          </ScrollArea>
+          {/* 收起态:用 IconNav(通用组件,含 pin/overflow/system) */}
+          {collapsed ? (
+            <IconNav
+              items={navItems}
+              activeId={activeId}
+              onSelect={setActiveId}
+              size="md"
+              className="flex-1"
+            />
+          ) : (
+            /* 展开态:图标+文字,自行实现 pin/overflow */
+            <>
+              <ScrollArea className="flex-1">
+                <nav className="flex flex-col gap-1">
+                  {pinnedExtensions.map((p) => (
+                    <ExpandedButton key={p.id} plugin={p} />
+                  ))}
+                  {/* 溢出折叠 */}
+                  {overflowExtensions.length > 0 && (
+                    <>
+                      <Separator className="bg-sidebar-border my-1" />
+                      <button
+                        type="button"
+                        onClick={() => setMoreOpen((v) => !v)}
+                        className={cn(
+                          "flex h-8 w-full items-center gap-3 rounded-md px-3 text-xs transition-colors",
+                          moreOpen
+                            ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                            : "text-muted-foreground hover:bg-sidebar-accent/60",
+                        )}
+                      >
+                        <MoreHorizontal className="size-[16px] shrink-0" />
+                        <span>更多</span>
+                      </button>
+                      {moreOpen && overflowExtensions.map((p) => (
+                        <ExpandedButton key={p.id} plugin={p} />
+                      ))}
+                    </>
+                  )}
+                </nav>
+              </ScrollArea>
 
-          {/* 底部固定：系统按钮区 */}
-          {systemPlugins.length > 0 && (
-            <div className="mt-2 flex flex-col gap-1">
-              <Separator className="bg-sidebar-border mb-1" />
-              {systemPlugins.map((p) => (
-                <SidebarButton key={p.id} plugin={p} />
-              ))}
-            </div>
+              {/* 系统区(底部固定) */}
+              {systemPlugins.length > 0 && (
+                <div className="mt-2 flex flex-col gap-1">
+                  <Separator className="bg-sidebar-border mb-1" />
+                  {systemPlugins.map((p) => (
+                    <ExpandedButton key={p.id} plugin={p} />
+                  ))}
+                </div>
+              )}
+            </>
           )}
 
-          {/* 右边缘拖拽把手（仅展开态可拖） */}
+          {/* 拖拽把手 */}
           {!collapsed && (
             <div
               onMouseDown={startResize}
@@ -177,13 +203,10 @@ function App() {
           {active && (
             <header className="border-border flex flex-col gap-1 border-b px-7 py-4">
               <h2 className="text-lg font-semibold">{active.name}</h2>
-              <p className="text-muted-foreground text-xs">
-                {active.description}
-              </p>
+              <p className="text-muted-foreground text-xs">{active.description}</p>
             </header>
           )}
           {active?.id === "git" ? (
-            // Git 面板自带二级栏,不加外层 padding/max-width
             <div className="flex-1 overflow-hidden">
               {ActivePanel && <ActivePanel />}
             </div>
