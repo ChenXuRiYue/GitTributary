@@ -7,6 +7,7 @@ pub mod error;
 pub mod namespace;
 pub mod record;
 pub mod store;
+pub mod workspace;
 
 pub use error::{Result, StoreError};
 pub use namespace::Visibility;

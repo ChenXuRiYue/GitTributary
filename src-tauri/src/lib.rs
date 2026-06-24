@@ -16,8 +16,11 @@ pub struct AppState {
 fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoOverview, String> {
     let repo = GitRepo::open(&path).map_err(|e| e.to_string())?;
     let overview = repo.overview().map_err(|e| e.to_string())?;
-    let mut lock = state.repo.lock().unwrap();
-    *lock = Some(repo);
+    let mut repo_lock = state.repo.lock().unwrap();
+    *repo_lock = Some(repo);
+    // 持久化到数据中心
+    let mut store = state.store.lock().unwrap();
+    let _ = store.set_active_repo(&path);
     Ok(overview)
 }
 
@@ -249,13 +252,41 @@ fn store_delete_profile(name: String, state: State<'_, AppState>) -> Result<(), 
     store.delete_profile(&name).map_err(|e| e.to_string())
 }
 
+// ─── Workspace commands ───────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+struct WorkspaceInfo {
+    active_repo: Option<String>,
+    recent_repos: Vec<String>,
+    device_id: Option<String>,
+    device_name: Option<String>,
+}
+
+#[tauri::command]
+fn get_workspace_info(state: State<'_, AppState>) -> WorkspaceInfo {
+    let store = state.store.lock().unwrap();
+    WorkspaceInfo {
+        active_repo: store.active_repo(),
+        recent_repos: store.recent_repos(),
+        device_id: store.device_id(),
+        device_name: store.device_name(),
+    }
+}
+
+#[tauri::command]
+fn get_recent_repos(state: State<'_, AppState>) -> Vec<String> {
+    let store = state.store.lock().unwrap();
+    store.recent_repos()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 初始化数据中心(存放在用户 home 下 .gittributary/)
     let store_dir = dirs_next::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".gittributary");
-    let store = Store::open(&store_dir).expect("无法初始化数据中心");
+    let mut store = Store::open(&store_dir).expect("无法初始化数据中心");
+    store.init_workspace().expect("无法初始化 workspace");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -294,6 +325,8 @@ pub fn run() {
             store_switch_profile,
             store_create_profile,
             store_delete_profile,
+            get_workspace_info,
+            get_recent_repos,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
