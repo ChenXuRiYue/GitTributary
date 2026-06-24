@@ -21,7 +21,7 @@ export function GitPanel() {
   const ActiveView = active?.panel;
 
   return (
-    <div className="flex h-full gap-0">
+    <div className="flex h-full overflow-hidden">
       {/* 二级侧边栏 */}
       <div className="flex w-10 shrink-0 flex-col items-center border-r border-border/50 py-2">
         <IconNav items={navItems} activeId={activeId} onSelect={setActiveId} size="sm" />
