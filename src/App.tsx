@@ -1,7 +1,7 @@
 import { useCallback, useRef, useState } from "react";
-import { PanelLeftClose, PanelLeft, MoreHorizontal } from "lucide-react";
+import { ExternalLink, PanelLeftClose, PanelLeft, MoreHorizontal } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
-import { BrandIcon } from "@/components/BrandIcon";
 import { IconNav, type NavItem } from "@/components/IconNav";
 
 import { plugins } from "./plugins/registry";
@@ -19,6 +19,7 @@ const MIN_WIDTH = 180;
 const MAX_WIDTH = 360;
 const DEFAULT_WIDTH = 208;
 const COLLAPSE_THRESHOLD = 140;
+const PROJECT_REPO_URL = "https://github.com/ChenXuRiYue/GitTributary";
 
 /** 将 PluginDescriptor 转换为通用 NavItem(收起态使用 IconNav) */
 const navItems: NavItem[] = plugins.map((p) => ({
@@ -45,6 +46,10 @@ function App() {
   const systemPlugins = plugins.filter((p) => p.category === "system");
   const pinnedExtensions = extensionPlugins.filter((p) => p.pinned !== false);
   const overflowExtensions = extensionPlugins.filter((p) => p.pinned === false);
+
+  const openProjectRepo = useCallback(() => {
+    void openUrl(PROJECT_REPO_URL);
+  }, []);
 
   const startResize = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
@@ -111,15 +116,29 @@ function App() {
           {/* 顶部：品牌 + 收缩按钮 */}
           <div
             className={cn(
-              "flex h-9 items-center",
-              collapsed ? "justify-center" : "justify-between px-1",
+              "flex items-center",
+              collapsed ? "h-auto flex-col justify-center gap-1" : "h-9 justify-between px-1",
             )}
           >
             {!collapsed && (
-              <div className="flex items-center gap-2 overflow-hidden">
-                <BrandIcon className="text-primary size-[18px] shrink-0" />
-                <span className="truncate text-sm font-semibold">GitTributary</span>
-              </div>
+              <button
+                type="button"
+                onClick={openProjectRepo}
+                className="group flex min-w-0 items-center overflow-hidden rounded-md px-1.5 py-1 text-left transition-colors hover:bg-sidebar-accent/70"
+                title="Open GitHub repository"
+              >
+                <span className="block max-w-full truncate text-sm font-semibold leading-4">Git Tributary</span>
+              </button>
+            )}
+            {collapsed && (
+              <button
+                type="button"
+                onClick={openProjectRepo}
+                className="text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground flex size-9 shrink-0 items-center justify-center rounded-md transition-colors"
+                title="Open GitHub repository"
+              >
+                <ExternalLink className="size-[18px]" />
+              </button>
             )}
             <button
               type="button"
