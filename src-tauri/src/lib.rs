@@ -1,11 +1,14 @@
 use std::sync::Mutex;
 
 use gt_git::{GitRepo, RepoOverview, FileStatus, CommitInfo, FileDiff, BranchInfo, LogEntry};
+use gt_store::Store;
+use serde_json::Value;
 use tauri::State;
 
-/// 应用状态:持有当前打开的 Git 仓库(可空)
+/// 应用状态
 pub struct AppState {
     pub repo: Mutex<Option<GitRepo>>,
+    pub store: Mutex<Store>,
 }
 
 /// 打开一个 Git 仓库并返回概况
@@ -146,13 +149,115 @@ fn get_commit_file_diff(commit_id: String, path: String, state: State<'_, AppSta
     repo.commit_file_diff(&commit_id, &path).map_err(|e| e.to_string())
 }
 
+// ─── Store commands ───────────────────────────────────────────────────
+
+#[derive(serde::Serialize)]
+struct NamespaceInfo {
+    name: String,
+    count: usize,
+}
+
+#[derive(serde::Serialize)]
+struct KvEntry {
+    key: String,
+    value: Value,
+}
+
+#[tauri::command]
+fn store_get(namespace: String, key: String, state: State<'_, AppState>) -> Option<Value> {
+    let store = state.store.lock().unwrap();
+    store.get(&namespace, &key)
+}
+
+#[tauri::command]
+fn store_set(namespace: String, key: String, value: Value, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.set(&namespace, &key, value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn store_delete(namespace: String, key: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.delete(&namespace, &key).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn store_keys(namespace: String, state: State<'_, AppState>) -> Vec<String> {
+    let store = state.store.lock().unwrap();
+    store.keys(&namespace)
+}
+
+#[tauri::command]
+fn store_namespaces(state: State<'_, AppState>) -> Vec<NamespaceInfo> {
+    let store = state.store.lock().unwrap();
+    store.namespaces().into_iter().map(|name| {
+        let count = store.namespace_len(&name);
+        NamespaceInfo { name, count }
+    }).collect()
+}
+
+#[tauri::command]
+fn store_entries(namespace: String, state: State<'_, AppState>) -> Vec<KvEntry> {
+    let store = state.store.lock().unwrap();
+    store.entries(&namespace).into_iter().map(|(key, value)| KvEntry { key, value }).collect()
+}
+
+#[tauri::command]
+fn store_scan(namespace: String, prefix: String, state: State<'_, AppState>) -> Vec<KvEntry> {
+    let store = state.store.lock().unwrap();
+    store.scan(&namespace, &prefix).into_iter().map(|(key, value)| KvEntry { key, value }).collect()
+}
+
+#[tauri::command]
+fn store_compact(namespace: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.compact(&namespace).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn store_list_profiles(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let store = state.store.lock().unwrap();
+    store.list_profiles().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn store_active_profile(state: State<'_, AppState>) -> Option<String> {
+    let store = state.store.lock().unwrap();
+    store.active_profile().map(|s| s.to_string())
+}
+
+#[tauri::command]
+fn store_switch_profile(name: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.switch_profile(&name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn store_create_profile(name: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.create_profile(&name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn store_delete_profile(name: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.delete_profile(&name).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // 初始化数据中心(存放在用户 home 下 .gittributary/)
+    let store_dir = dirs_next::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".gittributary");
+    let store = Store::open(&store_dir).expect("无法初始化数据中心");
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             repo: Mutex::new(None),
+            store: Mutex::new(store),
         })
         .invoke_handler(tauri::generate_handler![
             open_repo,
@@ -171,6 +276,19 @@ pub fn run() {
             get_branch_log,
             get_commit_files,
             get_commit_file_diff,
+            store_get,
+            store_set,
+            store_delete,
+            store_keys,
+            store_namespaces,
+            store_entries,
+            store_scan,
+            store_compact,
+            store_list_profiles,
+            store_active_profile,
+            store_switch_profile,
+            store_create_profile,
+            store_delete_profile,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

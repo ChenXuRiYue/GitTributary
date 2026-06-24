@@ -3,11 +3,11 @@ import { GitBranch, Brain, Sparkles, Database, Settings } from "lucide-react";
 import type { PluginDescriptor } from "./types";
 import {
   AiPanel,
-  DatabasePanel,
   ReviewPanel,
   SettingsPanel,
 } from "./panels";
 import { GitPanel } from "./git/GitPanel";
+import { StorePanel } from "./store/StorePanel";
 
 /**
  * 插件注册表。后续新增功能只需往这里追加一个描述对象，
@@ -36,11 +36,11 @@ export const plugins: PluginDescriptor[] = [
     panel: AiPanel,
   },
   {
-    id: "database",
-    name: "数据库",
-    description: "为笔记库 + AI 而生的数据视图与标签管理。",
+    id: "store",
+    name: "数据中心",
+    description: "统一配置管理 — 所有配置项的可视化浏览与 Profile 切换。",
     icon: Database,
-    panel: DatabasePanel,
+    panel: StorePanel,
   },
   {
     id: "settings",
