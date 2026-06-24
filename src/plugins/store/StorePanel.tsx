@@ -8,6 +8,16 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
+/** L0 绝对机密 key 列表:展示时完全掩码,不露任何字符 */
+const L0_KEYS = new Set([
+  "git.access_token",
+  "git.ssh_passphrase",
+]);
+
+function isL0Key(key: string): boolean {
+  return L0_KEYS.has(key);
+}
+
 interface NamespaceInfo {
   name: string;
   count: number;
@@ -175,7 +185,7 @@ export function StorePanel() {
                         {entry.key}
                       </span>
                       <span className="min-w-0 flex-1 break-words font-mono">
-                        {JSON.stringify(entry.value)}
+                        {isL0Key(entry.key) ? "••••••••" : JSON.stringify(entry.value)}
                       </span>
                       <button
                         type="button"
