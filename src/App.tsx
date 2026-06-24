@@ -113,33 +113,13 @@ function App() {
             !dragging && "transition-[width] duration-200",
           )}
         >
-          {/* 顶部：品牌 + 收缩按钮 */}
+          {/* 顶部：收缩按钮 + 展开态品牌入口 */}
           <div
             className={cn(
-              "flex items-center",
-              collapsed ? "h-auto flex-col justify-center gap-1" : "h-9 justify-between px-1",
+              "flex h-9 items-center gap-1",
+              collapsed ? "justify-center" : "px-1",
             )}
           >
-            {!collapsed && (
-              <button
-                type="button"
-                onClick={openProjectRepo}
-                className="group flex min-w-0 items-center overflow-hidden rounded-md px-1.5 py-1 text-left transition-colors hover:bg-sidebar-accent/70"
-                title="Open GitHub repository"
-              >
-                <span className="block max-w-full truncate text-sm font-semibold leading-4">Git Tributary</span>
-              </button>
-            )}
-            {collapsed && (
-              <button
-                type="button"
-                onClick={openProjectRepo}
-                className="text-muted-foreground hover:bg-sidebar-accent/70 hover:text-foreground flex size-9 shrink-0 items-center justify-center rounded-md transition-colors"
-                title="Open GitHub repository"
-              >
-                <ExternalLink className="size-[18px]" />
-              </button>
-            )}
             <button
               type="button"
               onClick={() => setCollapsed((v) => !v)}
@@ -148,6 +128,17 @@ function App() {
             >
               {collapsed ? <PanelLeft className="size-[18px]" /> : <PanelLeftClose className="size-[18px]" />}
             </button>
+            {!collapsed && (
+              <button
+                type="button"
+                onClick={openProjectRepo}
+                className="text-sidebar-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground flex min-w-0 flex-1 items-center justify-between gap-2 overflow-hidden rounded-md px-2 py-1 text-left transition-colors"
+                title="Open GitHub repository"
+              >
+                <span className="block min-w-0 truncate text-sm font-semibold leading-4">Git Tributary</span>
+                <ExternalLink className="text-muted-foreground size-4 shrink-0" />
+              </button>
+            )}
           </div>
 
           <Separator className="bg-sidebar-border my-2" />
