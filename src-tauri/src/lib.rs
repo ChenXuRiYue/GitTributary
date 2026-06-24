@@ -1,6 +1,6 @@
 use std::sync::Mutex;
 
-use gt_git::{GitRepo, RepoOverview, FileStatus, CommitInfo, FileDiff, BranchInfo, LogEntry};
+use gt_git::{GitRepo, RepoOverview, FileStatus, CommitInfo, FileDiff, BranchInfo, LogEntry, RemoteInfo, AuthMethod};
 use gt_store::Store;
 use serde_json::Value;
 use tauri::State;
@@ -156,6 +156,118 @@ fn get_commit_file_diff(commit_id: String, path: String, state: State<'_, AppSta
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
     repo.commit_file_diff(&commit_id, &path).map_err(|e| e.to_string())
+}
+
+// ─── Remote commands ──────────────────────────────────────────────────
+
+/// 解析认证方式:项目级 token 优先 → 公共级 token → SSH → Agent → None
+fn resolve_auth(state: &AppState) -> AuthMethod {
+    let store = state.store.lock().unwrap();
+    let repo_lock = state.repo.lock().unwrap();
+
+    // 1. 项目级 token(从当前仓库路径对应的 store key)
+    if let Some(repo) = repo_lock.as_ref() {
+        if let Some(workdir) = repo.workdir() {
+            let project_key = format!("project.{}.token", workdir.display());
+            if let Some(val) = store.get("private.credentials", &project_key) {
+                if let Some(token) = val.as_str() {
+                    if !token.is_empty() {
+                        return AuthMethod::Token(token.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. 公共级 token
+    if let Some(token) = store.get_git_token_raw() {
+        if !token.is_empty() {
+            return AuthMethod::Token(token);
+        }
+    }
+
+    // 3. SSH key
+    if let Some((key_path, passphrase)) = store.get_git_ssh_key() {
+        return AuthMethod::SshKey {
+            private_key: key_path,
+            passphrase,
+        };
+    }
+
+    // 4. 尝试 SSH agent
+    AuthMethod::Agent
+}
+
+/// 获取远程列表
+#[tauri::command]
+fn get_remotes(state: State<'_, AppState>) -> Result<Vec<RemoteInfo>, String> {
+    let lock = state.repo.lock().unwrap();
+    let repo = lock.as_ref().ok_or("尚未打开仓库")?;
+    repo.remotes().map_err(|e| e.to_string())
+}
+
+/// 添加远程
+#[tauri::command]
+fn add_remote(name: String, url: String, state: State<'_, AppState>) -> Result<(), String> {
+    let lock = state.repo.lock().unwrap();
+    let repo = lock.as_ref().ok_or("尚未打开仓库")?;
+    repo.add_remote(&name, &url).map_err(|e| e.to_string())
+}
+
+/// 修改远程 URL
+#[tauri::command]
+fn set_remote_url(name: String, url: String, state: State<'_, AppState>) -> Result<(), String> {
+    let lock = state.repo.lock().unwrap();
+    let repo = lock.as_ref().ok_or("尚未打开仓库")?;
+    repo.set_remote_url(&name, &url).map_err(|e| e.to_string())
+}
+
+/// 删除远程
+#[tauri::command]
+fn remove_remote(name: String, state: State<'_, AppState>) -> Result<(), String> {
+    let lock = state.repo.lock().unwrap();
+    let repo = lock.as_ref().ok_or("尚未打开仓库")?;
+    repo.remove_remote(&name).map_err(|e| e.to_string())
+}
+
+/// Fetch
+#[tauri::command]
+fn git_fetch(remote: String, state: State<'_, AppState>) -> Result<(), String> {
+    let auth = resolve_auth(&state);
+    let lock = state.repo.lock().unwrap();
+    let repo = lock.as_ref().ok_or("尚未打开仓库")?;
+    repo.fetch(&remote, &auth).map_err(|e| e.to_string())
+}
+
+/// Push 当前分支
+#[tauri::command]
+fn git_push(remote: String, branch: String, state: State<'_, AppState>) -> Result<(), String> {
+    let auth = resolve_auth(&state);
+    let lock = state.repo.lock().unwrap();
+    let repo = lock.as_ref().ok_or("尚未打开仓库")?;
+    repo.push(&remote, &branch, &auth).map_err(|e| e.to_string())
+}
+
+/// Pull(fetch + fast-forward)
+#[tauri::command]
+fn git_pull(remote: String, branch: String, state: State<'_, AppState>) -> Result<(), String> {
+    let auth = resolve_auth(&state);
+    let lock = state.repo.lock().unwrap();
+    let repo = lock.as_ref().ok_or("尚未打开仓库")?;
+    repo.pull(&remote, &branch, &auth).map_err(|e| e.to_string())
+}
+
+/// 设置项目级 token(存入 private.credentials 命名空间)
+#[tauri::command]
+fn set_project_token(token: String, state: State<'_, AppState>) -> Result<(), String> {
+    let repo_lock = state.repo.lock().unwrap();
+    let repo = repo_lock.as_ref().ok_or("尚未打开仓库")?;
+    let workdir = repo.workdir().ok_or("无法获取仓库路径")?;
+    let project_key = format!("project.{}.token", workdir.display());
+    drop(repo_lock);
+    let mut store = state.store.lock().unwrap();
+    store.set("private.credentials", &project_key, serde_json::json!(token))
+        .map_err(|e| e.to_string())
 }
 
 // ─── Store commands ───────────────────────────────────────────────────
@@ -420,6 +532,14 @@ pub fn run() {
             get_branch_log,
             get_commit_files,
             get_commit_file_diff,
+            get_remotes,
+            add_remote,
+            set_remote_url,
+            remove_remote,
+            git_fetch,
+            git_push,
+            git_pull,
+            set_project_token,
             store_get,
             store_set,
             store_delete,
