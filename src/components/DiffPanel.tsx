@@ -266,7 +266,6 @@ export function DiffPanel({ files, fetchDiff, checkable = false, checked, onChec
 
       {/* 右:Diff 预览 */}
       <div className="w-0 flex-1 overflow-hidden">
-        <ScrollArea className="h-full">
           {!selectedFile && (
             <div className="flex h-40 items-center justify-center text-xs text-muted-foreground">选择文件查看变更</div>
           )}
@@ -279,7 +278,6 @@ export function DiffPanel({ files, fetchDiff, checkable = false, checked, onChec
           {selectedFile && !diffLoading && !fileDiff && (
             <div className="flex h-40 items-center justify-center text-xs text-muted-foreground">无法加载 diff</div>
           )}
-        </ScrollArea>
       </div>
     </div>
   );

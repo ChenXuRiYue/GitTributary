@@ -68,7 +68,7 @@ export function BranchesView() {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col overflow-hidden">
       {/* 顶部:创建分支 */}
       <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2.5">
         <Input

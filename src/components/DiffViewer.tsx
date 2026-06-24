@@ -73,7 +73,7 @@ export function DiffViewer({ patch, filePath, additions, deletions }: DiffViewer
       </div>
 
       {/* Diff 内容 */}
-      <div className="flex-1 overflow-y-auto font-mono text-xs leading-5">
+      <div className="flex-1 overflow-y-auto overscroll-contain font-mono text-xs leading-5">
         {lines.map((line, i) => {
           if (line.type === "header") return null;
 
