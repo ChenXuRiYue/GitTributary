@@ -155,6 +155,7 @@ fn get_commit_file_diff(commit_id: String, path: String, state: State<'_, AppSta
 struct NamespaceInfo {
     name: String,
     count: usize,
+    visibility: String, // "public" | "private"
 }
 
 #[derive(serde::Serialize)]
@@ -192,7 +193,11 @@ fn store_namespaces(state: State<'_, AppState>) -> Vec<NamespaceInfo> {
     let store = state.store.lock().unwrap();
     store.namespaces().into_iter().map(|name| {
         let count = store.namespace_len(&name);
-        NamespaceInfo { name, count }
+        let visibility = match store.namespace_visibility(&name) {
+            Some(gt_store::Visibility::Private) => "private",
+            _ => "public",
+        };
+        NamespaceInfo { name, count, visibility: visibility.to_string() }
     }).collect()
 }
 

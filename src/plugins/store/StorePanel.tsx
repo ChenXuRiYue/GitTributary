@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 interface NamespaceInfo {
   name: string;
   count: number;
+  visibility: "public" | "private";
 }
 
 interface KvEntry {
@@ -126,6 +127,9 @@ export function StorePanel() {
                 >
                   <Database className="size-3.5 text-muted-foreground" />
                   <span className="flex-1 truncate">{ns.name}</span>
+                  {ns.visibility === "private" && (
+                    <Badge variant="outline" className="h-4 px-1 text-[8px] text-destructive/70">本地</Badge>
+                  )}
                   <Badge variant="secondary" className="h-4 px-1.5 text-[9px]">{ns.count}</Badge>
                 </div>
               ))

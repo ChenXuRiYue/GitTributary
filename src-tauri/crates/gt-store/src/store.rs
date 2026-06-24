@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 use crate::error::{Result, StoreError};
-use crate::namespace::Namespace;
+use crate::namespace::{Namespace, Visibility};
 
 /// 数据中心主结构体
 pub struct Store {
@@ -17,6 +17,16 @@ pub struct Store {
     namespaces: HashMap<String, Namespace>,
     /// 当前激活的 profile 名称
     active_profile: Option<String>,
+}
+
+/// 根据命名空间名推断可见性:
+/// secrets / 以 "private." 开头 → Private,其他 → Public
+fn infer_visibility(name: &str) -> Visibility {
+    if name == "secrets" || name.starts_with("private.") {
+        Visibility::Private
+    } else {
+        Visibility::Public
+    }
 }
 
 impl Store {
@@ -58,7 +68,8 @@ impl Store {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_string();
-                let ns = Namespace::open(&self.data_dir, &name)?;
+                let vis = infer_visibility(&name);
+                let ns = Namespace::open(&self.data_dir, &name, vis)?;
                 self.namespaces.insert(name, ns);
             }
         }
@@ -68,7 +79,8 @@ impl Store {
     /// 确保命名空间已加载(不存在则创建)
     fn ensure_namespace(&mut self, name: &str) -> Result<()> {
         if !self.namespaces.contains_key(name) {
-            let ns = Namespace::open(&self.data_dir, name)?;
+            let vis = infer_visibility(name);
+            let ns = Namespace::open(&self.data_dir, name, vis)?;
             self.namespaces.insert(name.to_string(), ns);
         }
         Ok(())
@@ -119,6 +131,27 @@ impl Store {
 
     pub fn namespaces(&self) -> Vec<String> {
         self.namespaces.keys().cloned().collect()
+    }
+
+    /// 获取命名空间的可见性
+    pub fn namespace_visibility(&self, namespace: &str) -> Option<Visibility> {
+        self.namespaces.get(namespace).map(|ns| ns.visibility)
+    }
+
+    /// 列出可同步的命名空间(Public)
+    pub fn public_namespaces(&self) -> Vec<String> {
+        self.namespaces.iter()
+            .filter(|(_, ns)| ns.visibility == Visibility::Public)
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+
+    /// 列出仅本地的命名空间(Private)
+    pub fn private_namespaces(&self) -> Vec<String> {
+        self.namespaces.iter()
+            .filter(|(_, ns)| ns.visibility == Visibility::Private)
+            .map(|(k, _)| k.clone())
+            .collect()
     }
 
     pub fn namespace_len(&self, namespace: &str) -> usize {
@@ -185,7 +218,7 @@ impl Store {
         }
 
         // 加载 profile 文件的 KV 覆盖到 settings 命名空间
-        let profile_ns = Namespace::open(&self.profiles_dir, name)?;
+        let profile_ns = Namespace::open(&self.profiles_dir, name, Visibility::Public)?;
         self.ensure_namespace("settings")?;
         let settings = self.namespaces.get_mut("settings").unwrap();
         for (k, v) in profile_ns.entries() {
@@ -206,7 +239,7 @@ impl Store {
         let entries = self.entries("settings");
 
         // 写入 profile 文件
-        let mut ns = Namespace::open(&self.profiles_dir, name)?;
+        let mut ns = Namespace::open(&self.profiles_dir, name, Visibility::Public)?;
         for (k, v) in entries {
             ns.set(&k, v)?;
         }
