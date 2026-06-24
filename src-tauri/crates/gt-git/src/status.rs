@@ -13,6 +13,7 @@ pub enum ChangeKind {
     Modified,
     Deleted,
     Renamed,
+    TypeChanged,
     Untracked,
     Conflicted,
 }
@@ -95,7 +96,8 @@ impl GitRepo {
                 git2::Status::INDEX_NEW
                     | git2::Status::INDEX_MODIFIED
                     | git2::Status::INDEX_DELETED
-                    | git2::Status::INDEX_RENAMED,
+                    | git2::Status::INDEX_RENAMED
+                    | git2::Status::INDEX_TYPECHANGE,
             ) {
                 let kind = if s.contains(git2::Status::INDEX_NEW) {
                     ChangeKind::Added
@@ -103,6 +105,8 @@ impl GitRepo {
                     ChangeKind::Modified
                 } else if s.contains(git2::Status::INDEX_DELETED) {
                     ChangeKind::Deleted
+                } else if s.contains(git2::Status::INDEX_TYPECHANGE) {
+                    ChangeKind::TypeChanged
                 } else {
                     ChangeKind::Renamed
                 };
@@ -119,6 +123,7 @@ impl GitRepo {
                     | git2::Status::WT_MODIFIED
                     | git2::Status::WT_DELETED
                     | git2::Status::WT_RENAMED
+                    | git2::Status::WT_TYPECHANGE
                     | git2::Status::CONFLICTED,
             ) {
                 let kind = if s.contains(git2::Status::WT_NEW) {
@@ -127,6 +132,8 @@ impl GitRepo {
                     ChangeKind::Modified
                 } else if s.contains(git2::Status::WT_DELETED) {
                     ChangeKind::Deleted
+                } else if s.contains(git2::Status::WT_TYPECHANGE) {
+                    ChangeKind::TypeChanged
                 } else if s.contains(git2::Status::WT_RENAMED) {
                     ChangeKind::Renamed
                 } else {

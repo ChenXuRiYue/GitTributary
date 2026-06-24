@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ExternalLink, PanelLeftClose, PanelLeft, MoreHorizontal } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { invoke } from "@tauri-apps/api/core";
 
 import { IconNav, type NavItem } from "@/components/IconNav";
 
@@ -20,6 +21,28 @@ const MAX_WIDTH = 360;
 const DEFAULT_WIDTH = 208;
 const COLLAPSE_THRESHOLD = 140;
 const PROJECT_REPO_URL = "https://github.com/ChenXuRiYue/GitTributary";
+const NAV_MORE_STATE_NS = "ui-state";
+const NAV_MORE_STATE_KEY = "app.nav.more.open";
+const NAV_MORE_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+
+interface NavMoreUiState {
+  version: 1;
+  open: boolean;
+  updatedAt: number;
+}
+
+function parseNavMoreUiState(value: unknown): NavMoreUiState | null {
+  if (!value || typeof value !== "object") return null;
+  const state = value as Partial<NavMoreUiState>;
+  if (state.version !== 1) return null;
+  if (typeof state.open !== "boolean") return null;
+  if (typeof state.updatedAt !== "number" || !Number.isFinite(state.updatedAt)) return null;
+  return {
+    version: 1,
+    open: state.open,
+    updatedAt: state.updatedAt,
+  };
+}
 
 /** 将 PluginDescriptor 转换为通用 NavItem(收起态使用 IconNav) */
 const navItems: NavItem[] = plugins.map((p) => ({
@@ -40,6 +63,7 @@ function App() {
 
   const active = plugins.find((p) => p.id === activeId) ?? plugins[0];
   const ActivePanel = active?.panel;
+  const isFullHeightPanel = active?.id === "git" || active?.id === "store" || active?.id === "flow";
 
   // 分组(展开态用)
   const extensionPlugins = plugins.filter((p) => (p.category ?? "extension") === "extension");
@@ -49,6 +73,57 @@ function App() {
 
   const openProjectRepo = useCallback(() => {
     void openUrl(PROJECT_REPO_URL);
+  }, []);
+
+  const persistMoreOpen = useCallback((open: boolean) => {
+    void invoke("store_set", {
+      namespace: NAV_MORE_STATE_NS,
+      key: NAV_MORE_STATE_KEY,
+      value: {
+        version: 1,
+        open,
+        updatedAt: Date.now(),
+      } satisfies NavMoreUiState,
+    }).catch(() => {
+      // Sidebar interaction should not depend on store availability.
+    });
+  }, []);
+
+  const toggleMoreOpen = useCallback(() => {
+    setMoreOpen((open) => {
+      const next = !open;
+      persistMoreOpen(next);
+      return next;
+    });
+  }, [persistMoreOpen]);
+
+  const setMoreOpenAndPersist = useCallback((open: boolean) => {
+    setMoreOpen(open);
+    persistMoreOpen(open);
+  }, [persistMoreOpen]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await invoke<unknown>("store_get", {
+          namespace: NAV_MORE_STATE_NS,
+          key: NAV_MORE_STATE_KEY,
+        });
+        const cached = parseNavMoreUiState(raw);
+        const fresh = cached && Date.now() - cached.updatedAt <= NAV_MORE_STATE_TTL_MS;
+        if (!cancelled && cached && fresh) {
+          setMoreOpen(cached.open);
+          return;
+        }
+        if (raw != null) {
+          await invoke("store_delete", { namespace: NAV_MORE_STATE_NS, key: NAV_MORE_STATE_KEY });
+        }
+      } catch {
+        // First run, expired state, or running outside Tauri.
+      }
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   const startResize = useCallback((e: React.MouseEvent) => {
@@ -88,6 +163,7 @@ function App() {
       <button
         type="button"
         onClick={() => setActiveId(plugin.id)}
+        aria-label={plugin.name}
         className={cn(
           "flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm transition-colors",
           isActive
@@ -151,6 +227,9 @@ function App() {
               onSelect={setActiveId}
               size="md"
               className="flex-1"
+              moreStateKey={NAV_MORE_STATE_KEY}
+              moreOpen={moreOpen}
+              onMoreOpenChange={setMoreOpenAndPersist}
             />
           ) : (
             /* 展开态:图标+文字,自行实现 pin/overflow */
@@ -166,7 +245,7 @@ function App() {
                       <Separator className="bg-sidebar-border my-1" />
                       <button
                         type="button"
-                        onClick={() => setMoreOpen((v) => !v)}
+                        onClick={toggleMoreOpen}
                         className={cn(
                           "flex h-8 w-full items-center gap-3 rounded-md px-3 text-xs transition-colors",
                           moreOpen
@@ -210,13 +289,13 @@ function App() {
 
         {/* 右侧操作面板 */}
         <main className="bg-background flex flex-1 flex-col overflow-hidden">
-          {active && (
+          {active && !isFullHeightPanel && (
             <header className="border-border flex flex-col gap-1 border-b px-7 py-4">
-              <h2 className="text-lg font-semibold">{active.name}</h2>
-              <p className="text-muted-foreground text-xs">{active.description}</p>
+              <h2 className="gt-title-app">{active.name}</h2>
+              <p className="gt-caption text-muted-foreground">{active.description}</p>
             </header>
           )}
-          {active?.id === "git" || active?.id === "store" ? (
+          {isFullHeightPanel ? (
             <div className="min-h-0 flex-1 overflow-hidden">
               {ActivePanel && <ActivePanel />}
             </div>

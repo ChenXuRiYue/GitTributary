@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   FolderOpen,
   Send,
@@ -44,6 +44,42 @@ interface WorkspaceInfo {
   device_name: string | null;
 }
 
+interface ChangesSelectionUiState {
+  version: 1;
+  checkedPaths: string[];
+  updatedAt: number;
+}
+
+const CHANGES_SELECTION_STATE_NS = "ui-state";
+const CHANGES_SELECTION_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+
+function stableHash(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
+function changesSelectionStateKey(overview: RepoOverview): string {
+  const repoIdentity = overview.remote_url || overview.path;
+  return `git.changes.selection.${stableHash(repoIdentity)}.${stableHash(overview.current_branch)}`;
+}
+
+function parseChangesSelectionUiState(value: unknown): ChangesSelectionUiState | null {
+  if (!value || typeof value !== "object") return null;
+  const state = value as Partial<ChangesSelectionUiState>;
+  if (state.version !== 1) return null;
+  if (!Array.isArray(state.checkedPaths) || state.checkedPaths.some((path) => typeof path !== "string")) return null;
+  if (typeof state.updatedAt !== "number" || !Number.isFinite(state.updatedAt)) return null;
+  return {
+    version: 1,
+    checkedPaths: state.checkedPaths,
+    updatedAt: state.updatedAt,
+  };
+}
+
 /** 从路径中提取短名(最后两段) */
 function shortPath(path: string): string {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
@@ -60,6 +96,55 @@ export function ChangesView() {
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [showRecent, setShowRecent] = useState(false);
+  const selectionStateKeyRef = useRef<string | null>(null);
+
+  const persistCheckedSelection = useCallback(async (key: string | null, nextChecked: Set<string>) => {
+    if (!key) return;
+    try {
+      await invoke("store_set", {
+        namespace: CHANGES_SELECTION_STATE_NS,
+        key,
+        value: {
+          version: 1,
+          checkedPaths: Array.from(nextChecked).sort(),
+          updatedAt: Date.now(),
+        } satisfies ChangesSelectionUiState,
+      });
+    } catch {
+      // UI cache writes should not block Git operations.
+    }
+  }, []);
+
+  const restoreCheckedSelection = useCallback(async (ov: RepoOverview, entries: DiffFileEntry[]) => {
+    const key = changesSelectionStateKey(ov);
+    const currentPaths = new Set(entries.map((entry) => entry.path));
+    const defaultChecked = new Set(currentPaths);
+    selectionStateKeyRef.current = key;
+
+    try {
+      const raw = await invoke<unknown>("store_get", { namespace: CHANGES_SELECTION_STATE_NS, key });
+      const cached = parseChangesSelectionUiState(raw);
+      const fresh = cached && Date.now() - cached.updatedAt <= CHANGES_SELECTION_STATE_TTL_MS;
+
+      if (cached && fresh) {
+        const restored = new Set(cached.checkedPaths.filter((path) => currentPaths.has(path)));
+        setChecked(restored);
+        if (restored.size !== cached.checkedPaths.length) {
+          void persistCheckedSelection(key, restored);
+        }
+        return;
+      }
+
+      if (raw != null) {
+        await invoke("store_delete", { namespace: CHANGES_SELECTION_STATE_NS, key });
+      }
+    } catch {
+      // Missing or unreadable cache falls back to the current default.
+    }
+
+    setChecked(defaultChecked);
+    void persistCheckedSelection(key, defaultChecked);
+  }, [persistCheckedSelection]);
 
   // 打开指定仓库(复用逻辑)
   const openRepo = useCallback(async (path: string) => {
@@ -69,14 +154,14 @@ export function ChangesView() {
       const st = await invoke<FileStatus[]>("get_status");
       const entries: DiffFileEntry[] = st.map((s) => ({ path: s.path, kind: s.kind, staged: s.staged }));
       setFiles(entries);
-      setChecked(new Set(entries.map((e) => e.path)));
+      await restoreCheckedSelection(ov, entries);
       setError(null);
       setResult(null);
       setShowRecent(false);
     } catch (e) {
       setError(String(e));
     }
-  }, []);
+  }, [restoreCheckedSelection]);
 
   // 刷新当前仓库状态
   const refresh = useCallback(async () => {
@@ -86,10 +171,15 @@ export function ChangesView() {
       const st = await invoke<FileStatus[]>("get_status");
       const entries: DiffFileEntry[] = st.map((s) => ({ path: s.path, kind: s.kind, staged: s.staged }));
       setFiles(entries);
-      setChecked(new Set(entries.map((e) => e.path)));
+      await restoreCheckedSelection(ov, entries);
       setError(null);
     } catch { /* not opened */ }
-  }, []);
+  }, [restoreCheckedSelection]);
+
+  const updateChecked = useCallback((nextChecked: Set<string>) => {
+    setChecked(nextChecked);
+    void persistCheckedSelection(selectionStateKeyRef.current, nextChecked);
+  }, [persistCheckedSelection]);
 
   // 通过文件选择器打开新仓库
   const openFromDialog = async () => {
@@ -135,9 +225,9 @@ export function ChangesView() {
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
       {/* 顶部:仓库信息 + 提交操作 */}
-      <div className="flex flex-col gap-2 border-b border-border/50 px-3 py-2.5">
+      <div className="flex shrink-0 flex-col gap-2 border-b border-border/50 px-3 py-2.5">
         {/* 仓库选择行 */}
         <div className="flex items-center gap-2">
           {overview ? (
@@ -215,13 +305,15 @@ export function ChangesView() {
 
       {/* 下部:DiffPanel */}
       {overview && (
-        <DiffPanel
-          files={files}
-          fetchDiff={fetchDiff}
-          checkable
-          checked={checked}
-          onCheckedChange={setChecked}
-        />
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <DiffPanel
+            files={files}
+            fetchDiff={fetchDiff}
+            checkable
+            checked={checked}
+            onCheckedChange={updateChecked}
+          />
+        </div>
       )}
 
       {/* 未打开仓库时的空状态 */}

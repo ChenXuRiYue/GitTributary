@@ -77,6 +77,22 @@ fn test_status_after_modification() {
 }
 
 #[test]
+fn test_diff_untracked_file() {
+    let (dir, repo) = setup_repo();
+
+    fs::write(dir.path().join("new.md"), "# New\ncontent").unwrap();
+
+    let diff = repo.diff_file("new.md").unwrap();
+    assert!(diff.patch.contains("new file mode"));
+    assert!(diff.patch.contains("--- /dev/null"));
+    assert!(diff.patch.contains("+++ b/new.md"));
+    assert!(diff.patch.contains("+# New"));
+    assert!(diff.patch.contains("+content"));
+    assert_eq!(diff.additions, 2);
+    assert_eq!(diff.deletions, 0);
+}
+
+#[test]
 fn test_stage_all_and_commit() {
     let (dir, repo) = setup_repo();
 

@@ -1,7 +1,8 @@
-use git2::{DiffFormat, DiffOptions};
+use git2::{DiffFormat, DiffOptions, StatusOptions};
 use serde::Serialize;
+use std::fs;
 
-use crate::error::Result;
+use crate::error::{GitError, Result};
 use crate::repo::GitRepo;
 
 /// 单个文件的 unified diff 输出
@@ -21,6 +22,10 @@ impl GitRepo {
     /// 获取工作区某个文件相对于 HEAD 的 diff。
     /// 如果文件已暂存则对比 index vs HEAD,否则对比 workdir vs index。
     pub fn diff_file(&self, path: &str) -> Result<FileDiff> {
+        if self.is_untracked_file(path)? {
+            return self.diff_untracked_file(path);
+        }
+
         let mut opts = DiffOptions::new();
         opts.pathspec(path);
 
@@ -90,6 +95,54 @@ impl GitRepo {
             patch: patch_text,
             additions,
             deletions,
+        })
+    }
+
+    fn is_untracked_file(&self, path: &str) -> Result<bool> {
+        let mut opts = StatusOptions::new();
+        opts.include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .include_unmodified(false);
+        let statuses = self.repo.statuses(Some(&mut opts))?;
+        Ok(statuses.iter().any(|entry| {
+            entry.path() == Some(path) && entry.status().contains(git2::Status::WT_NEW)
+        }))
+    }
+
+    fn diff_untracked_file(&self, path: &str) -> Result<FileDiff> {
+        let workdir = self
+            .repo
+            .workdir()
+            .ok_or_else(|| GitError::Internal("无法读取裸仓库中的未跟踪文件".to_string()))?;
+        let full_path = workdir.join(path);
+        let content = fs::read_to_string(&full_path)
+            .map_err(|e| GitError::Internal(format!("无法读取新增文件 '{}': {}", path, e)))?;
+        let additions = content.lines().count();
+        let mode = fs::metadata(&full_path)
+            .map(|m| if m.permissions().readonly() { "100444" } else { "100644" })
+            .unwrap_or("100644");
+
+        let mut patch = String::new();
+        patch.push_str(&format!("diff --git a/{0} b/{0}\n", path));
+        patch.push_str(&format!("new file mode {}\n", mode));
+        patch.push_str("index 0000000..0000000\n");
+        patch.push_str("--- /dev/null\n");
+        patch.push_str(&format!("+++ b/{}\n", path));
+        patch.push_str(&format!("@@ -0,0 +1,{} @@\n", additions));
+        for line in content.lines() {
+            patch.push('+');
+            patch.push_str(line);
+            patch.push('\n');
+        }
+        if !content.ends_with('\n') {
+            patch.push_str("\\ No newline at end of file\n");
+        }
+
+        Ok(FileDiff {
+            path: path.to_string(),
+            patch,
+            additions,
+            deletions: 0,
         })
     }
 

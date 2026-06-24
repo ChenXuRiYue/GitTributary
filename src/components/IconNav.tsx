@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { MoreHorizontal } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 
 import {
   Tooltip,
@@ -31,6 +32,34 @@ interface IconNavProps {
   size?: "sm" | "md";
   /** 额外 className */
   className?: string;
+  /** 数据中心缓存 key；传入后会持久化「更多」展开态 */
+  moreStateKey?: string;
+  /** 受控的「更多」展开态 */
+  moreOpen?: boolean;
+  /** 受控的「更多」展开态变化回调 */
+  onMoreOpenChange?: (open: boolean) => void;
+}
+
+interface MoreUiState {
+  version: 1;
+  open: boolean;
+  updatedAt: number;
+}
+
+const MORE_STATE_NS = "ui-state";
+const MORE_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+
+function parseMoreUiState(value: unknown): MoreUiState | null {
+  if (!value || typeof value !== "object") return null;
+  const state = value as Partial<MoreUiState>;
+  if (state.version !== 1) return null;
+  if (typeof state.open !== "boolean") return null;
+  if (typeof state.updatedAt !== "number" || !Number.isFinite(state.updatedAt)) return null;
+  return {
+    version: 1,
+    open: state.open,
+    updatedAt: state.updatedAt,
+  };
 }
 
 /**
@@ -42,8 +71,17 @@ interface IconNavProps {
  * - 选中高亮
  * - 全局可复用:一级侧边栏、二级侧边栏
  */
-export function IconNav({ items, activeId, onSelect, size = "sm", className }: IconNavProps) {
-  const [moreOpen, setMoreOpen] = useState(false);
+export function IconNav({
+  items,
+  activeId,
+  onSelect,
+  size = "sm",
+  className,
+  moreStateKey,
+  moreOpen: controlledMoreOpen,
+  onMoreOpenChange,
+}: IconNavProps) {
+  const [uncontrolledMoreOpen, setUncontrolledMoreOpen] = useState(false);
 
   const extensionItems = items.filter((i) => (i.group ?? "extension") === "extension");
   const systemItems = items.filter((i) => i.group === "system");
@@ -53,6 +91,56 @@ export function IconNav({ items, activeId, onSelect, size = "sm", className }: I
 
   const btnSize = size === "md" ? "size-9" : "size-8";
   const iconSize = size === "md" ? "size-[18px]" : "size-4";
+  const moreOpen = controlledMoreOpen ?? uncontrolledMoreOpen;
+  const setMoreOpenState = onMoreOpenChange ?? setUncontrolledMoreOpen;
+
+  const persistMoreOpen = useCallback((open: boolean) => {
+    if (!moreStateKey) return;
+    void invoke("store_set", {
+      namespace: MORE_STATE_NS,
+      key: moreStateKey,
+      value: {
+        version: 1,
+        open,
+        updatedAt: Date.now(),
+      } satisfies MoreUiState,
+    }).catch(() => {
+      // Navigation should stay responsive even if persistence is unavailable.
+    });
+  }, [moreStateKey]);
+
+  useEffect(() => {
+    if (!moreStateKey) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await invoke<unknown>("store_get", {
+          namespace: MORE_STATE_NS,
+          key: moreStateKey,
+        });
+        const cached = parseMoreUiState(raw);
+        const fresh = cached && Date.now() - cached.updatedAt <= MORE_STATE_TTL_MS;
+        if (!cancelled && cached && fresh) {
+          setMoreOpenState(cached.open);
+          return;
+        }
+        if (raw != null) {
+          await invoke("store_delete", { namespace: MORE_STATE_NS, key: moreStateKey });
+        }
+      } catch {
+        // First run, expired state, or running outside Tauri.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [moreStateKey, setMoreOpenState]);
+
+  const toggleMoreOpen = useCallback(() => {
+    const next = !moreOpen;
+    setMoreOpenState(next);
+    if (!onMoreOpenChange) {
+      persistMoreOpen(next);
+    }
+  }, [moreOpen, onMoreOpenChange, persistMoreOpen, setMoreOpenState]);
 
   function NavButton({ item }: { item: NavItem }) {
     const Icon = item.icon;
@@ -63,6 +151,7 @@ export function IconNav({ items, activeId, onSelect, size = "sm", className }: I
           <button
             type="button"
             onClick={() => { onSelect(item.id); }}
+            aria-label={item.name}
             className={cn(
               "flex items-center justify-center rounded-lg transition-all",
               btnSize,
@@ -96,7 +185,8 @@ export function IconNav({ items, activeId, onSelect, size = "sm", className }: I
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => setMoreOpen((v) => !v)}
+                onClick={toggleMoreOpen}
+                aria-label="更多"
                 className={cn(
                   "flex items-center justify-center rounded-lg transition-all",
                   btnSize,

@@ -62,8 +62,7 @@ impl GitRepo {
 
         let branch = current_branch(&self.repo).unwrap_or_else(|_| "HEAD".to_string());
 
-        let statuses = self.repo.statuses(None)?;
-        let changed_count = statuses.len();
+        let changed_count = self.status()?.len();
         let is_dirty = changed_count > 0;
 
         let remote_url = self
