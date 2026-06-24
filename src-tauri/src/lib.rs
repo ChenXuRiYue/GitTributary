@@ -284,7 +284,7 @@ pub fn run() {
     // 初始化数据中心(存放在用户 home 下 .gittributary/)
     let store_dir = dirs_next::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".gittributary");
+        .join(".git-tributary");
     let mut store = Store::open(&store_dir).expect("无法初始化数据中心");
     store.init_workspace().expect("无法初始化 workspace");
 
