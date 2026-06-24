@@ -1446,6 +1446,7 @@ name = "gt-store"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "git2",
  "hostname",
  "serde",
  "serde_json",

@@ -279,6 +279,64 @@ fn get_recent_repos(state: State<'_, AppState>) -> Vec<String> {
     store.recent_repos()
 }
 
+// ─── Sync commands ────────────────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SyncConfigPayload {
+    url: String,
+    branch: String,
+    auto_sync: bool,
+    interval_seconds: u64,
+}
+
+#[tauri::command]
+fn sync_get_config(state: State<'_, AppState>) -> Result<Option<SyncConfigPayload>, String> {
+    let store = state.store.lock().unwrap();
+    let base_dir = store_base_dir();
+    let engine = gt_store::SyncEngine::new(&base_dir);
+    match engine.config() {
+        Ok(Some(c)) => Ok(Some(SyncConfigPayload {
+            url: c.url, branch: c.branch, auto_sync: c.auto_sync, interval_seconds: c.interval_seconds,
+        })),
+        Ok(None) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+fn sync_set_config(config: SyncConfigPayload, state: State<'_, AppState>) -> Result<(), String> {
+    let _store = state.store.lock().unwrap();
+    let base_dir = store_base_dir();
+    let engine = gt_store::SyncEngine::new(&base_dir);
+    engine.set_config(&gt_store::SyncConfig {
+        url: config.url, branch: config.branch, auto_sync: config.auto_sync, interval_seconds: config.interval_seconds,
+    }).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn sync_now(state: State<'_, AppState>) -> Result<String, String> {
+    let store = state.store.lock().unwrap();
+    let device_id = store.device_id().unwrap_or_else(|| "unknown".to_string());
+    let base_dir = store_base_dir();
+    let engine = gt_store::SyncEngine::new(&base_dir);
+    engine.sync(&device_id).map_err(|e| e.to_string())?;
+    Ok("同步完成".to_string())
+}
+
+#[tauri::command]
+fn sync_get_state(state: State<'_, AppState>) -> Result<gt_store::SyncState, String> {
+    let _store = state.store.lock().unwrap();
+    let base_dir = store_base_dir();
+    let engine = gt_store::SyncEngine::new(&base_dir);
+    engine.state().map_err(|e| e.to_string())
+}
+
+fn store_base_dir() -> std::path::PathBuf {
+    dirs_next::home_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join(".git-tributary")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 初始化数据中心(存放在用户 home 下 .gittributary/)
@@ -327,6 +385,10 @@ pub fn run() {
             store_delete_profile,
             get_workspace_info,
             get_recent_repos,
+            sync_get_config,
+            sync_set_config,
+            sync_now,
+            sync_get_state,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
