@@ -7,9 +7,11 @@ pub mod error;
 pub mod namespace;
 pub mod record;
 pub mod store;
+pub mod sync;
 pub mod workspace;
 
 pub use error::{Result, StoreError};
 pub use namespace::Visibility;
 pub use record::Record;
 pub use store::Store;
+pub use sync::{SyncConfig, SyncEngine, SyncState};
