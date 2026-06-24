@@ -14,6 +14,19 @@ const NS_PRIVATE: &str = "private.credentials";
 /// public 命名空间(可同步)
 const NS_SETTINGS: &str = "settings";
 
+/// 敏感数据安全级别
+///
+/// L0 — 绝对机密:access token、私钥、passphrase
+///      展示时完全掩码(••••••••),不露任何原始字符
+///      永不出现在日志、错误信息、前端响应中
+///
+/// L1 — 敏感:SSH 密钥路径、邮箱
+///      展示时可部分显示(如路径只显示文件名)
+///      不同步到远程
+///
+/// L2 — 普通 private:设备名等
+///      仅本地存储,可正常展示
+
 /// Git 认证配置(完整视图,前端展示用)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitCredentials {
@@ -46,19 +59,16 @@ impl Store {
         let token_raw = self.get(NS_PRIVATE, "git.access_token")
             .and_then(|v| v.as_str().map(|s| s.to_string()));
         let has_token = token_raw.is_some();
-        let token_masked = token_raw.map(|t| {
-            if t.len() > 4 {
-                format!("{}****", &t[..4])
-            } else {
-                "****".to_string()
-            }
-        });
+        // L0 绝对机密:完全掩码,不露任何字符
+        let token_masked = token_raw.map(|_| "••••••••".to_string());
 
         let ssh_key_path = self.get(NS_PRIVATE, "git.ssh_key_path")
             .and_then(|v| v.as_str().map(|s| s.to_string()));
         let has_ssh_passphrase = self.get(NS_PRIVATE, "git.ssh_passphrase")
             .map(|v| !v.is_null() && v.as_str().map(|s| !s.is_empty()).unwrap_or(false))
             .unwrap_or(false);
+
+        // Note: passphrase 是 L0,get_git_credentials 不返回明文/掩码,只返回 has_ssh_passphrase bool
 
         GitCredentials {
             username,
