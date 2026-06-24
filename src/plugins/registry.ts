@@ -3,11 +3,11 @@ import { GitBranch, Brain, Sparkles, Database, Settings } from "lucide-react";
 import type { PluginDescriptor } from "./types";
 import {
   AiPanel,
-  GitPanel,
   DatabasePanel,
   ReviewPanel,
   SettingsPanel,
 } from "./panels";
+import { GitPanel } from "./git/GitPanel";
 
 /**
  * 插件注册表。后续新增功能只需往这里追加一个描述对象，

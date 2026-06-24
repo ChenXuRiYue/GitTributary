@@ -2,13 +2,9 @@ import { useMemo } from "react";
 import { cn } from "@/lib/utils";
 
 interface DiffViewerProps {
-  /** Unified diff patch text from gt-git */
   patch: string;
-  /** File path (displayed in header) */
   filePath: string;
-  /** Number of additions */
   additions: number;
-  /** Number of deletions */
   deletions: number;
 }
 
@@ -27,7 +23,6 @@ function parsePatch(patch: string): DiffLine[] {
 
   for (const raw of lines) {
     if (raw.startsWith("@@")) {
-      // Parse hunk header: @@ -oldStart,oldCount +newStart,newCount @@
       const match = raw.match(/@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
       if (match) {
         oldLine = parseInt(match[1], 10);
@@ -51,95 +46,79 @@ function parsePatch(patch: string): DiffLine[] {
   return result;
 }
 
+/**
+ * Diff 预览 — GitHub Desktop 风格
+ * 无圆角无外框,直接铺满容器。长行自动换行。
+ */
 export function DiffViewer({ patch, filePath, additions, deletions }: DiffViewerProps) {
   const lines = useMemo(() => parsePatch(patch), [patch]);
 
   if (!patch.trim()) {
     return (
-      <div className="rounded-lg border p-4 text-sm text-muted-foreground">
-        无法生成 diff(可能是新文件或二进制文件）
+      <div className="flex h-40 items-center justify-center text-xs text-muted-foreground">
+        无法生成 diff（可能是新文件或二进制文件）
       </div>
     );
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border">
-      {/* File header */}
-      <div className="flex items-center justify-between border-b bg-muted/50 px-4 py-2">
-        <span className="font-mono text-xs font-medium">{filePath}</span>
-        <div className="flex items-center gap-2 text-xs">
-          {additions > 0 && (
-            <span className="font-mono text-green-600">+{additions}</span>
-          )}
-          {deletions > 0 && (
-            <span className="font-mono text-red-500">-{deletions}</span>
-          )}
+    <div className="flex h-full flex-col">
+      {/* 文件头 */}
+      <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-1.5">
+        <span className="min-w-0 flex-1 truncate font-mono text-xs">{filePath}</span>
+        <div className="flex shrink-0 items-center gap-2 text-xs">
+          {additions > 0 && <span className="font-mono text-green-600">+{additions}</span>}
+          {deletions > 0 && <span className="font-mono text-red-500">-{deletions}</span>}
         </div>
       </div>
 
-      {/* Diff body */}
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse font-mono text-xs leading-5">
-          <tbody>
-            {lines.map((line, i) => {
-              if (line.type === "header") return null;
+      {/* Diff 内容 */}
+      <div className="flex-1 overflow-y-auto font-mono text-xs leading-5">
+        {lines.map((line, i) => {
+          if (line.type === "header") return null;
 
-              if (line.type === "hunk") {
-                return (
-                  <tr key={i} className="bg-primary/5">
-                    <td
-                      colSpan={3}
-                      className="px-4 py-1 text-xs text-primary/70 select-none"
-                    >
-                      {line.content}
-                    </td>
-                  </tr>
-                );
-              }
+          if (line.type === "hunk") {
+            return (
+              <div key={i} className="bg-primary/5 px-4 py-0.5 text-primary/70 select-none">
+                {line.content}
+              </div>
+            );
+          }
 
-              return (
-                <tr
-                  key={i}
-                  className={cn(
-                    "group",
-                    line.type === "add" && "bg-green-50 dark:bg-green-950/30",
-                    line.type === "del" && "bg-red-50 dark:bg-red-950/30",
-                  )}
-                >
-                  {/* Old line number */}
-                  <td className="w-10 select-none border-r px-2 text-right text-muted-foreground/50">
-                    {line.oldLineNo ?? ""}
-                  </td>
-                  {/* New line number */}
-                  <td className="w-10 select-none border-r px-2 text-right text-muted-foreground/50">
-                    {line.newLineNo ?? ""}
-                  </td>
-                  {/* Content */}
-                  <td className="whitespace-pre px-3">
-                    <span
-                      className={cn(
-                        "select-text",
-                        line.type === "add" && "text-green-700 dark:text-green-400",
-                        line.type === "del" && "text-red-600 dark:text-red-400",
-                      )}
-                    >
-                      {line.type === "add" && (
-                        <span className="mr-1 inline-block w-3 text-center select-none opacity-60">+</span>
-                      )}
-                      {line.type === "del" && (
-                        <span className="mr-1 inline-block w-3 text-center select-none opacity-60">-</span>
-                      )}
-                      {line.type === "context" && (
-                        <span className="mr-1 inline-block w-3 select-none"> </span>
-                      )}
-                      {line.content}
-                    </span>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+          return (
+            <div
+              key={i}
+              className={cn(
+                "flex",
+                line.type === "add" && "bg-green-50 dark:bg-green-950/30",
+                line.type === "del" && "bg-red-50 dark:bg-red-950/30",
+              )}
+            >
+              {/* 行号 */}
+              <span className="w-9 shrink-0 select-none border-r px-1 text-right text-muted-foreground/40">
+                {line.oldLineNo ?? ""}
+              </span>
+              <span className="w-9 shrink-0 select-none border-r px-1 text-right text-muted-foreground/40">
+                {line.newLineNo ?? ""}
+              </span>
+              {/* +/- 标记 */}
+              <span className="w-5 shrink-0 select-none text-center">
+                {line.type === "add" && <span className="text-green-600">+</span>}
+                {line.type === "del" && <span className="text-red-500">-</span>}
+              </span>
+              {/* 内容:自动换行 */}
+              <span
+                className={cn(
+                  "min-w-0 flex-1 whitespace-pre-wrap break-words px-1",
+                  line.type === "add" && "text-green-700 dark:text-green-400",
+                  line.type === "del" && "text-red-600 dark:text-red-400",
+                )}
+              >
+                {line.content}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

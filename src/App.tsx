@@ -175,18 +175,25 @@ function App() {
         {/* 右侧操作面板 */}
         <main className="bg-background flex flex-1 flex-col overflow-hidden">
           {active && (
-            <header className="border-border flex flex-col gap-1 border-b px-7 py-5">
-              <h2 className="text-xl font-semibold">{active.name}</h2>
-              <p className="text-muted-foreground text-sm">
+            <header className="border-border flex flex-col gap-1 border-b px-7 py-4">
+              <h2 className="text-lg font-semibold">{active.name}</h2>
+              <p className="text-muted-foreground text-xs">
                 {active.description}
               </p>
             </header>
           )}
-          <ScrollArea className="flex-1">
-            <div className="mx-auto flex max-w-3xl flex-col gap-4 px-7 py-6">
+          {active?.id === "git" ? (
+            // Git 面板自带二级栏,不加外层 padding/max-width
+            <div className="flex-1 overflow-hidden">
               {ActivePanel && <ActivePanel />}
             </div>
-          </ScrollArea>
+          ) : (
+            <ScrollArea className="flex-1">
+              <div className="mx-auto flex max-w-3xl flex-col gap-4 px-7 py-6">
+                {ActivePanel && <ActivePanel />}
+              </div>
+            </ScrollArea>
+          )}
         </main>
       </div>
     </TooltipProvider>
