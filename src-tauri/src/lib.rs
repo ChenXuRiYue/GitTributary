@@ -16,11 +16,12 @@ pub struct AppState {
 fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoOverview, String> {
     let repo = GitRepo::open(&path).map_err(|e| e.to_string())?;
     let overview = repo.overview().map_err(|e| e.to_string())?;
+    let branch = overview.current_branch.clone();
     let mut repo_lock = state.repo.lock().unwrap();
     *repo_lock = Some(repo);
-    // 持久化到数据中心
+    // 统一同步 workspace 状态(一个调用搞定)
     let mut store = state.store.lock().unwrap();
-    let _ = store.set_active_repo(&path);
+    let _ = store.sync_workspace(Some(&path), Some(&branch));
     Ok(overview)
 }
 
@@ -107,7 +108,12 @@ fn create_branch(name: String, state: State<'_, AppState>) -> Result<(), String>
 fn checkout_branch(name: String, state: State<'_, AppState>) -> Result<(), String> {
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
-    repo.checkout_branch(&name).map_err(|e| e.to_string())
+    repo.checkout_branch(&name).map_err(|e| e.to_string())?;
+    // 同步分支状态到 store
+    drop(lock);
+    let mut store = state.store.lock().unwrap();
+    let _ = store.sync_workspace(None, Some(&name));
+    Ok(())
 }
 
 /// 删除分支
