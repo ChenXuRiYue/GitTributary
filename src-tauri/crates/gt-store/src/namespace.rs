@@ -9,10 +9,21 @@ use serde_json::Value;
 use crate::error::Result;
 use crate::record::Record;
 
+/// 命名空间可见性:决定是否可被 Git 推送到远程
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum Visibility {
+    /// 可同步:随 Git push 备份到远程仓库
+    Public,
+    /// 仅本地:永远不 push(密钥、私钥等敏感数据)
+    Private,
+}
+
 /// 单个命名空间:对应一个 .jsonl 文件 + 内存 HashMap
 pub struct Namespace {
     /// 命名空间名称
     pub name: String,
+    /// 可见性
+    pub visibility: Visibility,
     /// .jsonl 文件路径
     path: PathBuf,
     /// 内存中的当前值(key → latest value)
@@ -21,7 +32,7 @@ pub struct Namespace {
 
 impl Namespace {
     /// 加载(或创建)一个命名空间
-    pub fn open(dir: &Path, name: &str) -> Result<Self> {
+    pub fn open(dir: &Path, name: &str, visibility: Visibility) -> Result<Self> {
         let path = dir.join(format!("{}.jsonl", name));
         let mut data = HashMap::new();
 
@@ -45,6 +56,7 @@ impl Namespace {
 
         Ok(Self {
             name: name.to_string(),
+            visibility,
             path,
             data,
         })
