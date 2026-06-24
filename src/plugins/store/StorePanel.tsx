@@ -15,7 +15,10 @@ const L0_KEYS = new Set([
 ]);
 
 function isL0Key(key: string): boolean {
-  return L0_KEYS.has(key);
+  // 精确匹配或项目级 token(project.*.token)
+  if (L0_KEYS.has(key)) return true;
+  if (key.startsWith("project.") && key.endsWith(".token")) return true;
+  return false;
 }
 
 interface NamespaceInfo {

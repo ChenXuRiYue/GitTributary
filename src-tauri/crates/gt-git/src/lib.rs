@@ -9,6 +9,7 @@ pub mod commit;
 pub mod diff;
 pub mod error;
 pub mod log;
+pub mod remote;
 pub mod repo;
 pub mod status;
 
@@ -17,5 +18,6 @@ pub use commit::CommitInfo;
 pub use diff::FileDiff;
 pub use error::{GitError, Result};
 pub use log::LogEntry;
+pub use remote::{AuthMethod, RemoteInfo};
 pub use repo::{GitRepo, RepoOverview};
 pub use status::{BranchInfo, ChangeKind, FileStatus};
