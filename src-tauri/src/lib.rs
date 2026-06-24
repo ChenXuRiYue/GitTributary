@@ -337,6 +337,50 @@ fn store_base_dir() -> std::path::PathBuf {
         .join(".git-tributary")
 }
 
+// ─── Credentials commands ─────────────────────────────────────────────
+
+#[tauri::command]
+fn get_git_credentials(state: State<'_, AppState>) -> gt_store::GitCredentials {
+    let store = state.store.lock().unwrap();
+    store.get_git_credentials()
+}
+
+#[tauri::command]
+fn set_git_username(username: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.set_git_username(&username).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_git_email(email: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.set_git_email(&email).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_git_remote_url(url: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.set_git_remote_url(&url).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_git_token(token: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.set_git_token(&token).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_git_token(state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.clear_git_token().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn set_git_ssh_key(path: String, passphrase: Option<String>, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.set_git_ssh_key(&path, passphrase.as_deref()).map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     // 初始化数据中心(存放在用户 home 下 .gittributary/)
@@ -389,6 +433,13 @@ pub fn run() {
             sync_set_config,
             sync_now,
             sync_get_state,
+            get_git_credentials,
+            set_git_username,
+            set_git_email,
+            set_git_remote_url,
+            set_git_token,
+            clear_git_token,
+            set_git_ssh_key,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
