@@ -206,7 +206,7 @@ function App() {
               <p className="text-muted-foreground text-xs">{active.description}</p>
             </header>
           )}
-          {active?.id === "git" ? (
+          {active?.id === "git" || active?.id === "store" ? (
             <div className="flex-1 overflow-hidden">
               {ActivePanel && <ActivePanel />}
             </div>
