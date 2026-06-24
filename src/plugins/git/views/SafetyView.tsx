@@ -128,7 +128,7 @@ export function SafetyView() {
           {creds?.has_token && (
             <div className="flex items-center gap-2 text-xs">
               <span className="text-muted-foreground">当前:</span>
-              <code className="rounded bg-muted px-2 py-0.5">{creds.token_masked}</code>
+              <code className="rounded bg-muted px-2 py-0.5">••••••••</code>
               <Button variant="ghost" size="sm" className="h-6 px-1.5" onClick={clearToken}>
                 <Trash2 className="size-3 text-destructive" />
               </Button>
