@@ -207,7 +207,7 @@ function App() {
             </header>
           )}
           {active?.id === "git" || active?.id === "store" ? (
-            <div className="flex-1 overflow-hidden">
+            <div className="min-h-0 flex-1 overflow-hidden">
               {ActivePanel && <ActivePanel />}
             </div>
           ) : (
