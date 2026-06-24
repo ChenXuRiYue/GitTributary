@@ -26,4 +26,10 @@ export interface PluginDescriptor {
    * 缺省视为 extension。
    */
   category?: PluginCategory;
+  /**
+   * 是否固定展示在侧边栏中。
+   * true(默认):直接显示
+   * false:归入 「...」折叠区
+   */
+  pinned?: boolean;
 }

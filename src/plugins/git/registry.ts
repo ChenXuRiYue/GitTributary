@@ -17,8 +17,8 @@ import { SafetyView } from "./views/SafetyView";
 
 /**
  * Git 二级视图注册表。
- * 新增 Git 操作视图只需往数组追加一个对象,
- * 二级侧边栏与内容区自动渲染。
+ * pinned: true(默认) → 固定展示在二级栏
+ * pinned: false → 归入 "..." 折叠区
  */
 export const gitViews: GitViewDescriptor[] = [
   {
@@ -26,35 +26,41 @@ export const gitViews: GitViewDescriptor[] = [
     name: "变更",
     icon: FileStack,
     panel: ChangesView,
+    pinned: true,
   },
   {
     id: "branches",
     name: "分支",
     icon: GitBranch,
     panel: BranchesView,
-  },
-  {
-    id: "remote",
-    name: "远程",
-    icon: Upload,
-    panel: RemoteView,
+    pinned: false,
   },
   {
     id: "history",
     name: "历史",
     icon: History,
     panel: HistoryView,
+    pinned: true,
+  },
+  {
+    id: "remote",
+    name: "远程",
+    icon: Upload,
+    panel: RemoteView,
+    pinned: false,
   },
   {
     id: "auto",
     name: "自动",
     icon: Timer,
     panel: AutoView,
+    pinned: false,
   },
   {
     id: "safety",
     name: "安全",
     icon: Shield,
     panel: SafetyView,
+    pinned: false,
   },
 ];
