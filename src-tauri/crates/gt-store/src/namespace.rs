@@ -150,6 +150,56 @@ impl Namespace {
         Ok(())
     }
 
+    /// 重新扫描文件,返回每个 key 的最新值与时间戳。
+    ///
+    /// 内存 HashMap 只保存最新值、丢弃了 t;跨端 last-write-wins 合并需要原始 t,
+    /// 因此这里从文件全量重放,得到 key → (最新值, 最新 t)。
+    pub fn latest_with_ts(&self) -> HashMap<String, (Value, i64)> {
+        let mut map: HashMap<String, (Value, i64)> = HashMap::new();
+        if !self.path.exists() {
+            return map;
+        }
+        let file = match File::open(&self.path) {
+            Ok(f) => f,
+            Err(_) => return map,
+        };
+        let reader = BufReader::new(file);
+        for line in reader.lines().flatten() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(record) = serde_json::from_str::<Record>(&line) {
+                if record.v.is_null() {
+                    map.remove(&record.k);
+                } else {
+                    map.insert(record.k, (record.v, record.t));
+                }
+            }
+        }
+        map
+    }
+
+    /// 用指定时间戳写入一条记录(用于 import 远端数据时保留远端原始 t,
+    /// 避免 LWW 比较时被本地 now 覆盖)。
+    pub fn set_with_ts(&mut self, key: &str, value: Value, t: i64) -> Result<()> {
+        let record = Record {
+            k: key.to_string(),
+            v: value.clone(),
+            t,
+        };
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        let mut line = serde_json::to_string(&record)?;
+        line.push('\n');
+        file.write_all(line.as_bytes())?;
+
+        self.data.insert(key.to_string(), value);
+        Ok(())
+    }
+
     /// 获取某 key 的历史值(从文件中全量扫描)
     pub fn history(&self, key: &str) -> Result<Vec<(Value, i64)>> {
         let mut result = Vec::new();

@@ -1,13 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  AlertCircle,
   Archive,
   Braces,
   ChevronDown,
   ChevronRight,
+  Cloud,
   Database,
+  GitBranch,
+  Layers,
   List,
   ListTree,
+  Plus,
   RefreshCw,
+  Save,
+  ShieldCheck,
+  Unplug,
+  X,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -15,12 +24,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { ResizeHandle } from "@/components/ResizeHandle";
 import { cn } from "@/lib/utils";
 
 /** L0 绝对机密 key 列表:展示时完全掩码,不露任何字符 */
 const L0_KEYS = new Set([
   "git.access_token",
   "git.ssh_passphrase",
+  "data_center.config_repo.token",
 ]);
 
 function isL0Key(key: string): boolean {
@@ -39,6 +50,33 @@ interface NamespaceInfo {
 interface KvEntry {
   key: string;
   value: unknown;
+}
+
+interface DataCenterConfigCredentialStatus {
+  has_token: boolean;
+  token_masked: string | null;
+  credential_ref: string;
+}
+
+interface SyncConfigPayload {
+  url: string;
+  branch: string;
+  active_environment_id?: string | null;
+  local_database_path?: string | null;
+  auto_sync: boolean;
+  interval_seconds: number;
+}
+
+interface ConfigRepoCheckReport {
+  ok: boolean;
+  status: string;
+  message: string;
+  default_branch: string | null;
+  refs_count: number;
+}
+
+function isConfigCenterUrl(url: string): boolean {
+  return url.trim().startsWith("https://");
 }
 
 type ViewMode = "compact" | "tree" | "json";
@@ -77,7 +115,10 @@ const VIEW_MODES: Array<{
 const DEFAULT_VIEW_MODE = VIEW_MODES[0].id;
 const STORE_VIEW_STATE_NS = "ui-state";
 const STORE_VIEW_STATE_KEY = "store.view.active";
+const STORE_DOMAIN_WIDTH_KEY = "store.domain.width";
 const STORE_VIEW_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const STORE_DOMAIN_MIN_WIDTH = 160;
+const STORE_DOMAIN_DEFAULT_WIDTH = 208;
 
 function isViewMode(value: unknown): value is ViewMode {
   return VIEW_MODES.some((mode) => mode.id === value);
@@ -98,6 +139,11 @@ function parseStorePanelUiState(value: unknown): StorePanelUiState | null {
   };
 }
 
+function parseStoredWidth(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  return Math.max(STORE_DOMAIN_MIN_WIDTH, value);
+}
+
 function stringifyValue(value: unknown, space?: number): string {
   try {
     const json = JSON.stringify(value, null, space);
@@ -112,6 +158,25 @@ function valueKind(value: unknown): string {
   if (Array.isArray(value)) return `array:${value.length}`;
   if (typeof value === "object") return `object:${Object.keys(value as Record<string, unknown>).length}`;
   return typeof value;
+}
+
+function domainLabel(namespace: string): string {
+  if (namespace.startsWith("private.")) return namespace.slice("private.".length);
+  if (namespace.startsWith("plugins/")) return namespace.replace("plugins/", "plugins.");
+  return namespace;
+}
+
+function repoNameFromUrl(url: string): string {
+  const trimmed = url.trim();
+  const withoutSuffix = trimmed.endsWith(".git") ? trimmed.slice(0, -4) : trimmed;
+  const sshMatch = withoutSuffix.match(/[:/]([^/:]+\/[^/]+)$/);
+  if (sshMatch) return sshMatch[1];
+  try {
+    const parsed = new URL(withoutSuffix);
+    return parsed.pathname.replace(/^\/+/, "") || trimmed;
+  } catch {
+    return withoutSuffix.split("/").slice(-2).join("/") || trimmed;
+  }
 }
 
 function isExpandable(value: unknown): value is Record<string, unknown> | unknown[] {
@@ -266,6 +331,24 @@ function ValueBadge({ value }: { value: unknown }) {
   );
 }
 
+function ConfigRepoCheckMessage({ report }: { report: ConfigRepoCheckReport }) {
+  return (
+    <div className={cn(
+      "rounded-md border px-2 py-1.5 text-[11px]",
+      report.ok
+        ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+        : "border-destructive/30 bg-destructive/10 text-destructive",
+    )}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{report.ok ? "连接成功" : "连接失败"}</span>
+        {report.default_branch && <span>默认分支 {report.default_branch}</span>}
+        {report.ok && <span>{report.refs_count} refs</span>}
+      </div>
+      <div className="mt-0.5 text-muted-foreground">{report.message}</div>
+    </div>
+  );
+}
+
 function YamlValue({
   value,
   depth,
@@ -387,11 +470,39 @@ export function StorePanel() {
   const [entries, setEntries] = useState<KvEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(DEFAULT_VIEW_MODE);
-  const [profiles, setProfiles] = useState<string[]>([]);
-  const [activeProfile, setActiveProfile] = useState<string | null>(null);
+  const [environments, setEnvironments] = useState<string[]>([]);
+  const [activeEnvironment, setActiveEnvironment] = useState<string | null>(null);
+  const [configCredential, setConfigCredential] = useState<DataCenterConfigCredentialStatus | null>(null);
+  const [syncConfig, setSyncConfig] = useState<SyncConfigPayload | null>(null);
+  const [syncPanelOpen, setSyncPanelOpen] = useState(false);
+  const [syncBranch, setSyncBranch] = useState("main");
+  const [domainWidth, setDomainWidth] = useState(STORE_DOMAIN_DEFAULT_WIDTH);
+  const [configRemoteUrl, setConfigRemoteUrl] = useState("");
+  const [configToken, setConfigToken] = useState("");
+  const [newEnvironmentName, setNewEnvironmentName] = useState("");
+  const [checkStatus, setCheckStatus] = useState<ConfigRepoCheckReport | null>(null);
+  const [checkingRepo, setCheckingRepo] = useState(false);
+  const [syncingNow, setSyncingNow] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const selectedNsRef = useRef<string | null>(null);
   const viewModeRef = useRef<ViewMode>(DEFAULT_VIEW_MODE);
+
+  const persistDomainWidth = useCallback((width: number) => {
+    void invoke("store_set", {
+      namespace: STORE_VIEW_STATE_NS,
+      key: STORE_DOMAIN_WIDTH_KEY,
+      value: width,
+    }).catch(() => {
+      // Layout preference writes should not block data browsing.
+    });
+  }, []);
+
+  const applyDomainWidth = useCallback((width: number) => {
+    const next = Math.max(STORE_DOMAIN_MIN_WIDTH, width);
+    setDomainWidth(next);
+    persistDomainWidth(next);
+  }, [persistDomainWidth]);
 
   const persistOpenState = useCallback((namespace: string, mode: ViewMode) => {
     void invoke("store_set", {
@@ -433,18 +544,29 @@ export function StorePanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const [ns, profs, active, rawState] = await Promise.all([
+      const [ns, envs, activeEnv, rawState, rawDomainWidth, configCred, currentSyncConfig] = await Promise.all([
         invoke<NamespaceInfo[]>("store_namespaces"),
-        invoke<string[]>("store_list_profiles"),
-        invoke<string | null>("store_active_profile"),
+        invoke<string[]>("store_list_environments"),
+        invoke<string | null>("store_active_environment"),
         invoke<unknown>("store_get", {
           namespace: STORE_VIEW_STATE_NS,
           key: STORE_VIEW_STATE_KEY,
         }),
+        invoke<unknown>("store_get", {
+          namespace: STORE_VIEW_STATE_NS,
+          key: STORE_DOMAIN_WIDTH_KEY,
+        }),
+        invoke<DataCenterConfigCredentialStatus>("get_data_center_config_credential_status"),
+        invoke<SyncConfigPayload | null>("sync_get_config"),
       ]);
       setNamespaces(ns);
-      setProfiles(profs);
-      setActiveProfile(active);
+      setEnvironments(envs);
+      setActiveEnvironment(activeEnv);
+      setDomainWidth(parseStoredWidth(rawDomainWidth) ?? STORE_DOMAIN_DEFAULT_WIDTH);
+      setConfigCredential(configCred);
+      setSyncConfig(currentSyncConfig);
+      setSyncBranch(currentSyncConfig?.branch ?? "main");
+      setConfigRemoteUrl(currentSyncConfig?.url ?? "");
 
       const cached = parseStorePanelUiState(rawState);
       const fresh = cached && Date.now() - cached.updatedAt <= STORE_VIEW_STATE_TTL_MS;
@@ -485,15 +607,108 @@ export function StorePanel() {
     } catch (e) { setError(String(e)); }
   };
 
-  const handleSwitchProfile = async (name: string) => {
+  const handleSwitchEnvironment = async (name: string) => {
     try {
-      await invoke("store_switch_profile", { name });
-      setActiveProfile(name);
+      await invoke("store_switch_environment", { name });
+      setActiveEnvironment(name);
       if (selectedNs) await loadEntries(selectedNs);
     } catch (e) { setError(String(e)); }
   };
 
+  const handleCreateEnvironment = async () => {
+    const name = newEnvironmentName.trim();
+    if (!name) return;
+    try {
+      await invoke("store_create_environment", { name });
+      await invoke("store_switch_environment", { name });
+      setNewEnvironmentName("");
+      setActiveEnvironment(name);
+      await refresh();
+      setSyncStatus(`已切换到环境 ${name}`);
+      setTimeout(() => setSyncStatus(null), 2200);
+    } catch (e) { setError(String(e)); }
+  };
+
   useEffect(() => { refresh(); }, [refresh]);
+
+  const activeEnvironmentValue = activeEnvironment ?? environments[0] ?? "";
+  const activeEnvironmentLabel = activeEnvironmentValue || "默认";
+
+  const saveSyncConfig = useCallback(async (url: string, branch = syncBranch) => {
+    const normalizedUrl = url.trim();
+    const normalizedBranch = branch.trim() || "main";
+    if (!normalizedUrl) return;
+    const nextConfig: SyncConfigPayload = {
+      url: normalizedUrl,
+      branch: normalizedBranch,
+      active_environment_id: activeEnvironmentValue || null,
+      local_database_path: syncConfig?.local_database_path ?? null,
+      auto_sync: syncConfig?.auto_sync ?? true,
+      interval_seconds: syncConfig?.interval_seconds ?? 300,
+    };
+    await invoke("sync_set_config", { config: nextConfig });
+    setSyncConfig(nextConfig);
+    setSyncBranch(normalizedBranch);
+    setSyncStatus("远程配置中心已绑定并拉取到本地工作副本");
+    setTimeout(() => setSyncStatus(null), 2200);
+  }, [activeEnvironmentValue, syncBranch, syncConfig]);
+
+  const handleSaveEquivalentGitConfig = async () => {
+    const url = configRemoteUrl.trim();
+    const token = configToken.trim();
+    if (!isConfigCenterUrl(url) || (!token && !configCredential?.has_token)) return;
+    try {
+      if (token) {
+        await invoke("set_data_center_config_token", { token });
+      }
+      setConfigToken("");
+      await saveSyncConfig(url);
+      await refresh();
+      setSyncPanelOpen(false);
+    } catch (e) { setError(String(e)); }
+  };
+
+  const handleSyncNow = async () => {
+    if (!syncConfig || !isConfigCenterUrl(syncConfig.url) || !configCredential?.has_token) return;
+    try {
+      setSyncingNow(true);
+      setSyncStatus("正在同步…");
+      const msg = await invoke<string>("sync_now");
+      await refresh();
+      setSyncStatus(msg || "同步完成");
+    } catch (e) {
+      setSyncStatus(`同步失败: ${String(e)}`);
+    } finally {
+      setSyncingNow(false);
+      setTimeout(() => setSyncStatus(null), 3500);
+    }
+  };
+
+  const handleCheckConfigRepo = async (url = configRemoteUrl, token = configToken) => {
+    const normalizedUrl = url.trim();
+    if (!normalizedUrl) return;
+    try {
+      setCheckingRepo(true);
+      const report = await invoke<ConfigRepoCheckReport>("check_data_center_config_repo", {
+        url: normalizedUrl,
+        token: token.trim() || null,
+      });
+      setCheckStatus(report);
+      if (report.ok && report.default_branch && !syncBranch.trim()) {
+        setSyncBranch(report.default_branch);
+      }
+    } catch (e) {
+      setCheckStatus({
+        ok: false,
+        status: "error",
+        message: String(e),
+        default_branch: null,
+        refs_count: 0,
+      });
+    } finally {
+      setCheckingRepo(false);
+    }
+  };
 
   const filteredEntries = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -508,28 +723,15 @@ export function StorePanel() {
   const keyTree = useMemo(() => buildKeyTree(filteredEntries), [filteredEntries]);
   const jsonGroups = useMemo(() => buildJsonGroups(filteredEntries), [filteredEntries]);
 
+  const syncSummary = syncConfig ? repoNameFromUrl(syncConfig.url) : "未配置";
+
   return (
     <div className="flex h-full overflow-hidden">
       {/* 左:命名空间列表 */}
-      <div className="flex w-52 shrink-0 flex-col border-r border-border/50">
-        {/* Profile 切换 */}
-        {profiles.length > 0 && (
-          <div className="border-b border-border/30 px-3 py-2">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <span>配置档:</span>
-              <select
-                value={activeProfile ?? ""}
-                onChange={(e) => e.target.value && handleSwitchProfile(e.target.value)}
-                className="flex-1 rounded bg-transparent px-1 py-0.5 text-xs font-medium text-foreground outline-none"
-              >
-                {profiles.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
-
+      <div
+        className="flex shrink-0 flex-col border-r border-border/50"
+        style={{ width: `${domainWidth}px` }}
+      >
         {/* 头部 */}
         <div className="flex items-center gap-2 border-b border-border/30 px-3 py-2">
           <Database className="size-3.5 text-muted-foreground" />
@@ -557,7 +759,7 @@ export function StorePanel() {
                   )}
                 >
                   <Database className="size-3.5 text-muted-foreground" />
-                  <span className="flex-1 truncate">{ns.name}</span>
+                  <span className="flex-1 truncate" title={ns.name}>{domainLabel(ns.name)}</span>
                   {ns.visibility === "private" && (
                     <Badge variant="outline" className="h-4 px-1 text-[8px] text-destructive/70">本地</Badge>
                   )}
@@ -568,16 +770,72 @@ export function StorePanel() {
           </div>
         </ScrollArea>
       </div>
+      <ResizeHandle
+        direction="horizontal"
+        size={domainWidth}
+        onResize={applyDomainWidth}
+        minSize={STORE_DOMAIN_MIN_WIDTH}
+        snapTo={STORE_DOMAIN_DEFAULT_WIDTH}
+      />
 
       {/* 右:KV 条目展示 */}
-      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {selectedNs ? (
           <>
+            {/* 域标题 */}
+            <div className="shrink-0 border-b border-border/30 px-4 py-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate text-sm font-semibold" title={selectedNs}>{domainLabel(selectedNs)}</span>
+                    <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[9px]">{filteredEntries.length} 条</Badge>
+                    {namespaces.find((ns) => ns.name === selectedNs)?.visibility === "private" && (
+                      <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[9px] text-destructive/70">本地</Badge>
+                    )}
+                  </div>
+                  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <Layers className="size-3 shrink-0" />
+                    <span className="shrink-0">环境</span>
+                    {environments.length > 0 ? (
+                      <select
+                        value={activeEnvironmentValue}
+                        onChange={(e) => e.target.value && handleSwitchEnvironment(e.target.value)}
+                        className="h-5 max-w-36 rounded border border-border/60 bg-background px-1.5 text-[11px] text-foreground outline-none"
+                        title="切换环境配置"
+                      >
+                        {environments.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className="truncate text-foreground">{activeEnvironmentLabel}</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 px-0"
+                    onClick={() => setSyncPanelOpen((open) => !open)}
+                    title={`配置远程 Git 数据配置中心仓库: ${syncSummary}`}
+                  >
+                    {syncConfig ? (
+                      <ShieldCheck className="size-3.5 text-emerald-600" />
+                    ) : (
+                      <Cloud className="size-3.5 text-muted-foreground" />
+                    )}
+                  </Button>
+                  <Button variant="ghost" size="sm" className="h-7 w-7 px-0" onClick={() => handleCompact(selectedNs)} title="压缩">
+                    <Archive className="size-3.5" />
+                  </Button>
+                </div>
+              </div>
+              {syncStatus && <div className="mt-1 h-4 text-[10px] text-primary">{syncStatus}</div>}
+            </div>
+
             {/* 工具栏 */}
-            <div className="flex items-center gap-2 border-b border-border/50 px-3 py-2">
-              <span className="text-xs font-medium">{selectedNs}</span>
-              <span className="text-[10px] text-muted-foreground">{filteredEntries.length} 条</span>
-              <span className="flex-1" />
+            <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-4 py-2">
               <div className="flex shrink-0 overflow-hidden rounded-md border border-border/70 bg-muted/30 p-0.5">
                 {VIEW_MODES.map((mode) => {
                   const Icon = mode.icon;
@@ -605,12 +863,153 @@ export function StorePanel() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="搜索 key…"
-                className="h-6 w-40 text-xs"
+                className="h-7 max-w-72 flex-1 text-xs"
               />
-              <Button variant="ghost" size="sm" className="h-6 px-1.5" onClick={() => handleCompact(selectedNs)} title="压缩">
-                <Archive className="size-3" />
-              </Button>
             </div>
+
+            {syncPanelOpen && (
+              <div className="absolute right-4 top-12 z-20 w-[480px] max-w-[calc(100%-32px)] rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg">
+                <div className="mb-3 flex items-center gap-2">
+                  <Cloud className="size-4 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-semibold">远程 Git 数据配置中心</div>
+                    <div className="truncate text-[10px] text-muted-foreground">
+                      仓库承载多套环境配置,同步必须使用专用 Token
+                    </div>
+                  </div>
+                  <Button variant="ghost" size="sm" className="h-6 px-1.5" onClick={() => setSyncPanelOpen(false)}>
+                    <X className="size-3.5" />
+                  </Button>
+                </div>
+
+                <div className="mb-3 rounded-md border border-border/70 bg-muted/20 px-2 py-2">
+                  <div className="mb-2 flex items-center gap-2">
+                    <GitBranch className="size-3.5 text-muted-foreground" />
+                    <span className="text-[11px] font-medium">数据中心配置仓库</span>
+                    {syncConfig?.url && (
+                      <Badge variant="outline" className="ml-auto h-5 px-1.5 text-[9px]">
+                        已绑定
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-2">
+                      <AlertCircle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                      <div className="text-[11px] text-muted-foreground">
+                        配置中心仓库必须使用 HTTPS URL 和明确的 Access Token。系统凭据、SSH Agent 或 SSH Key 不用于数据中心同步。
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-[88px_1fr] items-center gap-2">
+                      <span className="text-[11px] font-medium text-muted-foreground">仓库 URL</span>
+                      <Input
+                        value={configRemoteUrl}
+                        onChange={(e) => {
+                          setConfigRemoteUrl(e.target.value);
+                          setCheckStatus(null);
+                        }}
+                        placeholder="https://github.com/user/gt-config.git"
+                        className="h-7 text-xs"
+                      />
+                      <span className="text-[11px] font-medium text-muted-foreground">Access Token</span>
+                      <Input
+                        type="password"
+                        value={configToken}
+                        onChange={(e) => {
+                          setConfigToken(e.target.value);
+                          setCheckStatus(null);
+                        }}
+                        placeholder={configCredential?.has_token ? "留空则沿用已保存 Token" : "必填: 配置中心专用 Token"}
+                        className="h-7 text-xs"
+                      />
+                      <span className="text-[11px] text-muted-foreground">分支</span>
+                      <Input value={syncBranch} onChange={(e) => setSyncBranch(e.target.value)} className="h-7 text-xs" />
+                      <span className="text-[11px] text-muted-foreground">本地工作副本</span>
+                      <div className="truncate rounded-md border bg-background px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
+                        {syncConfig?.local_database_path ?? "保存后由数据中心分配"}
+                      </div>
+                    </div>
+                    {checkStatus && <ConfigRepoCheckMessage report={checkStatus} />}
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => handleCheckConfigRepo()}
+                        disabled={!isConfigCenterUrl(configRemoteUrl) || (!configToken.trim() && !configCredential?.has_token) || checkingRepo}
+                      >
+                        <Unplug className="size-3.5" /> {checkingRepo ? "验证中" : "验证"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={handleSaveEquivalentGitConfig}
+                        disabled={!isConfigCenterUrl(configRemoteUrl) || (!configToken.trim() && !configCredential?.has_token)}
+                      >
+                        <Save className="size-3.5" /> 保存并绑定
+                      </Button>
+                    </div>
+                    <div className="flex items-center justify-end gap-2 border-t border-border/50 pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={handleSyncNow}
+                        disabled={!syncConfig || !isConfigCenterUrl(syncConfig.url) || !configCredential?.has_token || syncingNow}
+                        title="pull → import → export → commit → push"
+                      >
+                        <RefreshCw className={cn("size-3.5", syncingNow && "animate-spin")} /> {syncingNow ? "同步中" : "立即同步"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="rounded-md border border-border/70 bg-muted/20 px-2 py-2">
+                  <div className="mb-2 flex items-center gap-2">
+                    <Layers className="size-3.5 text-muted-foreground" />
+                    <span className="text-[11px] font-medium">环境配置</span>
+                    <Badge variant="outline" className="ml-auto h-5 px-1.5 text-[9px]">
+                      {activeEnvironmentLabel}
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-[76px_1fr_auto] items-center gap-2">
+                    <span className="text-[11px] text-muted-foreground">当前环境</span>
+                    {environments.length > 0 ? (
+                      <select
+                        value={activeEnvironmentValue}
+                        onChange={(e) => e.target.value && handleSwitchEnvironment(e.target.value)}
+                        className="h-7 rounded-md border border-border bg-background px-2 text-xs outline-none"
+                      >
+                        {environments.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <div className="flex h-7 items-center rounded-md border border-border bg-background px-2 text-xs text-muted-foreground">
+                        默认
+                      </div>
+                    )}
+                    <span />
+                    <span className="text-[11px] text-muted-foreground">新增环境</span>
+                    <Input
+                      value={newEnvironmentName}
+                      onChange={(e) => setNewEnvironmentName(e.target.value)}
+                      placeholder="test / staging / prod"
+                      className="h-7 text-xs"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={handleCreateEnvironment}
+                      disabled={!newEnvironmentName.trim()}
+                      title="基于当前 public 数据创建环境(Phase 1 仅同步 data 命名空间)"
+                    >
+                      <Plus className="size-3.5" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* KV 表格 */}
             <ScrollArea className="flex-1">

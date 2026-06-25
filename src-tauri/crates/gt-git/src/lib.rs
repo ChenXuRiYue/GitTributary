@@ -18,6 +18,6 @@ pub use commit::CommitInfo;
 pub use diff::FileDiff;
 pub use error::{GitError, Result};
 pub use log::LogEntry;
-pub use remote::{AuthMethod, RemoteInfo};
+pub use remote::{check_remote_access, AuthMethod, RemoteAccessReport, RemoteInfo};
 pub use repo::{GitRepo, RepoOverview};
 pub use status::{BranchInfo, ChangeKind, FileStatus};

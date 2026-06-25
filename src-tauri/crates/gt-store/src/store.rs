@@ -21,7 +21,7 @@ pub struct Store {
 
 /// 根据命名空间名推断可见性:
 /// secrets / 以 "private." 开头 → Private,其他 → Public
-fn infer_visibility(name: &str) -> Visibility {
+pub fn infer_visibility(name: &str) -> Visibility {
     if name == "secrets" || name.starts_with("private.") {
         Visibility::Private
     } else {
@@ -170,6 +170,30 @@ impl Store {
             .get(namespace)
             .ok_or_else(|| StoreError::NamespaceNotFound(namespace.to_string()))?
             .history(key)
+    }
+
+    /// 读取某命名空间每个 key 的最新值与时间戳。
+    /// 命名空间不存在时返回空 map(供 import LWW 比较用)。
+    pub fn latest_with_ts(&self, namespace: &str) -> HashMap<String, (Value, i64)> {
+        self.namespaces
+            .get(namespace)
+            .map(|ns| ns.latest_with_ts())
+            .unwrap_or_default()
+    }
+
+    /// 用指定时间戳写入(用于 import 远端记录时保留原始 t)。
+    pub fn set_with_ts(
+        &mut self,
+        namespace: &str,
+        key: &str,
+        value: Value,
+        t: i64,
+    ) -> Result<()> {
+        self.ensure_namespace(namespace)?;
+        self.namespaces
+            .get_mut(namespace)
+            .unwrap()
+            .set_with_ts(key, value, t)
     }
 
     // ─── Profile 管理 ─────────────────────────────────────────

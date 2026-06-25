@@ -206,6 +206,120 @@ fn get_remotes(state: State<'_, AppState>) -> Result<Vec<RemoteInfo>, String> {
     repo.remotes().map_err(|e| e.to_string())
 }
 
+#[derive(serde::Serialize)]
+struct RemoteConfigEntry {
+    name: String,
+    url: String,
+    push_url: Option<String>,
+    source: String,
+    purpose: Vec<String>,
+    credential_mode: String,
+    credential_ref: Option<String>,
+    verify_status: String,
+    capabilities: String,
+}
+
+fn credential_summary_for_remote(store: &Store, workdir: Option<&str>, url: &str) -> (String, Option<String>) {
+    if let Some(path) = workdir {
+        let project_key = format!("project.{}.token", path);
+        if let Some(val) = store.get("private.credentials", &project_key) {
+            if val.as_str().map(|s| !s.is_empty()).unwrap_or(false) {
+                return ("repo_token".to_string(), Some(format!("repo:{}", path)));
+            }
+        }
+    }
+
+    if let Some(token) = store.get_git_token_raw() {
+        if !token.is_empty() {
+            return ("app_global_token".to_string(), Some("global:git.access_token".to_string()));
+        }
+    }
+
+    if let Some((key_path, _)) = store.get_git_ssh_key() {
+        return ("ssh_key".to_string(), Some(format!("ssh:{}", key_path)));
+    }
+
+    if url.starts_with("git@") || url.starts_with("ssh://") {
+        return ("ssh_agent".to_string(), Some("system:ssh-agent".to_string()));
+    }
+
+    ("system".to_string(), Some("system:credential-helper".to_string()))
+}
+
+fn config_repo_credential_summary(store: &Store) -> (String, Option<String>) {
+    let status = store.get_data_center_config_credential_status();
+    if status.has_token {
+        ("config_repo_token".to_string(), Some(status.credential_ref))
+    } else {
+        ("none".to_string(), None)
+    }
+}
+
+fn config_repo_remote_name(url: &str) -> String {
+    let trimmed = url.trim_end_matches(".git").trim_end_matches('/');
+    let name = trimmed
+        .rsplit('/')
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or("config-repo");
+    format!("data-center/{}", name)
+}
+
+/// 获取当前仓库远程配置的聚合视图。
+/// 这里只描述配置状态,不做 fetch/pull/push 等仓库操作。
+#[tauri::command]
+fn get_remote_configs(state: State<'_, AppState>) -> Result<Vec<RemoteConfigEntry>, String> {
+    let (remotes, workdir) = {
+        let lock = state.repo.lock().unwrap();
+        let repo = lock.as_ref().ok_or("尚未打开仓库")?;
+        let workdir = repo.workdir().map(|p| p.display().to_string());
+        let remotes = repo.remotes().map_err(|e| e.to_string())?;
+        (remotes, workdir)
+    };
+
+    let store = state.store.lock().unwrap();
+    let mut entries: Vec<RemoteConfigEntry> = remotes.into_iter().map(|remote| {
+        let (credential_mode, credential_ref) =
+            credential_summary_for_remote(&store, workdir.as_deref(), &remote.url);
+        RemoteConfigEntry {
+            name: remote.name,
+            url: remote.url,
+            push_url: remote.push_url,
+            source: "local_git_config".to_string(),
+            purpose: vec!["current_repo_remote".to_string()],
+            credential_mode,
+            credential_ref,
+            verify_status: "unverified".to_string(),
+            capabilities: "unknown".to_string(),
+        }
+    }).collect();
+
+    let sync_config = {
+        let base_dir = store_base_dir();
+        let engine = gt_store::SyncEngine::new(&base_dir);
+        engine.config().map_err(|e| e.to_string())?
+    };
+
+    if let Some(config) = sync_config {
+        if !entries.iter().any(|entry| entry.url == config.url && entry.purpose.iter().any(|purpose| purpose == "data_center_sync")) {
+            let (credential_mode, credential_ref) = config_repo_credential_summary(&store);
+            entries.push(RemoteConfigEntry {
+                name: config_repo_remote_name(&config.url),
+                url: config.url,
+                push_url: None,
+                source: "gittributary_config".to_string(),
+                purpose: vec!["data_center_sync".to_string()],
+                credential_mode,
+                credential_ref,
+                verify_status: "configured".to_string(),
+                capabilities: "config-sync".to_string(),
+            });
+        }
+    }
+
+    Ok(entries)
+}
+
 /// 添加远程
 #[tauri::command]
 fn add_remote(name: String, url: String, state: State<'_, AppState>) -> Result<(), String> {
@@ -347,9 +461,19 @@ fn store_list_profiles(state: State<'_, AppState>) -> Result<Vec<String>, String
 }
 
 #[tauri::command]
+fn store_list_environments(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    store_list_profiles(state)
+}
+
+#[tauri::command]
 fn store_active_profile(state: State<'_, AppState>) -> Option<String> {
     let store = state.store.lock().unwrap();
     store.active_profile().map(|s| s.to_string())
+}
+
+#[tauri::command]
+fn store_active_environment(state: State<'_, AppState>) -> Option<String> {
+    store_active_profile(state)
 }
 
 #[tauri::command]
@@ -359,15 +483,30 @@ fn store_switch_profile(name: String, state: State<'_, AppState>) -> Result<(), 
 }
 
 #[tauri::command]
+fn store_switch_environment(name: String, state: State<'_, AppState>) -> Result<(), String> {
+    store_switch_profile(name, state)
+}
+
+#[tauri::command]
 fn store_create_profile(name: String, state: State<'_, AppState>) -> Result<(), String> {
     let mut store = state.store.lock().unwrap();
     store.create_profile(&name).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
+fn store_create_environment(name: String, state: State<'_, AppState>) -> Result<(), String> {
+    store_create_profile(name, state)
+}
+
+#[tauri::command]
 fn store_delete_profile(name: String, state: State<'_, AppState>) -> Result<(), String> {
     let mut store = state.store.lock().unwrap();
     store.delete_profile(&name).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn store_delete_environment(name: String, state: State<'_, AppState>) -> Result<(), String> {
+    store_delete_profile(name, state)
 }
 
 // ─── Workspace commands ───────────────────────────────────────────────
@@ -403,41 +542,251 @@ fn get_recent_repos(state: State<'_, AppState>) -> Vec<String> {
 struct SyncConfigPayload {
     url: String,
     branch: String,
+    active_environment_id: Option<String>,
+    local_database_path: Option<std::path::PathBuf>,
     auto_sync: bool,
     interval_seconds: u64,
 }
 
+#[derive(serde::Serialize)]
+struct ConfigRepoCheckReport {
+    ok: bool,
+    status: String,
+    message: String,
+    default_branch: Option<String>,
+    refs_count: usize,
+}
+
+fn classify_config_repo_check_error(error: &str) -> (String, String) {
+    let lower = error.to_lowercase();
+    if lower.contains("authentication")
+        || lower.contains("auth")
+        || lower.contains("credential")
+        || lower.contains("401")
+        || lower.contains("403")
+    {
+        return ("auth_failed".to_string(), "认证失败,请检查配置中心专用 Access Token 权限".to_string());
+    }
+    if lower.contains("not found") || lower.contains("404") || lower.contains("repository not found") {
+        return ("not_found".to_string(), "仓库不存在或当前 Token 无权访问".to_string());
+    }
+    if lower.contains("resolve")
+        || lower.contains("network")
+        || lower.contains("timeout")
+        || lower.contains("couldn't connect")
+        || lower.contains("failed to connect")
+    {
+        return ("network_failed".to_string(), "网络连接失败,请检查网络或代理".to_string());
+    }
+
+    ("invalid".to_string(), error.to_string())
+}
+
+fn require_config_repo_url_and_token(store: &Store, url: &str) -> Result<String, String> {
+    if !url.starts_with("https://") {
+        return Err("数据中心配置仓库只支持 HTTPS URL + 明确 Access Token,不能使用 SSH 或系统凭据".to_string());
+    }
+
+    store
+        .get_data_center_config_token_raw()
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| "请先为数据中心配置仓库设置专用 Access Token".to_string())
+}
+
 #[tauri::command]
 fn sync_get_config(state: State<'_, AppState>) -> Result<Option<SyncConfigPayload>, String> {
-    let store = state.store.lock().unwrap();
+    let _store = state.store.lock().unwrap();
     let base_dir = store_base_dir();
     let engine = gt_store::SyncEngine::new(&base_dir);
     match engine.config() {
-        Ok(Some(c)) => Ok(Some(SyncConfigPayload {
-            url: c.url, branch: c.branch, auto_sync: c.auto_sync, interval_seconds: c.interval_seconds,
-        })),
+        Ok(Some(c)) => {
+            let local_database_path = Some(engine.config_repo_path(&c));
+            Ok(Some(SyncConfigPayload {
+                url: c.url,
+                branch: c.branch,
+                active_environment_id: c.active_environment_id,
+                local_database_path,
+                auto_sync: c.auto_sync,
+                interval_seconds: c.interval_seconds,
+            }))
+        },
         Ok(None) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
 }
 
-#[tauri::command]
-fn sync_set_config(config: SyncConfigPayload, state: State<'_, AppState>) -> Result<(), String> {
-    let _store = state.store.lock().unwrap();
+/// 把 payload 落为 SyncConfig、ensure checkout、并按需 import 远端数据。
+/// `active_environment_id` 为空时默认 "default"。
+fn apply_sync_config(config: SyncConfigPayload, state: &State<'_, AppState>) -> Result<(), String> {
+    let token = {
+        let store = state.store.lock().unwrap();
+        require_config_repo_url_and_token(&store, &config.url)?
+    };
+
     let base_dir = store_base_dir();
     let engine = gt_store::SyncEngine::new(&base_dir);
-    engine.set_config(&gt_store::SyncConfig {
-        url: config.url, branch: config.branch, auto_sync: config.auto_sync, interval_seconds: config.interval_seconds,
-    }).map_err(|e| e.to_string())
+    let active_environment_id = config
+        .active_environment_id
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| Some("default".to_string()));
+    let cfg = gt_store::SyncConfig {
+        url: config.url,
+        branch: config.branch,
+        active_environment_id,
+        local_database_path: config.local_database_path,
+        auto_sync: config.auto_sync,
+        interval_seconds: config.interval_seconds,
+    };
+    engine.set_config(&cfg).map_err(|e| e.to_string())?;
+    let auth = gt_store::ConfigRepoAuth { token: &token };
+    let checkout = engine.ensure_config_repo(&auth).map_err(|e| e.to_string())?;
+    // 绑定后若远端已有数据,import 进本地;空仓库则跳过,等首次 sync_now export
+    {
+        let mut store = state.store.lock().unwrap();
+        engine
+            .import_public_from_checkout(&mut store, &checkout)
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn sync_set_config(config: SyncConfigPayload, state: State<'_, AppState>) -> Result<(), String> {
+    apply_sync_config(config, &state)
+}
+
+#[tauri::command]
+fn update_data_center_config_remote(
+    config: SyncConfigPayload,
+    token: Option<String>,
+    clear_token: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    {
+        let mut store = state.store.lock().unwrap();
+        if clear_token {
+            store.clear_data_center_config_token().map_err(|e| e.to_string())?;
+        }
+        if let Some(token) = token.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+            store.set_data_center_config_token(token).map_err(|e| e.to_string())?;
+        }
+    }
+    apply_sync_config(config, &state)
+}
+
+#[tauri::command]
+fn unbind_data_center_config_remote(clear_token: bool, state: State<'_, AppState>) -> Result<(), String> {
+    let base_dir = store_base_dir();
+    let engine = gt_store::SyncEngine::new(&base_dir);
+    // 清除配置前先算出 checkout 路径,以便删除工作副本
+    let checkout_to_remove = engine.config().ok().flatten().map(|c| engine.config_repo_path(&c));
+    engine.clear_config().map_err(|e| e.to_string())?;
+
+    if let Some(path) = checkout_to_remove {
+        if path.exists() {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
+
+    if clear_token {
+        let mut store = state.store.lock().unwrap();
+        store.clear_data_center_config_token().map_err(|e| e.to_string())?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn check_data_center_config_repo(
+    url: String,
+    token: Option<String>,
+    state: State<'_, AppState>,
+) -> ConfigRepoCheckReport {
+    let normalized_url = url.trim().to_string();
+    if !normalized_url.starts_with("https://") {
+        return ConfigRepoCheckReport {
+            ok: false,
+            status: "invalid_url".to_string(),
+            message: "配置中心仓库只支持 HTTPS URL".to_string(),
+            default_branch: None,
+            refs_count: 0,
+        };
+    }
+
+    let stored_token = {
+        let store = state.store.lock().unwrap();
+        store.get_data_center_config_token_raw().unwrap_or_default()
+    };
+    let effective_token = token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or(stored_token);
+
+    if effective_token.is_empty() {
+        return ConfigRepoCheckReport {
+            ok: false,
+            status: "missing_token".to_string(),
+            message: "请先填写配置中心专用 Access Token".to_string(),
+            default_branch: None,
+            refs_count: 0,
+        };
+    }
+
+    match gt_git::check_remote_access(&normalized_url, &AuthMethod::Token(effective_token)) {
+        Ok(report) => ConfigRepoCheckReport {
+            ok: true,
+            status: "valid".to_string(),
+            message: "连接成功,仓库和 Token 可用".to_string(),
+            default_branch: report.default_branch,
+            refs_count: report.refs_count,
+        },
+        Err(e) => {
+            let (status, message) = classify_config_repo_check_error(&e.to_string());
+            ConfigRepoCheckReport {
+                ok: false,
+                status,
+                message,
+                default_branch: None,
+                refs_count: 0,
+            }
+        }
+    }
 }
 
 #[tauri::command]
 fn sync_now(state: State<'_, AppState>) -> Result<String, String> {
-    let store = state.store.lock().unwrap();
-    let device_id = store.device_id().unwrap_or_else(|| "unknown".to_string());
+    let (device_id, token) = {
+        let store = state.store.lock().unwrap();
+        let config = {
+            let base_dir = store_base_dir();
+            let engine = gt_store::SyncEngine::new(&base_dir);
+            engine.config().map_err(|e| e.to_string())?
+        }.ok_or_else(|| "未配置同步远程仓库".to_string())?;
+        let token = require_config_repo_url_and_token(&store, &config.url)?;
+        (store.device_id().unwrap_or_else(|| "unknown".to_string()), token)
+    };
+
     let base_dir = store_base_dir();
     let engine = gt_store::SyncEngine::new(&base_dir);
-    engine.sync(&device_id).map_err(|e| e.to_string())?;
+    let auth = gt_store::ConfigRepoAuth { token: &token };
+    let checkout = engine.ensure_config_repo(&auth).map_err(|e| e.to_string())?;
+
+    // pull(ff) → import(远端→本地 LWW) → export(本地→checkout) → commit → push
+    engine.pull(&auth, &checkout).map_err(|e| e.to_string())?;
+    {
+        let mut store = state.store.lock().unwrap();
+        engine
+            .import_public_from_checkout(&mut store, &checkout)
+            .map_err(|e| e.to_string())?;
+        engine
+            .export_public_to_checkout(&store, &checkout)
+            .map_err(|e| e.to_string())?;
+    }
+    engine.commit(&device_id, &checkout).map_err(|e| e.to_string())?;
+    engine.push(&auth, &checkout).map_err(|e| e.to_string())?;
     Ok("同步完成".to_string())
 }
 
@@ -461,6 +810,12 @@ fn store_base_dir() -> std::path::PathBuf {
 fn get_git_credentials(state: State<'_, AppState>) -> gt_store::GitCredentials {
     let store = state.store.lock().unwrap();
     store.get_git_credentials()
+}
+
+#[tauri::command]
+fn get_data_center_config_credential_status(state: State<'_, AppState>) -> gt_store::DataCenterConfigCredentialStatus {
+    let store = state.store.lock().unwrap();
+    store.get_data_center_config_credential_status()
 }
 
 #[tauri::command]
@@ -494,6 +849,18 @@ fn clear_git_token(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn set_data_center_config_token(token: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.set_data_center_config_token(&token).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn clear_data_center_config_token(state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store.clear_data_center_config_token().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 fn set_git_ssh_key(path: String, passphrase: Option<String>, state: State<'_, AppState>) -> Result<(), String> {
     let mut store = state.store.lock().unwrap();
     store.set_git_ssh_key(&path, passphrase.as_deref()).map_err(|e| e.to_string())
@@ -507,6 +874,7 @@ pub fn run() {
         .join(".git-tributary");
     let mut store = Store::open(&store_dir).expect("无法初始化数据中心");
     store.init_workspace().expect("无法初始化 workspace");
+    store.migrate_git_remote_url_to_local().expect("无法迁移 Git 默认远程配置");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -533,6 +901,7 @@ pub fn run() {
             get_commit_files,
             get_commit_file_diff,
             get_remotes,
+            get_remote_configs,
             add_remote,
             set_remote_url,
             remove_remote,
@@ -549,22 +918,33 @@ pub fn run() {
             store_scan,
             store_compact,
             store_list_profiles,
+            store_list_environments,
             store_active_profile,
+            store_active_environment,
             store_switch_profile,
+            store_switch_environment,
             store_create_profile,
+            store_create_environment,
             store_delete_profile,
+            store_delete_environment,
             get_workspace_info,
             get_recent_repos,
             sync_get_config,
             sync_set_config,
+            update_data_center_config_remote,
+            unbind_data_center_config_remote,
+            check_data_center_config_repo,
             sync_now,
             sync_get_state,
             get_git_credentials,
+            get_data_center_config_credential_status,
             set_git_username,
             set_git_email,
             set_git_remote_url,
             set_git_token,
             clear_git_token,
+            set_data_center_config_token,
+            clear_data_center_config_token,
             set_git_ssh_key,
         ])
         .run(tauri::generate_context!())

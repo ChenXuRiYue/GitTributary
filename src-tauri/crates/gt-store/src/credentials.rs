@@ -1,7 +1,7 @@
 //! Git 凭证管理模块
 //!
 //! 敏感数据(token/passphrase)存入 private 命名空间(永不同步)
-//! 非敏感数据(username/email/remote url)存入 public settings
+//! 非敏感但仅本机有效的数据(username/email/default remote url)存入 private local settings
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -13,6 +13,9 @@ use crate::store::Store;
 const NS_PRIVATE: &str = "private.credentials";
 /// public 命名空间(可同步)
 const NS_SETTINGS: &str = "settings";
+/// local 命名空间(仅本机,不同步)
+const NS_LOCAL: &str = "private.local";
+const DATA_CENTER_CONFIG_REPO_TOKEN: &str = "data_center.config_repo.token";
 
 /// 敏感数据安全级别
 ///
@@ -46,6 +49,17 @@ pub struct GitCredentials {
     pub has_ssh_passphrase: bool,
 }
 
+/// 数据中心配置仓库专用凭据状态(前端展示用,不返回明文)。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DataCenterConfigCredentialStatus {
+    /// 是否已为配置中心仓库显式配置 Access Token
+    pub has_token: bool,
+    /// L0 绝对机密,只返回固定掩码
+    pub token_masked: Option<String>,
+    /// 凭据引用,用于解释同步使用的是哪个专用凭据
+    pub credential_ref: String,
+}
+
 impl Store {
     /// 获取 Git 凭证信息(脱敏后的视图)
     pub fn get_git_credentials(&self) -> GitCredentials {
@@ -53,7 +67,8 @@ impl Store {
             .and_then(|v| v.as_str().map(|s| s.to_string()));
         let email = self.get(NS_SETTINGS, "git.email")
             .and_then(|v| v.as_str().map(|s| s.to_string()));
-        let remote_url = self.get(NS_SETTINGS, "git.default_remote_url")
+        let remote_url = self.get(NS_LOCAL, "git.default_remote_url")
+            .or_else(|| self.get(NS_SETTINGS, "git.default_remote_url"))
             .and_then(|v| v.as_str().map(|s| s.to_string()));
 
         let token_raw = self.get(NS_PRIVATE, "git.access_token")
@@ -91,9 +106,24 @@ impl Store {
         self.set(NS_SETTINGS, "git.email", json!(email))
     }
 
-    /// 设置默认远程仓库 URL(public)
+    /// 设置默认远程仓库 URL(local/private)。
+    ///
+    /// 这是本机选择偏好,不能同步到云端;否则会变成用远程配置决定远程配置来源。
     pub fn set_git_remote_url(&mut self, url: &str) -> Result<()> {
-        self.set(NS_SETTINGS, "git.default_remote_url", json!(url))
+        self.set(NS_LOCAL, "git.default_remote_url", json!(url))?;
+        self.delete(NS_SETTINGS, "git.default_remote_url")?;
+        Ok(())
+    }
+
+    /// 将历史版本误写入 public settings 的默认远程迁移到本机 local。
+    pub fn migrate_git_remote_url_to_local(&mut self) -> Result<()> {
+        if self.get(NS_LOCAL, "git.default_remote_url").is_none() {
+            if let Some(value) = self.get(NS_SETTINGS, "git.default_remote_url") {
+                self.set(NS_LOCAL, "git.default_remote_url", value)?;
+            }
+        }
+        self.delete(NS_SETTINGS, "git.default_remote_url")?;
+        Ok(())
     }
 
     /// 设置 Access Token(private,仅本地)
@@ -109,6 +139,33 @@ impl Store {
     /// 获取 Access Token 明文(仅内部使用,如 push 时)
     pub fn get_git_token_raw(&self) -> Option<String> {
         self.get(NS_PRIVATE, "git.access_token")
+            .and_then(|v| v.as_str().map(|s| s.to_string()))
+    }
+
+    /// 获取数据中心配置仓库专用凭据状态。
+    pub fn get_data_center_config_credential_status(&self) -> DataCenterConfigCredentialStatus {
+        let token_raw = self.get_data_center_config_token_raw();
+        let has_token = token_raw.as_ref().map(|s| !s.is_empty()).unwrap_or(false);
+        DataCenterConfigCredentialStatus {
+            has_token,
+            token_masked: has_token.then(|| "••••••••".to_string()),
+            credential_ref: DATA_CENTER_CONFIG_REPO_TOKEN.to_string(),
+        }
+    }
+
+    /// 设置数据中心配置仓库专用 Access Token(private,仅本地)。
+    pub fn set_data_center_config_token(&mut self, token: &str) -> Result<()> {
+        self.set(NS_PRIVATE, DATA_CENTER_CONFIG_REPO_TOKEN, json!(token))
+    }
+
+    /// 清除数据中心配置仓库专用 Access Token。
+    pub fn clear_data_center_config_token(&mut self) -> Result<()> {
+        self.delete(NS_PRIVATE, DATA_CENTER_CONFIG_REPO_TOKEN)
+    }
+
+    /// 获取数据中心配置仓库专用 Access Token 明文(仅同步内部使用)。
+    pub fn get_data_center_config_token_raw(&self) -> Option<String> {
+        self.get(NS_PRIVATE, DATA_CENTER_CONFIG_REPO_TOKEN)
             .and_then(|v| v.as_str().map(|s| s.to_string()))
     }
 

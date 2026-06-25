@@ -11,9 +11,9 @@ pub mod store;
 pub mod sync;
 pub mod workspace;
 
-pub use credentials::GitCredentials;
+pub use credentials::{DataCenterConfigCredentialStatus, GitCredentials};
 pub use error::{Result, StoreError};
 pub use namespace::Visibility;
 pub use record::Record;
 pub use store::Store;
-pub use sync::{SyncConfig, SyncEngine, SyncState};
+pub use sync::{ConfigRepoAuth, SyncConfig, SyncEngine, SyncState};

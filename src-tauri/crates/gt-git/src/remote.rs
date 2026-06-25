@@ -31,6 +31,32 @@ pub enum AuthMethod {
     None,
 }
 
+/// 远程仓库只读连通性检查结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct RemoteAccessReport {
+    pub default_branch: Option<String>,
+    pub refs_count: usize,
+}
+
+/// 检查远程仓库是否可访问。只做 connect/list refs,不 clone/fetch/pull/push。
+pub fn check_remote_access(url: &str, auth: &AuthMethod) -> Result<RemoteAccessReport> {
+    let mut remote = git2::Remote::create_detached(url)?;
+    let callbacks = build_callbacks(auth);
+    remote.connect_auth(Direction::Fetch, Some(callbacks), None)?;
+    let default_branch = remote
+        .default_branch()
+        .ok()
+        .and_then(|buf| std::str::from_utf8(buf.as_ref()).ok().map(|s| s.to_string()))
+        .and_then(|name| name.strip_prefix("refs/heads/").map(str::to_string).or(Some(name)));
+    let refs_count = remote.list()?.len();
+    remote.disconnect()?;
+
+    Ok(RemoteAccessReport {
+        default_branch,
+        refs_count,
+    })
+}
+
 impl GitRepo {
     /// 列出所有远程仓库
     pub fn remotes(&self) -> Result<Vec<RemoteInfo>> {
