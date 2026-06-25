@@ -205,6 +205,8 @@ function SelectionCheckbox({
 const TREE_BASE_PADDING = 4;
 const TREE_INDENT = 16;
 const STATUS_COLUMN_WIDTH = 28;
+const CHECKBOX_COLUMN_WIDTH = 14;
+const ICON_COLUMN_WIDTH = 16;
 
 function FileTreeNode({
   node, depth, selectedFile, onSelect, expandedDirs, onToggleDir, checkable, checked, onToggleCheck, onToggleDirCheck,
@@ -226,17 +228,22 @@ function FileTreeNode({
           style={{ paddingLeft: `${TREE_BASE_PADDING + depth * TREE_INDENT}px` }}
           onClick={() => onToggleDir(node.path)}
         >
-          {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
-          {checkable && (
-            <SelectionCheckbox
-              checked={allChecked}
-              indeterminate={someChecked}
-              onChange={() => onToggleDirCheck(filePaths)}
-              title={allChecked ? "取消选择此文件夹" : "选择此文件夹"}
-            />
-          )}
-          <span className="h-4 w-4 shrink-0" />
-          <Folder className="size-3.5 text-muted-foreground/70" />
+          <span className="flex size-3 shrink-0 items-center justify-center">
+            {isExpanded ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
+          </span>
+          <span className="flex shrink-0 items-center justify-center" style={{ width: CHECKBOX_COLUMN_WIDTH }}>
+            {checkable && (
+              <SelectionCheckbox
+                checked={allChecked}
+                indeterminate={someChecked}
+                onChange={() => onToggleDirCheck(filePaths)}
+                title={allChecked ? "取消选择此文件夹" : "选择此文件夹"}
+              />
+            )}
+          </span>
+          <span className="flex shrink-0 items-center justify-center" style={{ width: ICON_COLUMN_WIDTH }}>
+            <Folder className="size-3.5 text-muted-foreground/70" />
+          </span>
           <span className="shrink-0 whitespace-nowrap">{node.name}</span>
           <span className="min-w-4 flex-1" />
           <StatusCell />
@@ -257,19 +264,22 @@ function FileTreeNode({
       className={cn("group flex cursor-pointer items-center gap-1.5 rounded py-0.5 text-xs transition-colors",
         isSelected ? "bg-accent" : "hover:bg-accent/40")}
       style={{
-        paddingLeft: `${TREE_BASE_PADDING + depth * TREE_INDENT + 16}px`,
+        paddingLeft: `${TREE_BASE_PADDING + depth * TREE_INDENT + 13}px`,
       }}
       onClick={() => onSelect(file.path)}
     >
-      {checkable && (
-        <SelectionCheckbox
-          checked={checked.has(file.path)}
-          onChange={() => onToggleCheck(file.path)}
-          title={checked.has(file.path) ? "取消选择此文件" : "选择此文件"}
-        />
-      )}
-      {!checkable && <span className="size-3 shrink-0" />}
-      <PathIcon path={file.path} />
+      <span className="flex shrink-0 items-center justify-center" style={{ width: CHECKBOX_COLUMN_WIDTH }}>
+        {checkable && (
+          <SelectionCheckbox
+            checked={checked.has(file.path)}
+            onChange={() => onToggleCheck(file.path)}
+            title={checked.has(file.path) ? "取消选择此文件" : "选择此文件"}
+          />
+        )}
+      </span>
+      <span className="flex shrink-0 items-center justify-center" style={{ width: ICON_COLUMN_WIDTH }}>
+        <PathIcon path={file.path} />
+      </span>
       <span className="shrink-0 whitespace-nowrap">{node.name}</span>
       <span className="min-w-4 flex-1" />
       <StatusCell kind={file.kind} selected={isSelected} />
@@ -375,15 +385,18 @@ export function DiffPanel({ files, fetchDiff, checkable = false, checked, onChec
                 <div key={file.path} onClick={() => selectFile(file.path)}
                   className={cn("group flex cursor-pointer items-center gap-1.5 rounded py-0.5 pl-2 text-xs transition-colors",
                     selectedFile === file.path ? "bg-accent" : "hover:bg-accent/40")}>
-                  {checkable && (
-                    <SelectionCheckbox
-                      checked={checkedSet.has(file.path)}
-                      onChange={() => toggleCheck(file.path)}
-                      title={checkedSet.has(file.path) ? "取消选择此文件" : "选择此文件"}
-                    />
-                  )}
-                  {!checkable && <span className="size-3 shrink-0" />}
-                  <PathIcon path={file.path} />
+                  <span className="flex shrink-0 items-center justify-center" style={{ width: CHECKBOX_COLUMN_WIDTH }}>
+                    {checkable && (
+                      <SelectionCheckbox
+                        checked={checkedSet.has(file.path)}
+                        onChange={() => toggleCheck(file.path)}
+                        title={checkedSet.has(file.path) ? "取消选择此文件" : "选择此文件"}
+                      />
+                    )}
+                  </span>
+                  <span className="flex shrink-0 items-center justify-center" style={{ width: ICON_COLUMN_WIDTH }}>
+                    <PathIcon path={file.path} />
+                  </span>
                   <span className="shrink-0 whitespace-nowrap text-muted-foreground">{file.path}</span>
                   <span className="min-w-4 flex-1" />
                   <StatusCell kind={file.kind} selected={selectedFile === file.path} />
