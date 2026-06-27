@@ -14,8 +14,9 @@
 | `项目模块现状.md` | 当前仓库模块、前端插件与 Rust crate 状态 |
 | `Git基础能力设计.md` | `gt-git` 平台级 Git 能力层 |
 | `数据中心设计.md` | `gt-store` JSONL、命名空间、Profile 与同步 |
+| `数据中心远程同步设计.md` | 数据中心绑定 GitHub 配置数据库、事件同步与并发方案 |
 | `数据流与响应链路规范.md` | 操作 -> store -> UI 的响应式链路 |
-| `流体系设计规范.md` | `gt-flow` 事件触发与任务编排规范 |
+| `流体系设计规范.md` | `gt-flow` 的 GitHub Actions 子集 + CloudEvents 规范 |
 | `配置目录规范.md` | `~/.git-tributary/` 目录、public/private 数据分层 |
 
 ## 外部笔记软链接
