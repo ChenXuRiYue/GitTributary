@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::sync::Mutex;
 
 use gt_flow::{
@@ -24,29 +25,7 @@ pub struct AppState {
 #[tauri::command]
 fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoOverview, String> {
     let repo = GitRepo::open(&path).map_err(|e| e.to_string())?;
-    let overview = repo.overview().map_err(|e| e.to_string())?;
-    let branch = overview.current_branch.clone();
-    let mut repo_lock = state.repo.lock().unwrap();
-    *repo_lock = Some(repo);
-    // 统一同步 workspace 状态(一个调用搞定)
-    {
-        let mut store = state.store.lock().unwrap();
-        let _ = store.sync_workspace(Some(&path), Some(&branch));
-    }
-    let repo_path = overview.path.to_string_lossy().to_string();
-    let _ = publish_flow_event(
-        &state,
-        EventDraft {
-            source: "gittributary://gt-git".to_string(),
-            event_type: "git.repo.opened".to_string(),
-            subject: Some(format!("repo:{repo_path}")),
-            data: json!({
-                "repo": repo_path,
-                "branch": branch,
-            }),
-        },
-    );
-    Ok(overview)
+    set_active_repo_state(repo, &state)
 }
 
 /// 获取仓库概况(需已打开)
@@ -300,6 +279,7 @@ struct RemoteConfigEntry {
     name: String,
     url: String,
     push_url: Option<String>,
+    repo_path: Option<String>,
     source: String,
     purpose: Vec<String>,
     credential_mode: String,
@@ -367,37 +347,224 @@ fn config_repo_remote_name(url: &str) -> String {
     format!("data-center/{}", name)
 }
 
-/// 获取当前仓库远程配置的聚合视图。
+fn classify_project_remote_check_error(error: &str) -> (String, String) {
+    let lower = error.to_lowercase();
+    if lower.contains("authentication")
+        || lower.contains("auth")
+        || lower.contains("credential")
+        || lower.contains("401")
+        || lower.contains("403")
+    {
+        return (
+            "auth_failed".to_string(),
+            "认证失败,请检查 Access Token 权限".to_string(),
+        );
+    }
+    if lower.contains("not found")
+        || lower.contains("404")
+        || lower.contains("repository not found")
+    {
+        return (
+            "not_found".to_string(),
+            "仓库不存在或当前 Token 无权访问".to_string(),
+        );
+    }
+    if lower.contains("resolve")
+        || lower.contains("network")
+        || lower.contains("timeout")
+        || lower.contains("couldn't connect")
+        || lower.contains("failed to connect")
+    {
+        return (
+            "network_failed".to_string(),
+            "网络连接失败,请检查网络或代理".to_string(),
+        );
+    }
+
+    ("invalid".to_string(), error.to_string())
+}
+
+fn validate_project_remote_token(url: &str, token: &str) -> Result<(), String> {
+    let normalized_url = url.trim();
+    if !normalized_url.starts_with("https://") {
+        return Err("remote 使用 Token 校验时请填写 HTTPS URL".to_string());
+    }
+
+    let token = token.trim();
+    if token.is_empty() {
+        return Err("请先填写 Access Token".to_string());
+    }
+
+    match gt_git::check_remote_access(normalized_url, &AuthMethod::Token(token.to_string())) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let (_, message) = classify_project_remote_check_error(&e.to_string());
+            Err(message)
+        }
+    }
+}
+
+fn repo_path_for_repo(repo: &GitRepo) -> Result<String, String> {
+    repo.workdir()
+        .map(|path| path.display().to_string())
+        .ok_or_else(|| "无法获取仓库路径".to_string())
+}
+
+fn project_token_key_for_path(path: &str) -> String {
+    format!("project.{}.token", path)
+}
+
+fn repo_path_from_project_token_key(key: &str) -> Option<String> {
+    key.strip_prefix("project.")
+        .and_then(|path| path.strip_suffix(".token"))
+        .filter(|path| !path.trim().is_empty())
+        .map(str::to_string)
+}
+
+fn save_project_token_and_bind_repo(
+    state: &State<'_, AppState>,
+    repo_path: &str,
+    token: &str,
+) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store
+        .set(
+            "private.credentials",
+            &project_token_key_for_path(repo_path),
+            serde_json::json!(token),
+        )
+        .map_err(|e| e.to_string())?;
+    store.bind_repo(repo_path).map_err(|e| e.to_string())
+}
+
+fn remote_url_for(repo: &GitRepo, name: &str) -> Result<String, String> {
+    repo.remotes()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|remote| remote.name == name)
+        .map(|remote| remote.url)
+        .ok_or_else(|| format!("远程 '{}' 不存在", name))
+}
+
+fn maybe_unbind_repo_without_remotes(
+    state: &State<'_, AppState>,
+    repo_path: &str,
+    has_remotes: bool,
+) -> Result<(), String> {
+    if !has_remotes {
+        let mut store = state.store.lock().unwrap();
+        store.unbind_repo(repo_path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+fn set_active_repo_state(
+    repo: GitRepo,
+    state: &State<'_, AppState>,
+) -> Result<RepoOverview, String> {
+    let overview = repo.overview().map_err(|e| e.to_string())?;
+    let branch = overview.current_branch.clone();
+    let repo_path = overview.path.to_string_lossy().to_string();
+    {
+        let mut repo_lock = state.repo.lock().unwrap();
+        *repo_lock = Some(repo);
+    }
+    {
+        let mut store = state.store.lock().unwrap();
+        let _ = store.sync_workspace(Some(&repo_path), Some(&branch));
+    }
+    let _ = publish_flow_event(
+        state,
+        EventDraft {
+            source: "gittributary://gt-git".to_string(),
+            event_type: "git.repo.opened".to_string(),
+            subject: Some(format!("repo:{repo_path}")),
+            data: json!({
+                "repo": repo_path,
+                "branch": branch,
+            }),
+        },
+    );
+    Ok(overview)
+}
+
+fn push_remote_config_entries_for_repo(
+    entries: &mut Vec<RemoteConfigEntry>,
+    store: &Store,
+    repo_path: &str,
+    purpose: &str,
+) -> Result<(), String> {
+    let repo = GitRepo::open(repo_path).map_err(|e| e.to_string())?;
+    for remote in repo.remotes().map_err(|e| e.to_string())? {
+        let (credential_mode, credential_ref) =
+            credential_summary_for_remote(store, Some(repo_path), &remote.url);
+        entries.push(RemoteConfigEntry {
+            name: remote.name,
+            url: remote.url,
+            push_url: remote.push_url,
+            repo_path: Some(repo_path.to_string()),
+            source: "local_git_config".to_string(),
+            purpose: vec![purpose.to_string()],
+            credential_mode,
+            credential_ref,
+            verify_status: "unverified".to_string(),
+            capabilities: "unknown".to_string(),
+        });
+    }
+    Ok(())
+}
+
+/// 获取远程配置的聚合视图。
 /// 这里只描述配置状态,不做 fetch/pull/push 等仓库操作。
 #[tauri::command]
 fn get_remote_configs(state: State<'_, AppState>) -> Result<Vec<RemoteConfigEntry>, String> {
-    let (remotes, workdir) = {
+    let active_workdir = {
         let lock = state.repo.lock().unwrap();
-        let repo = lock.as_ref().ok_or("尚未打开仓库")?;
-        let workdir = repo.workdir().map(|p| p.display().to_string());
-        let remotes = repo.remotes().map_err(|e| e.to_string())?;
-        (remotes, workdir)
+        lock.as_ref()
+            .and_then(|repo| repo.workdir().map(|p| p.display().to_string()))
     };
 
     let store = state.store.lock().unwrap();
-    let mut entries: Vec<RemoteConfigEntry> = remotes
-        .into_iter()
-        .map(|remote| {
-            let (credential_mode, credential_ref) =
-                credential_summary_for_remote(&store, workdir.as_deref(), &remote.url);
-            RemoteConfigEntry {
-                name: remote.name,
-                url: remote.url,
-                push_url: remote.push_url,
-                source: "local_git_config".to_string(),
-                purpose: vec!["current_repo_remote".to_string()],
-                credential_mode,
-                credential_ref,
-                verify_status: "unverified".to_string(),
-                capabilities: "unknown".to_string(),
-            }
-        })
-        .collect();
+    let mut entries: Vec<RemoteConfigEntry> = Vec::new();
+    let mut repo_paths = store.bound_repos();
+    repo_paths.extend(
+        store
+            .scan("private.credentials", "project.")
+            .into_iter()
+            .filter_map(|(key, value)| {
+                if !value.as_str().map(|token| !token.is_empty()).unwrap_or(false) {
+                    return None;
+                }
+                repo_path_from_project_token_key(&key)
+            }),
+    );
+
+    let mut seen_paths = std::collections::HashSet::new();
+    for repo_path in repo_paths {
+        let repo_path = repo_path.trim();
+        if repo_path.is_empty() || !seen_paths.insert(repo_path.to_string()) {
+            continue;
+        }
+        if Path::new(repo_path).exists() {
+            push_remote_config_entries_for_repo(
+                &mut entries,
+                &store,
+                repo_path,
+                "bound_repo_remote",
+            )?;
+        }
+    }
+
+    if let Some(active_path) = active_workdir.as_deref() {
+        if !seen_paths.contains(active_path) && Path::new(active_path).exists() {
+            push_remote_config_entries_for_repo(
+                &mut entries,
+                &store,
+                active_path,
+                "current_repo_remote",
+            )?;
+        }
+    }
 
     let sync_config = {
         let base_dir = store_base_dir();
@@ -418,6 +585,7 @@ fn get_remote_configs(state: State<'_, AppState>) -> Result<Vec<RemoteConfigEntr
                 name: config_repo_remote_name(&config.url),
                 url: config.url,
                 push_url: None,
+                repo_path: None,
                 source: "gittributary_config".to_string(),
                 purpose: vec!["data_center_sync".to_string()],
                 credential_mode,
@@ -431,28 +599,141 @@ fn get_remote_configs(state: State<'_, AppState>) -> Result<Vec<RemoteConfigEntr
     Ok(entries)
 }
 
+/// Clone 远程仓库到保存位置下的仓库子目录,成功后自动打开该仓库。
+#[tauri::command]
+fn clone_remote_repo(
+    url: String,
+    parent_path: String,
+    token: String,
+    state: State<'_, AppState>,
+) -> Result<RepoOverview, String> {
+    let token = token.trim();
+    if token.is_empty() {
+        return Err("请先填写 Access Token".to_string());
+    }
+    validate_project_remote_token(&url, token)?;
+
+    let repo = gt_git::clone_remote_repo_into_parent(
+        &url,
+        parent_path.trim(),
+        &AuthMethod::Token(token.to_string()),
+    )
+    .map_err(|e| e.to_string())?;
+    let repo_path = repo_path_for_repo(&repo)?;
+    save_project_token_and_bind_repo(&state, &repo_path, token)?;
+    set_active_repo_state(repo, &state)
+}
+
 /// 添加远程
 #[tauri::command]
-fn add_remote(name: String, url: String, state: State<'_, AppState>) -> Result<(), String> {
+fn add_remote(
+    name: String,
+    url: String,
+    token: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let token = token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "请先填写 Access Token".to_string())?
+        .to_string();
+    validate_project_remote_token(&url, &token)?;
+
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
-    repo.add_remote(&name, &url).map_err(|e| e.to_string())
+    let repo_path = repo_path_for_repo(repo)?;
+    repo.add_remote(&name, &url).map_err(|e| e.to_string())?;
+    drop(lock);
+    if let Err(e) = save_project_token_and_bind_repo(&state, &repo_path, &token) {
+        let lock = state.repo.lock().unwrap();
+        if let Some(repo) = lock.as_ref() {
+            let _ = repo.remove_remote(&name);
+        }
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// 修改远程 URL
 #[tauri::command]
-fn set_remote_url(name: String, url: String, state: State<'_, AppState>) -> Result<(), String> {
+fn set_remote_url(
+    name: String,
+    url: String,
+    repo_path: Option<String>,
+    token: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let token = token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "请先填写 Access Token".to_string())?
+        .to_string();
+    validate_project_remote_token(&url, &token)?;
+
+    if let Some(path) = repo_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        let repo = GitRepo::open(path).map_err(|e| e.to_string())?;
+        let previous_url = remote_url_for(&repo, &name)?;
+        let repo_path = repo_path_for_repo(&repo)?;
+        repo.set_remote_url(&name, &url).map_err(|e| e.to_string())?;
+        if let Err(e) = save_project_token_and_bind_repo(&state, &repo_path, &token) {
+            let _ = repo.set_remote_url(&name, &previous_url);
+            return Err(e);
+        }
+        return Ok(());
+    }
+
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
+    let previous_url = remote_url_for(repo, &name)?;
+    let repo_path = repo_path_for_repo(repo)?;
     repo.set_remote_url(&name, &url).map_err(|e| e.to_string())
+        ?;
+    drop(lock);
+    if let Err(e) = save_project_token_and_bind_repo(&state, &repo_path, &token) {
+        let lock = state.repo.lock().unwrap();
+        if let Some(repo) = lock.as_ref() {
+            let _ = repo.set_remote_url(&name, &previous_url);
+        }
+        return Err(e);
+    }
+    Ok(())
 }
 
 /// 删除远程
 #[tauri::command]
-fn remove_remote(name: String, state: State<'_, AppState>) -> Result<(), String> {
-    let lock = state.repo.lock().unwrap();
-    let repo = lock.as_ref().ok_or("尚未打开仓库")?;
-    repo.remove_remote(&name).map_err(|e| e.to_string())
+fn remove_remote(
+    name: String,
+    repo_path: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if let Some(path) = repo_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+    {
+        let repo = GitRepo::open(path).map_err(|e| e.to_string())?;
+        let repo_path = repo_path_for_repo(&repo)?;
+        repo.remove_remote(&name).map_err(|e| e.to_string())?;
+        let has_remotes = !repo.remotes().map_err(|e| e.to_string())?.is_empty();
+        maybe_unbind_repo_without_remotes(&state, &repo_path, has_remotes)?;
+        return Ok(());
+    }
+
+    let (repo_path, has_remotes) = {
+        let lock = state.repo.lock().unwrap();
+        let repo = lock.as_ref().ok_or("尚未打开仓库")?;
+        let repo_path = repo_path_for_repo(repo)?;
+        repo.remove_remote(&name).map_err(|e| e.to_string())?;
+        let has_remotes = !repo.remotes().map_err(|e| e.to_string())?.is_empty();
+        (repo_path, has_remotes)
+    };
+    maybe_unbind_repo_without_remotes(&state, &repo_path, has_remotes)
 }
 
 /// Fetch
@@ -506,20 +787,19 @@ fn git_pull(remote: String, branch: String, state: State<'_, AppState>) -> Resul
 
 /// 设置项目级 token(存入 private.credentials 命名空间)
 #[tauri::command]
-fn set_project_token(token: String, state: State<'_, AppState>) -> Result<(), String> {
-    let repo_lock = state.repo.lock().unwrap();
-    let repo = repo_lock.as_ref().ok_or("尚未打开仓库")?;
-    let workdir = repo.workdir().ok_or("无法获取仓库路径")?;
-    let project_key = format!("project.{}.token", workdir.display());
-    drop(repo_lock);
-    let mut store = state.store.lock().unwrap();
-    store
-        .set(
-            "private.credentials",
-            &project_key,
-            serde_json::json!(token),
-        )
-        .map_err(|e| e.to_string())
+fn set_project_token(
+    token: String,
+    repo_path: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let repo_path = repo_path.trim();
+    if repo_path.is_empty() {
+        return Err("项目 Token 必须绑定一个本地 repo 路径".to_string());
+    }
+
+    let repo = GitRepo::open(repo_path).map_err(|e| e.to_string())?;
+    let repo_path = repo_path_for_repo(&repo)?;
+    save_project_token_and_bind_repo(&state, &repo_path, &token)
 }
 
 // ─── Store commands ───────────────────────────────────────────────────
@@ -1475,6 +1755,7 @@ pub fn run() {
             get_commit_file_diff,
             get_remotes,
             get_remote_configs,
+            clone_remote_repo,
             add_remote,
             set_remote_url,
             remove_remote,

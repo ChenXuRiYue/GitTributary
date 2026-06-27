@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use gt_git::{ChangeKind, GitRepo};
+use gt_git::{repo_dir_name_from_url, ChangeKind, GitRepo};
 use tempfile::TempDir;
 
 /// 辅助:在临时目录创建一个新仓库并做一次初始提交
@@ -196,4 +196,23 @@ fn test_add_remote_rejects_empty_and_duplicate_names() {
         .unwrap();
     let duplicate = repo.add_remote("origin", "https://example.com/user/other.git");
     assert!(duplicate.unwrap_err().to_string().contains("远程 'origin' 已存在"));
+}
+
+#[test]
+fn test_repo_dir_name_from_url() {
+    assert_eq!(
+        repo_dir_name_from_url("https://github.com/ChenXuRiYue/gt-test.git").unwrap(),
+        "gt-test"
+    );
+    assert_eq!(
+        repo_dir_name_from_url("https://github.com/ChenXuRiYue/gt-test/").unwrap(),
+        "gt-test"
+    );
+    assert_eq!(
+        repo_dir_name_from_url("git@git.example.com:team/project.git").unwrap(),
+        "project"
+    );
+
+    assert!(repo_dir_name_from_url("   ").is_err());
+    assert!(repo_dir_name_from_url("https://github.com/team/..").is_err());
 }

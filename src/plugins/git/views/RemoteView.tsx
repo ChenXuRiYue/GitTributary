@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  ChevronDown,
   Clock,
   Eye,
   EyeOff,
@@ -11,6 +12,7 @@ import {
   RefreshCw,
   Save,
   ShieldCheck,
+  Trash2,
   Unplug,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -25,6 +27,7 @@ interface RemoteInfo {
   name: string;
   url: string;
   push_url: string | null;
+  repo_path: string | null;
   source: string;
   purpose: string[];
   credential_mode: string;
@@ -65,9 +68,46 @@ interface WorkspaceInfo {
   device_name: string | null;
 }
 
+interface RemoteDraft {
+  url: string;
+  token: string;
+  showToken: boolean;
+}
+
 function shortPath(path: string): string {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
   return parts.length > 2 ? `.../${parts.slice(-2).join("/")}` : path;
+}
+
+function remoteKey(remote: Pick<RemoteInfo, "name" | "repo_path">): string {
+  return `${remote.repo_path ?? "app"}:${remote.name}`;
+}
+
+function repositoryNameFromUrl(url: string): string {
+  const trimmed = url.trim().replace(/[/?#]+$/, "");
+  const lastSegment = trimmed.split(/[/:]/).filter(Boolean).pop() ?? "";
+  return lastSegment.replace(/\.git$/, "") || "remote";
+}
+
+function repositoryName(remote: Pick<RemoteInfo, "name" | "repo_path" | "url">): string {
+  const pathName = remote.repo_path
+    ?.replace(/\\/g, "/")
+    .split("/")
+    .filter(Boolean)
+    .pop();
+  return pathName || repositoryNameFromUrl(remote.url) || remote.name;
+}
+
+function mergeRepoOptions(paths: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const options: string[] = [];
+  paths.forEach((path) => {
+    const normalized = path?.trim();
+    if (!normalized || seen.has(normalized)) return;
+    seen.add(normalized);
+    options.push(normalized);
+  });
+  return options;
 }
 
 function sourceLabel(source: string): string {
@@ -83,6 +123,7 @@ function sourceLabel(source: string): string {
 function purposeLabel(purpose: string): string {
   switch (purpose) {
     case "current_repo_remote": return "当前仓库 remote";
+    case "bound_repo_remote": return "绑定仓库 remote";
     case "data_center_sync": return "数据中心同步";
     case "backup_target": return "备份目标";
     case "publish_target": return "发布目标";
@@ -122,19 +163,43 @@ export function RemoteView() {
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
   const [syncConfig, setSyncConfig] = useState<SyncConfigPayload | null>(null);
-  const [newName, setNewName] = useState("");
-  const [newUrl, setNewUrl] = useState("");
-  const [newToken, setNewToken] = useState("");
-  const [showToken, setShowToken] = useState(false);
+  const [cloneUrl, setCloneUrl] = useState("");
+  const [cloneParentPath, setCloneParentPath] = useState("");
+  const [cloneToken, setCloneToken] = useState("");
+  const [showCloneToken, setShowCloneToken] = useState(false);
   const [configUrl, setConfigUrl] = useState("");
   const [configBranch, setConfigBranch] = useState("main");
   const [configToken, setConfigToken] = useState("");
   const [showConfigToken, setShowConfigToken] = useState(false);
   const [checkingConfig, setCheckingConfig] = useState(false);
   const [addingRemote, setAddingRemote] = useState(false);
+  const [remoteDrafts, setRemoteDrafts] = useState<Record<string, RemoteDraft>>({});
+  const [remoteBusyKey, setRemoteBusyKey] = useState<string | null>(null);
+  const [expandedRemoteKeys, setExpandedRemoteKeys] = useState<Record<string, boolean>>({});
   const [configCheck, setConfigCheck] = useState<ConfigRepoCheckReport | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setRemoteDrafts((current) => {
+      const next = { ...current };
+      const activeKeys = new Set<string>();
+
+      remotes.forEach((remote) => {
+        if (remote.source !== "local_git_config") return;
+        const key = remoteKey(remote);
+        activeKeys.add(key);
+        if (!next[key]) {
+          next[key] = { url: remote.url, token: "", showToken: false };
+        }
+      });
+
+      Object.keys(next).forEach((key) => {
+        if (!activeKeys.has(key)) delete next[key];
+      });
+
+      return next;
+    });
+  }, [remotes]);
 
   const loadRemoteConfigs = useCallback(async () => {
     const r = await invoke<RemoteInfo[]>("get_remote_configs");
@@ -156,12 +221,18 @@ export function RemoteView() {
     try {
       const ov = await invoke<RepoOverview>("get_overview");
       setOverview(ov);
-      await loadRemoteConfigs();
     } catch (e) {
       setOverview(null);
-      setRemotes([]);
       const message = String(e);
       nextError = message === "尚未打开仓库" ? null : message;
+    }
+
+    try {
+      await loadRemoteConfigs();
+    } catch (e) {
+      nextError = nextError
+        ? `${nextError}; 远程配置读取失败: ${String(e)}`
+        : `远程配置读取失败: ${String(e)}`;
     }
 
     try {
@@ -179,11 +250,12 @@ export function RemoteView() {
     try {
       const ov = await invoke<RepoOverview>("open_repo", { path });
       setOverview(ov);
+      setRecentRepos((current) => mergeRepoOptions([ov.path, ...current]).slice(0, 10));
       await loadRemoteConfigs();
       setError(null);
     } catch (e) {
       setOverview(null);
-      setRemotes([]);
+      await loadRemoteConfigs().catch(() => setRemotes([]));
       setError(String(e));
       return;
     }
@@ -222,27 +294,88 @@ export function RemoteView() {
     await openRepo(selected as string);
   };
 
-  const handleAddRemote = async () => {
-    if (!overview || !newName.trim() || !newUrl.trim()) return;
+  const selectClonePathFromDialog = async () => {
+    const selected = await open({ directory: true, multiple: false });
+    if (!selected) return;
+    setCloneParentPath(selected as string);
+  };
+
+  const handleCloneRemote = async () => {
+    if (!cloneParentPath.trim() || !cloneUrl.trim() || !cloneToken.trim()) return;
     setAddingRemote(true);
     try {
       setError(null);
-      await invoke("add_remote", { name: newName.trim(), url: newUrl.trim() });
-      let tokenWarning: string | null = null;
-      if (newToken.trim()) {
-        try {
-          await invoke("set_project_token", { token: newToken.trim() });
-        } catch (e) {
-          tokenWarning = `远程已添加,但 Token 保存失败: ${String(e)}`;
-        }
-      }
-      setNewName(""); setNewUrl(""); setNewToken("");
-      flash(tokenWarning ?? "远程已添加");
+      const ov = await invoke<RepoOverview>("clone_remote_repo", {
+        url: cloneUrl.trim(),
+        parentPath: cloneParentPath.trim(),
+        token: cloneToken.trim(),
+      });
+      setOverview(ov);
+      setRecentRepos((current) => mergeRepoOptions([ov.path, ...current]).slice(0, 10));
+      setCloneUrl(""); setCloneParentPath(""); setCloneToken("");
+      flash(`Token 校验通过,仓库已 Clone 到 ${shortPath(ov.path)}`);
       await loadRemoteConfigs();
     } catch (e) {
       setError(String(e));
     } finally {
       setAddingRemote(false);
+    }
+  };
+
+  const updateRemoteDraft = (key: string, patch: Partial<RemoteDraft>) => {
+    setRemoteDrafts((current) => {
+      const currentDraft = current[key] ?? { url: "", token: "", showToken: false };
+      return {
+        ...current,
+        [key]: {
+          ...currentDraft,
+          ...patch,
+        },
+      };
+    });
+  };
+
+  const handleUpdateRemote = async (remote: RemoteInfo) => {
+    const key = remoteKey(remote);
+    const draft = remoteDrafts[key] ?? { url: remote.url, token: "", showToken: false };
+    const repoPath = remote.repo_path ?? overview?.path ?? "";
+    if (!repoPath || !draft.url.trim() || !draft.token.trim()) return;
+
+    setRemoteBusyKey(key);
+    try {
+      setError(null);
+      await invoke("set_remote_url", {
+        name: remote.name,
+        url: draft.url.trim(),
+        repoPath,
+        token: draft.token.trim(),
+      });
+      updateRemoteDraft(key, { token: "" });
+      flash("Token 校验通过,远程已更新");
+      await loadRemoteConfigs();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRemoteBusyKey(null);
+    }
+  };
+
+  const handleRemoveRemote = async (remote: RemoteInfo) => {
+    const key = remoteKey(remote);
+    const repoPath = remote.repo_path ?? overview?.path ?? "";
+    if (!repoPath) return;
+    if (!window.confirm(`删除远程 ${remote.name}?`)) return;
+
+    setRemoteBusyKey(key);
+    try {
+      setError(null);
+      await invoke("remove_remote", { name: remote.name, repoPath });
+      flash("远程已删除");
+      await loadRemoteConfigs();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRemoteBusyKey(null);
     }
   };
 
@@ -343,7 +476,7 @@ export function RemoteView() {
             <div className="min-w-0 flex-1">
               <div className="text-xs font-medium">未打开当前仓库</div>
               <div className="truncate text-[11px] text-muted-foreground">
-                请选择一个 Git 仓库后再新增本地 remote 配置。
+                打开已有仓库后可管理 remote,也可以在下方 Clone 新仓库。
               </div>
             </div>
           </div>
@@ -374,91 +507,165 @@ export function RemoteView() {
           ) : (
             remotes.map((r) => {
               const isConfigCenter = r.source === "gittributary_config";
+              const isLocalRemote = r.source === "local_git_config";
+              const key = remoteKey(r);
+              const draft = remoteDrafts[key] ?? { url: r.url, token: "", showToken: false };
+              const isBusy = remoteBusyKey === key;
+              const isExpanded = expandedRemoteKeys[key] ?? false;
               return (
-              <div key={`${r.source}:${r.name}`} className="flex flex-col gap-3 rounded-md border px-2 py-2">
-                <div className="flex items-center gap-2">
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-xs font-medium">{r.name}</span>
-                    {r.push_url && <Badge variant="outline" className="h-4 px-1 text-[8px]">push-url</Badge>}
-                    <Badge variant="secondary" className="h-4 px-1 text-[8px]">{verifyLabel(r.verify_status)}</Badge>
+              <div key={`${r.source}:${key}`} className="flex flex-col rounded-md border px-2.5 py-2">
+                <div className="grid grid-cols-[minmax(120px,0.8fr)_minmax(0,1.2fr)_auto] items-center gap-3">
+                  <div className="min-w-0">
+                    <div className="truncate text-xs font-medium">{repositoryName(r)}</div>
+                    <div className="truncate text-[10px] text-muted-foreground">{r.name}</div>
                   </div>
-                  <span className="truncate font-mono text-[11px] text-muted-foreground">{r.url}</span>
-                  {r.push_url && (
-                    <span className="truncate font-mono text-[10px] text-muted-foreground">push {r.push_url}</span>
-                  )}
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <Badge variant="outline" className="h-5 px-1.5 text-[9px]">{sourceLabel(r.source)}</Badge>
-                    {r.purpose.map((item) => (
-                      <Badge key={item} variant="outline" className="h-5 px-1.5 text-[9px]">{purposeLabel(item)}</Badge>
-                    ))}
-                    <Badge variant="outline" className="h-5 px-1.5 text-[9px]">{credentialLabel(r.credential_mode)}</Badge>
-                    <Badge variant="outline" className="h-5 px-1.5 text-[9px]">能力 {r.capabilities}</Badge>
-                  </div>
-                  {r.credential_ref && (
-                    <span className="truncate font-mono text-[10px] text-muted-foreground">{r.credential_ref}</span>
-                  )}
-                </div>
-                </div>
-                {isConfigCenter && (
-                  <div className="rounded-md bg-muted/30 p-3">
-                    <div className="flex flex-col gap-3">
-                      <div className="grid grid-cols-[72px_1fr] items-center gap-2 rounded-md border bg-background/70 p-2">
-                        <span className="text-[11px] font-medium text-muted-foreground">URL</span>
-                        <Input
-                          value={configUrl}
-                          onChange={(e) => setConfigUrl(e.target.value)}
-                          placeholder="https://github.com/org/config-repo.git"
-                          className="h-8 text-xs"
-                        />
-                        <span className="text-[11px] font-medium text-muted-foreground">Token</span>
-                        <div className="relative">
-                          <Input
-                            type={showConfigToken ? "text" : "password"}
-                            value={configToken}
-                            onChange={(e) => setConfigToken(e.target.value)}
-                            placeholder="留空则沿用已保存 Token"
-                            className="h-8 pr-8 text-xs"
-                          />
-                          <button type="button" onClick={() => setShowConfigToken(!showConfigToken)}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground">
-                            {showConfigToken ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-[72px_1fr] items-center gap-2 px-2">
-                        <span className="text-[11px] text-muted-foreground">分支</span>
-                        <Input
-                          value={configBranch}
-                          onChange={(e) => setConfigBranch(e.target.value)}
-                          placeholder="main"
-                          className="h-8 text-xs"
-                        />
-                        <span className="text-[11px] text-muted-foreground">本地工作副本</span>
-                        <div className="truncate rounded-md border bg-background px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
-                          {syncConfig?.local_database_path ?? "保存后由数据中心分配"}
-                        </div>
-                      </div>
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="truncate font-mono text-[11px] text-muted-foreground">
+                      {r.repo_path ?? "配置中心工作副本"}
                     </div>
-                    {configCheck && (
-                      <div className={`mt-2 rounded-md px-2 py-1.5 text-[11px] ${configCheck.ok ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>
-                        {configCheck.message}
-                        {configCheck.ok && configCheck.default_branch && (
-                          <span className="ml-2 text-muted-foreground">默认分支 {configCheck.default_branch}</span>
-                        )}
+                    <div className="truncate font-mono text-[11px] text-muted-foreground">{r.url}</div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 w-7 px-0"
+                    onClick={() => setExpandedRemoteKeys((current) => ({ ...current, [key]: !isExpanded }))}
+                    title={isExpanded ? "收起" : "展开"}
+                  >
+                    <ChevronDown className={`size-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
+                  </Button>
+                </div>
+                {isExpanded && (
+                  <div className="mt-3 flex flex-col gap-3 border-t pt-3">
+                    <div className="flex flex-wrap gap-1">
+                      <Badge variant="outline" className="h-5 px-1.5 text-[9px]">{sourceLabel(r.source)}</Badge>
+                      {r.purpose.map((item) => (
+                        <Badge key={item} variant="outline" className="h-5 px-1.5 text-[9px]">{purposeLabel(item)}</Badge>
+                      ))}
+                      <Badge variant="outline" className="h-5 px-1.5 text-[9px]">{credentialLabel(r.credential_mode)}</Badge>
+                      <Badge variant="outline" className="h-5 px-1.5 text-[9px]">能力 {r.capabilities}</Badge>
+                      {r.push_url && <Badge variant="outline" className="h-5 px-1.5 text-[9px]">push-url</Badge>}
+                      {!isLocalRemote && (
+                        <Badge variant="secondary" className="h-5 px-1.5 text-[9px]">{verifyLabel(r.verify_status)}</Badge>
+                      )}
+                    </div>
+                    {r.push_url && (
+                      <span className="truncate font-mono text-[10px] text-muted-foreground">push {r.push_url}</span>
+                    )}
+                    {r.credential_ref && (
+                      <span className="truncate font-mono text-[10px] text-muted-foreground">{r.credential_ref}</span>
+                    )}
+                    {isLocalRemote && (
+                      <div className="rounded-md bg-muted/20 p-3">
+                        <div className="grid grid-cols-[72px_1fr] items-center gap-2">
+                          <span className="text-[11px] font-medium text-muted-foreground">URL</span>
+                          <Input
+                            value={draft.url}
+                            onChange={(e) => updateRemoteDraft(key, { url: e.target.value })}
+                            placeholder="https://github.com/user/repo.git"
+                            className="h-8 text-xs"
+                          />
+                          <span className="text-[11px] font-medium text-muted-foreground">Token</span>
+                          <div className="relative">
+                            <Input
+                              type={draft.showToken ? "text" : "password"}
+                              value={draft.token}
+                              onChange={(e) => updateRemoteDraft(key, { token: e.target.value })}
+                              placeholder="必填: 保存前重新校验"
+                              className="h-8 pr-8 text-xs"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => updateRemoteDraft(key, { showToken: !draft.showToken })}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                            >
+                              {draft.showToken ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8"
+                            onClick={() => handleUpdateRemote(r)}
+                            disabled={isBusy || !draft.url.trim() || !draft.token.trim()}
+                          >
+                            <Save className="size-3.5" /> {isBusy ? "校验中" : "保存"}
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 text-destructive hover:text-destructive"
+                            onClick={() => handleRemoveRemote(r)}
+                            disabled={isBusy}
+                          >
+                            <Trash2 className="size-3.5" /> 删除
+                          </Button>
+                        </div>
                       </div>
                     )}
-                    <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-                      <Button variant="outline" size="sm" className="h-8" onClick={handleCheckConfigRepo} disabled={!configUrl.trim() || checkingConfig}>
-                        <ShieldCheck className="size-3.5" /> {checkingConfig ? "验证中" : "验证"}
-                      </Button>
-                      <Button size="sm" className="h-8" onClick={handleSaveConfigRemote} disabled={!configUrl.trim()}>
-                        <Save className="size-3.5" /> 保存
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-8 text-destructive hover:text-destructive" onClick={handleUnbindConfigRemote}>
-                        <Unplug className="size-3.5" /> 解绑
-                      </Button>
-                    </div>
+                    {isConfigCenter && (
+                      <div className="rounded-md bg-muted/30 p-3">
+                        <div className="flex flex-col gap-3">
+                          <div className="grid grid-cols-[72px_1fr] items-center gap-2 rounded-md border bg-background/70 p-2">
+                            <span className="text-[11px] font-medium text-muted-foreground">URL</span>
+                            <Input
+                              value={configUrl}
+                              onChange={(e) => setConfigUrl(e.target.value)}
+                              placeholder="https://github.com/org/config-repo.git"
+                              className="h-8 text-xs"
+                            />
+                            <span className="text-[11px] font-medium text-muted-foreground">Token</span>
+                            <div className="relative">
+                              <Input
+                                type={showConfigToken ? "text" : "password"}
+                                value={configToken}
+                                onChange={(e) => setConfigToken(e.target.value)}
+                                placeholder="留空则沿用已保存 Token"
+                                className="h-8 pr-8 text-xs"
+                              />
+                              <button type="button" onClick={() => setShowConfigToken(!showConfigToken)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground">
+                                {showConfigToken ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                              </button>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-[72px_1fr] items-center gap-2 px-2">
+                            <span className="text-[11px] text-muted-foreground">分支</span>
+                            <Input
+                              value={configBranch}
+                              onChange={(e) => setConfigBranch(e.target.value)}
+                              placeholder="main"
+                              className="h-8 text-xs"
+                            />
+                            <span className="text-[11px] text-muted-foreground">本地工作副本</span>
+                            <div className="truncate rounded-md border bg-background px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
+                              {syncConfig?.local_database_path ?? "保存后由数据中心分配"}
+                            </div>
+                          </div>
+                        </div>
+                        {configCheck && (
+                          <div className={`mt-2 rounded-md px-2 py-1.5 text-[11px] ${configCheck.ok ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>
+                            {configCheck.message}
+                            {configCheck.ok && configCheck.default_branch && (
+                              <span className="ml-2 text-muted-foreground">默认分支 {configCheck.default_branch}</span>
+                            )}
+                          </div>
+                        )}
+                        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+                          <Button variant="outline" size="sm" className="h-8" onClick={handleCheckConfigRepo} disabled={!configUrl.trim() || checkingConfig}>
+                            <ShieldCheck className="size-3.5" /> {checkingConfig ? "验证中" : "验证"}
+                          </Button>
+                          <Button size="sm" className="h-8" onClick={handleSaveConfigRemote} disabled={!configUrl.trim()}>
+                            <Save className="size-3.5" /> 保存
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-8 text-destructive hover:text-destructive" onClick={handleUnbindConfigRemote}>
+                            <Unplug className="size-3.5" /> 解绑
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -469,55 +676,60 @@ export function RemoteView() {
         </CardContent>
       </Card>
 
-      {/* 添加远程配置 */}
+      {/* Clone 远程仓库 */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm">
-            <Plus className="size-4" /> 新增 remote 配置
+            <Plus className="size-4" /> Clone 远程仓库
             <Badge variant="outline" className="text-[9px] text-destructive/70">仅本地 · L0</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <div className="grid grid-cols-[88px_1fr] items-center gap-2">
-            <span className="text-[11px] text-muted-foreground">名称</span>
-            <Input
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              placeholder="origin"
-              className="h-8 text-xs"
-            />
             <span className="text-[11px] text-muted-foreground">URL</span>
             <div className="relative">
               <Link className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input
-                value={newUrl}
-                onChange={(e) => setNewUrl(e.target.value)}
-                placeholder="git@github.com:user/repo.git"
+                value={cloneUrl}
+                onChange={(e) => setCloneUrl(e.target.value)}
+                placeholder="https://github.com/user/repo.git"
                 className="h-8 pl-7 text-xs"
               />
+            </div>
+            <span className="text-[11px] text-muted-foreground">保存位置</span>
+            <div className="grid min-w-0 grid-cols-[1fr_auto] gap-2">
+              <Input
+                value={cloneParentPath}
+                onChange={(e) => setCloneParentPath(e.target.value)}
+                placeholder="/Users/mi/code"
+                className="h-8 text-xs"
+              />
+              <Button variant="outline" size="sm" className="h-8 w-8 px-0" onClick={selectClonePathFromDialog} title="选择本地文件夹">
+                <FolderOpen className="size-3.5" />
+              </Button>
             </div>
             <span className="text-[11px] text-muted-foreground">Access Token</span>
             <div className="relative">
               <Input
-                type={showToken ? "text" : "password"}
-                value={newToken}
-                onChange={(e) => setNewToken(e.target.value)}
-                placeholder="可选: HTTPS 推送使用"
+                type={showCloneToken ? "text" : "password"}
+                value={cloneToken}
+                onChange={(e) => setCloneToken(e.target.value)}
+                placeholder="必填: Clone 前校验仓库访问权限"
                 className="h-8 pr-8 text-xs"
               />
-              <button type="button" onClick={() => setShowToken(!showToken)}
+              <button type="button" onClick={() => setShowCloneToken(!showCloneToken)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground">
-                {showToken ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                {showCloneToken ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
               </button>
             </div>
           </div>
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] text-muted-foreground">
-              Token 会保存为当前项目凭据;仓库操作暂不在此页暴露。
+              Clone 前会用 Token 读取远程 refs;仓库会创建在保存位置下。
             </p>
-            <Button size="sm" className="h-8" onClick={handleAddRemote}
-              disabled={!overview || addingRemote || !newName.trim() || !newUrl.trim()}>
-              <Save className="size-3.5" /> {addingRemote ? "添加中" : "添加"}
+            <Button size="sm" className="h-8" onClick={handleCloneRemote}
+              disabled={!cloneParentPath.trim() || addingRemote || !cloneUrl.trim() || !cloneToken.trim()}>
+              <Save className="size-3.5" /> {addingRemote ? "Clone 中" : "Clone"}
             </Button>
           </div>
         </CardContent>

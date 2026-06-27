@@ -18,6 +18,9 @@ pub use commit::CommitInfo;
 pub use diff::FileDiff;
 pub use error::{GitError, Result};
 pub use log::LogEntry;
-pub use remote::{check_remote_access, AuthMethod, RemoteAccessReport, RemoteInfo};
+pub use remote::{
+    check_remote_access, clone_remote_repo, clone_remote_repo_into_parent, repo_dir_name_from_url,
+    AuthMethod, RemoteAccessReport, RemoteInfo,
+};
 pub use repo::{GitRepo, RepoOverview};
 pub use status::{BranchInfo, ChangeKind, FileStatus};

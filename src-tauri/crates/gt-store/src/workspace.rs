@@ -4,7 +4,7 @@
 //! - 最近打开的仓库列表
 //! - 当前设备信息
 
-use serde_json::{json, Value};
+use serde_json::json;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
@@ -15,6 +15,7 @@ const NS: &str = "workspace";
 const KEY_ACTIVE_REPO: &str = "repo.active";
 const KEY_ACTIVE_BRANCH: &str = "repo.branch";
 const KEY_RECENT_REPOS: &str = "repo.recent";
+const KEY_BOUND_REPOS: &str = "repo.bound";
 const KEY_DEVICE_ID: &str = "device.id";
 const KEY_DEVICE_NAME: &str = "device.name";
 
@@ -49,6 +50,9 @@ impl Store {
         self.set(NS, KEY_DEVICE_NAME, json!(name))?;
         if self.get(NS, KEY_RECENT_REPOS).is_none() {
             self.set(NS, KEY_RECENT_REPOS, json!([]))?;
+        }
+        if self.get(NS, KEY_BOUND_REPOS).is_none() {
+            self.set(NS, KEY_BOUND_REPOS, json!([]))?;
         }
         // 默认分支为 main
         if self.get(NS, KEY_ACTIVE_BRANCH).is_none() {
@@ -90,6 +94,12 @@ impl Store {
             .unwrap_or_default()
     }
 
+    pub fn bound_repos(&self) -> Vec<String> {
+        self.get(NS, KEY_BOUND_REPOS)
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default()
+    }
+
     pub fn device_id(&self) -> Option<String> {
         self.get(NS, KEY_DEVICE_ID)
             .and_then(|v| v.as_str().map(|s| s.to_string()))
@@ -108,6 +118,17 @@ impl Store {
         Ok(())
     }
 
+    pub fn bind_repo(&mut self, path: &str) -> Result<()> {
+        self.add_bound_repo(path)
+    }
+
+    pub fn unbind_repo(&mut self, path: &str) -> Result<()> {
+        let mut bound = self.bound_repos();
+        bound.retain(|p| p != path);
+        self.set(NS, KEY_BOUND_REPOS, json!(bound))?;
+        Ok(())
+    }
+
     fn add_recent_repo(&mut self, path: &str) -> Result<()> {
         let mut recent: Vec<String> = self
             .get(NS, KEY_RECENT_REPOS)
@@ -117,6 +138,15 @@ impl Store {
         recent.insert(0, path.to_string());
         recent.truncate(MAX_RECENT);
         self.set(NS, KEY_RECENT_REPOS, json!(recent))?;
+        Ok(())
+    }
+
+    fn add_bound_repo(&mut self, path: &str) -> Result<()> {
+        let mut bound = self.bound_repos();
+        if !bound.iter().any(|p| p == path) {
+            bound.push(path.to_string());
+        }
+        self.set(NS, KEY_BOUND_REPOS, json!(bound))?;
         Ok(())
     }
 }

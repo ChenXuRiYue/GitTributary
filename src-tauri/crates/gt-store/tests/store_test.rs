@@ -133,3 +133,21 @@ fn test_profiles() {
     assert!(profiles.contains(&"work".to_string()));
     assert!(profiles.contains(&"personal".to_string()));
 }
+
+#[test]
+fn test_bound_repos_are_independent_from_active_repo() {
+    let (_dir, mut store) = setup();
+    store.init_workspace().unwrap();
+
+    store.bind_repo("/tmp/repo-a").unwrap();
+    store.sync_workspace(Some("/tmp/repo-b"), Some("main")).unwrap();
+
+    assert_eq!(store.active_repo(), Some("/tmp/repo-b".to_string()));
+    assert_eq!(store.bound_repos(), vec!["/tmp/repo-a".to_string()]);
+
+    store.bind_repo("/tmp/repo-a").unwrap();
+    assert_eq!(store.bound_repos(), vec!["/tmp/repo-a".to_string()]);
+
+    store.unbind_repo("/tmp/repo-a").unwrap();
+    assert!(store.bound_repos().is_empty());
+}

@@ -2,7 +2,8 @@
 
 use git2::{self, Direction, FetchOptions, PushOptions, RemoteCallbacks};
 use serde::Serialize;
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::error::{GitError, Result};
 use crate::repo::GitRepo;
@@ -69,6 +70,107 @@ pub fn check_remote_access(url: &str, auth: &AuthMethod) -> Result<RemoteAccessR
         default_branch,
         refs_count,
     })
+}
+
+/// Clone 远程仓库到指定本地路径。
+///
+/// 目标路径不存在时由 git 创建;已存在时必须是空目录,避免覆盖用户数据。
+pub fn clone_remote_repo(url: &str, path: impl AsRef<Path>, auth: &AuthMethod) -> Result<GitRepo> {
+    let url = url.trim();
+    if url.is_empty() {
+        return Err(GitError::Internal("远程 URL 不能为空".to_string()));
+    }
+
+    let path = path.as_ref();
+    if path.as_os_str().is_empty() {
+        return Err(GitError::Internal("本地路径不能为空".to_string()));
+    }
+
+    if path.exists() {
+        if !path.is_dir() {
+            return Err(GitError::Internal(format!(
+                "本地路径不是目录: {}",
+                path.display()
+            )));
+        }
+        if fs::read_dir(path)
+            .map_err(|e| GitError::Internal(e.to_string()))?
+            .next()
+            .is_some()
+        {
+            return Err(GitError::Internal(format!(
+                "本地目录必须为空: {}",
+                path.display()
+            )));
+        }
+    } else if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() && !parent.exists() {
+            return Err(GitError::Internal(format!(
+                "父目录不存在: {}",
+                parent.display()
+            )));
+        }
+    }
+
+    let mut fetch_opts = FetchOptions::new();
+    fetch_opts.remote_callbacks(build_callbacks(auth));
+    let mut builder = git2::build::RepoBuilder::new();
+    builder.fetch_options(fetch_opts);
+    let repo = builder.clone(url, path)?;
+    Ok(GitRepo { repo })
+}
+
+/// 从远程 URL 推导本地仓库目录名。
+pub fn repo_dir_name_from_url(url: &str) -> Result<String> {
+    let url = url.trim().trim_end_matches('/');
+    if url.is_empty() {
+        return Err(GitError::Internal("远程 URL 不能为空".to_string()));
+    }
+
+    let last_segment = url
+        .rsplit(['/', ':'])
+        .find(|segment| !segment.trim().is_empty())
+        .ok_or_else(|| GitError::Internal("无法从远程 URL 推导仓库目录名".to_string()))?;
+    let dir_name = last_segment.strip_suffix(".git").unwrap_or(last_segment).trim();
+
+    if dir_name.is_empty()
+        || dir_name == "."
+        || dir_name == ".."
+        || dir_name.contains(std::path::MAIN_SEPARATOR)
+        || dir_name.contains('/')
+        || dir_name.contains('\\')
+    {
+        return Err(GitError::Internal("无法从远程 URL 推导仓库目录名".to_string()));
+    }
+
+    Ok(dir_name.to_string())
+}
+
+/// Clone 远程仓库到父目录下的自动推导子目录。
+pub fn clone_remote_repo_into_parent(
+    url: &str,
+    parent_path: impl AsRef<Path>,
+    auth: &AuthMethod,
+) -> Result<GitRepo> {
+    let parent_path = parent_path.as_ref();
+    if parent_path.as_os_str().is_empty() {
+        return Err(GitError::Internal("保存位置不能为空".to_string()));
+    }
+    if !parent_path.exists() {
+        return Err(GitError::Internal(format!(
+            "保存位置不存在: {}",
+            parent_path.display()
+        )));
+    }
+    if !parent_path.is_dir() {
+        return Err(GitError::Internal(format!(
+            "保存位置不是目录: {}",
+            parent_path.display()
+        )));
+    }
+
+    let target_path: PathBuf = parent_path.join(repo_dir_name_from_url(url)?);
+    clone_remote_repo(url, target_path, auth)
 }
 
 impl GitRepo {
