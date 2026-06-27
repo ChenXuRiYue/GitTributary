@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import {
   CheckCircle2,
   Code2,
+  Database,
   Eye,
   FilePenLine,
   FolderPlus,
@@ -14,6 +15,7 @@ import {
   Radio,
   RefreshCcw,
   Save,
+  Search,
   ShieldCheck,
   Trash2,
   Wrench,
@@ -25,6 +27,8 @@ import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { FileTree, type FileTreeLeaf } from "@/components/FileTree";
+import { IconNav, type NavItem } from "@/components/IconNav";
+import { Input } from "@/components/ui/input";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
@@ -33,11 +37,25 @@ import { cn } from "@/lib/utils";
 
 type ViewMode = "read" | "operate";
 type FlowListMode = "tree" | "list";
+type FlowSection = "flows" | "events";
 
 interface FlowTriggerSummary {
   kind: string;
   label: string;
   detail?: string | null;
+  filters?: Record<string, string[]>;
+}
+
+interface EventDefinition {
+  type: string;
+  source: string;
+  domain: string;
+  summary: string;
+  description: string;
+  trigger_description: string;
+  stability: string;
+  filters: string[];
+  data_schema: Record<string, string>;
 }
 
 interface FlowPermissionSummary {
@@ -112,6 +130,11 @@ jobs:
 
 const DEFAULT_FLOW_FOLDER = "未分类";
 
+const flowNavItems: NavItem[] = [
+  { id: "flows", name: "流", icon: Workflow },
+  { id: "events", name: "事件列表", icon: Radio },
+];
+
 function defaultFlowFolder(summary: FlowSummary) {
   const trigger = summary.triggers[0]?.kind ?? "manual";
   if (trigger === "schedule") return "定时";
@@ -138,6 +161,106 @@ function permissionText(permission: FlowPermissionSummary) {
   if (!permission.enabled) return `${permission.scope}: false`;
   if (permission.values.length === 0) return `${permission.scope}: true`;
   return `${permission.scope}: ${permission.values.join(", ")}`;
+}
+
+function eventDomainMeta(domain: string) {
+  switch (domain) {
+    case "app":
+      return {
+        label: "应用",
+        summary: "GitTributary 应用生命周期事件域。",
+        description: "用于描述应用启动、关闭、恢复、初始化完成等全局生命周期信号。这个域适合承载启动后检查、会话恢复、全局状态初始化和应用级通知触发。",
+      };
+    case "ui":
+      return {
+        label: "界面",
+        summary: "用户界面与人工操作事件域。",
+        description: "用于描述用户主动发起的操作,例如手动运行 Flow、命令面板触发、后续按钮或交互入口触发。这个域强调人为意图,通常会携带 inputs。",
+      };
+    case "git":
+      return {
+        label: "Git",
+        summary: "Git 仓库操作与状态变化事件域。",
+        description: "用于描述仓库打开、提交创建、推送完成、拉取完成、分支变化等 Git 相关信号。这个域是笔记仓库自动化的主要入口,适合触发备份、同步、检查和发布类 Flow。",
+      };
+    case "store":
+      return {
+        label: "数据中心",
+        summary: "GitTributary 数据中心配置变化事件域。",
+        description: "用于描述公共配置、工作区状态、插件配置等数据中心 key 的变化。private 和 secrets 类命名空间默认不进入该域事件,避免敏感信息外泄。",
+      };
+    case "flow":
+      return {
+        label: "Flow",
+        summary: "Flow 运行生命周期事件域。",
+        description: "用于描述 Flow 自身的 queued、started、succeeded、failed、skipped 等运行结果。这个域用于串联 Flow、构建失败恢复链路和展示自动化运行状态。",
+      };
+    default:
+      if (domain.startsWith("plugin.")) {
+        return {
+          label: "插件",
+          summary: "插件扩展事件域。",
+          description: "用于承载第三方或本地插件发布的事件。插件事件应通过 plugin.<plugin_id>.* 命名空间隔离,并声明事件定义、权限、版本和载荷 schema。",
+        };
+      }
+      return {
+        label: domain,
+        summary: "自定义事件域。",
+        description: "当前事件域未登记内置说明。后续如果该域成为稳定能力,应补充域定位、事件来源、权限边界和典型触发场景。",
+      };
+  }
+}
+
+function eventDomainText(domain: string) {
+  return eventDomainMeta(domain).label;
+}
+
+function eventStabilityTone(stability: string) {
+  switch (stability) {
+    case "stable":
+      return "border-green-200 bg-green-50 text-green-700";
+    case "deprecated":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-600";
+  }
+}
+
+function groupEventsByDomain(events: EventDefinition[]) {
+  return events.reduce<Record<string, EventDefinition[]>>((groups, event) => {
+    const key = event.domain || "unknown";
+    groups[key] = groups[key] ?? [];
+    groups[key].push(event);
+    return groups;
+  }, {});
+}
+
+function sortedEvents(events: EventDefinition[]) {
+  return events
+    .slice()
+    .sort((a, b) => a.domain.localeCompare(b.domain) || a.type.localeCompare(b.type));
+}
+
+function eventSearchText(event: EventDefinition) {
+  return [
+    event.type,
+    event.source,
+    event.domain,
+    event.summary,
+    event.description,
+    event.trigger_description,
+    event.stability,
+    ...event.filters,
+    ...Object.keys(event.data_schema),
+  ]
+    .join(" ")
+    .toLocaleLowerCase();
+}
+
+function eventMatchesQuery(event: EventDefinition, query: string) {
+  const normalized = query.trim().toLocaleLowerCase();
+  if (!normalized) return true;
+  return eventSearchText(event).includes(normalized);
 }
 
 function formatTime(value: string) {
@@ -576,6 +699,293 @@ function EmptyState({ canOperate, onCreate }: { canOperate: boolean; onCreate: (
   );
 }
 
+function EventCatalogView({
+  events,
+  isLoading,
+}: {
+  events: EventDefinition[];
+  isLoading: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const [domainFilter, setDomainFilter] = useState("all");
+  const [stabilityFilter, setStabilityFilter] = useState("all");
+  const [filterabilityFilter, setFilterabilityFilter] = useState("all");
+  const [selectedType, setSelectedType] = useState<string | null>(null);
+
+  const sorted = useMemo(() => sortedEvents(events), [events]);
+  const domains = useMemo(() => Array.from(new Set(sorted.map((event) => event.domain))).sort(), [sorted]);
+  const stabilities = useMemo(() => Array.from(new Set(sorted.map((event) => event.stability))).sort(), [sorted]);
+  const filteredEvents = useMemo(() => {
+    return sorted.filter((event) => {
+      if (!eventMatchesQuery(event, query)) return false;
+      if (domainFilter !== "all" && event.domain !== domainFilter) return false;
+      if (stabilityFilter !== "all" && event.stability !== stabilityFilter) return false;
+      if (filterabilityFilter === "filterable" && event.filters.length === 0) return false;
+      if (filterabilityFilter === "plain" && event.filters.length > 0) return false;
+      return true;
+    });
+  }, [domainFilter, filterabilityFilter, query, sorted, stabilityFilter]);
+  const groupedFilteredEvents = groupEventsByDomain(filteredEvents);
+  const groupedFilteredEntries = Object.entries(groupedFilteredEvents).sort(([a], [b]) => a.localeCompare(b));
+  const selectedEvent = filteredEvents.find((event) => event.type === selectedType) ?? filteredEvents[0] ?? null;
+  const selectedDomainMeta = selectedEvent ? eventDomainMeta(selectedEvent.domain) : null;
+  const filterCount = events.reduce((count, event) => count + event.filters.length, 0);
+  const schemaFieldCount = events.reduce((count, event) => count + Object.keys(event.data_schema).length, 0);
+  const hasActiveFilters = Boolean(query.trim()) || domainFilter !== "all" || stabilityFilter !== "all" || filterabilityFilter !== "all";
+
+  if (isLoading) {
+    return (
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">加载事件列表...</div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-w-0 flex-col gap-4 overflow-hidden p-4">
+        <section className="rounded-md border">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b px-4 py-3">
+            <div className="min-w-0">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h3 className="gt-title-panel truncate">事件列表</h3>
+                <Badge variant="outline" className="h-5 border-slate-200 bg-slate-50 text-slate-600">
+                  {events.length} 个事件
+                </Badge>
+              </div>
+              <p className="gt-body mt-1 text-muted-foreground">
+                当前事件池已登记的可触发信号,这些事件会作为 Flow 的入口。
+              </p>
+            </div>
+          </div>
+
+          <div className="grid md:grid-cols-4">
+            <Metric label="事件数量" value={`${events.length}`} icon={Radio} />
+            <Metric label="来源域" value={`${domains.length}`} icon={Database} />
+            <Metric label="过滤字段" value={`${filterCount}`} icon={ListPlus} />
+            <Metric label="载荷字段" value={`${schemaFieldCount}`} icon={Code2} />
+          </div>
+        </section>
+
+        {selectedEvent && selectedDomainMeta && (
+          <section className="rounded-md border">
+            <SectionHeader
+              icon={Database}
+              title="当前域说明"
+              aside={`${eventDomainText(selectedEvent.domain)} · ${filteredEvents.filter((event) => event.domain === selectedEvent.domain).length} events`}
+            />
+            <div className="px-4 py-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <p className="gt-body-strong truncate">{selectedDomainMeta.label}</p>
+                <Badge variant="outline" className="h-5 border-slate-200 bg-slate-50 text-slate-600">
+                  {selectedEvent.domain}
+                </Badge>
+              </div>
+              <p className="gt-caption mt-1 text-muted-foreground">{selectedDomainMeta.summary}</p>
+              <p className="gt-body mt-2 text-muted-foreground">{selectedDomainMeta.description}</p>
+            </div>
+          </section>
+        )}
+
+        <section className="rounded-md border">
+          <div className="grid gap-3 p-3 xl:grid-cols-[minmax(220px,1fr)_160px_150px_150px_auto]">
+            <div className="relative min-w-0">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索事件名、来源、描述、载荷字段"
+                className="h-8 pl-8"
+              />
+            </div>
+            <select
+              value={domainFilter}
+              onChange={(event) => setDomainFilter(event.target.value)}
+              className="h-8 min-w-0 rounded-md border bg-background px-2 text-sm"
+              aria-label="来源域筛选"
+            >
+              <option value="all">全部来源</option>
+              {domains.map((domain) => (
+                <option key={domain} value={domain}>{eventDomainText(domain)}</option>
+              ))}
+            </select>
+            <select
+              value={stabilityFilter}
+              onChange={(event) => setStabilityFilter(event.target.value)}
+              className="h-8 min-w-0 rounded-md border bg-background px-2 text-sm"
+              aria-label="稳定性筛选"
+            >
+              <option value="all">全部状态</option>
+              {stabilities.map((stability) => (
+                <option key={stability} value={stability}>{stability}</option>
+              ))}
+            </select>
+            <select
+              value={filterabilityFilter}
+              onChange={(event) => setFilterabilityFilter(event.target.value)}
+              className="h-8 min-w-0 rounded-md border bg-background px-2 text-sm"
+              aria-label="过滤能力筛选"
+            >
+              <option value="all">全部过滤能力</option>
+              <option value="filterable">可过滤</option>
+              <option value="plain">无过滤字段</option>
+            </select>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!hasActiveFilters}
+              onClick={() => {
+                setQuery("");
+                setDomainFilter("all");
+                setStabilityFilter("all");
+                setFilterabilityFilter("all");
+                setSelectedType(null);
+              }}
+            >
+              清除
+            </Button>
+          </div>
+          <div className="border-t px-3 py-2">
+            <p className="gt-caption text-muted-foreground">
+              当前显示 {filteredEvents.length} / {events.length} 个事件
+            </p>
+          </div>
+        </section>
+
+        {events.length === 0 ? (
+          <section className="rounded-md border">
+            <p className="gt-body px-4 py-3 text-muted-foreground">暂无已注册事件。</p>
+          </section>
+        ) : filteredEvents.length === 0 ? (
+          <section className="rounded-md border">
+            <p className="gt-body px-4 py-3 text-muted-foreground">没有符合筛选条件的事件。</p>
+          </section>
+        ) : (
+          <section className="grid min-h-0 flex-1 overflow-hidden rounded-md border xl:grid-cols-[minmax(280px,0.42fr)_minmax(0,0.58fr)]">
+            <div className="min-h-0 border-b xl:border-b-0 xl:border-r">
+              <div className="flex items-center justify-between gap-3 border-b px-3 py-2.5">
+                <div className="flex min-w-0 items-center gap-2">
+                  <List className="size-4 shrink-0 text-muted-foreground" />
+                  <h4 className="gt-title-section truncate">事件索引</h4>
+                </div>
+                <span className="gt-caption shrink-0 text-muted-foreground">{filteredEvents.length}</span>
+              </div>
+              <ScrollArea className="h-full" orientation="vertical">
+                {groupedFilteredEntries.map(([domain, domainEvents]) => (
+                  <div key={domain} className="border-b last:border-b-0">
+                    <div className="sticky top-0 z-10 border-b bg-muted/70 px-3 py-1.5 backdrop-blur">
+                      <p className="gt-label text-muted-foreground">{eventDomainText(domain)} · {domainEvents.length}</p>
+                    </div>
+                    {domainEvents.map((event) => {
+                      const selected = selectedEvent?.type === event.type;
+                      return (
+                        <button
+                          key={event.type}
+                          type="button"
+                          onClick={() => setSelectedType(event.type)}
+                          className={cn(
+                            "grid w-full grid-cols-[1fr_auto] gap-2 px-3 py-2.5 text-left transition-colors",
+                            selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/45",
+                          )}
+                        >
+                          <span className="min-w-0">
+                            <span className="gt-body-strong block truncate">{event.summary || event.description}</span>
+                            <span className="gt-code mt-0.5 block truncate text-muted-foreground">{event.type}</span>
+                          </span>
+                          <span className="flex flex-col items-end gap-1">
+                            <Badge variant="outline" className={cn("h-5 border", eventStabilityTone(event.stability))}>
+                              {event.stability}
+                            </Badge>
+                            {event.filters.length > 0 && (
+                              <span className="gt-caption text-muted-foreground">{event.filters.length} filters</span>
+                            )}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </ScrollArea>
+            </div>
+
+            <div className="min-h-0">
+              {selectedEvent && (
+                <div className="flex h-full min-w-0 flex-col">
+                  <div className="border-b px-4 py-3">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2">
+                      <h4 className="gt-title-panel truncate">{selectedEvent.summary || selectedEvent.description}</h4>
+                      <Badge variant="outline" className={cn("h-5 border", eventStabilityTone(selectedEvent.stability))}>
+                        {selectedEvent.stability}
+                      </Badge>
+                      <Badge variant="outline" className="h-5 border-slate-200 bg-slate-50 text-slate-600">
+                        {eventDomainText(selectedEvent.domain)}
+                      </Badge>
+                    </div>
+                    <p className="gt-code mt-1 break-all text-muted-foreground">{selectedEvent.type}</p>
+                    <p className="gt-caption mt-1 break-all text-muted-foreground">{selectedEvent.source}</p>
+                  </div>
+
+                  <ScrollArea className="min-h-0 flex-1" orientation="both">
+                    <div className="space-y-4 p-4">
+                      {selectedDomainMeta && (
+                        <div className="rounded-md border bg-muted/20 px-3 py-2.5">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <Database className="size-3.5 shrink-0 text-muted-foreground" />
+                            <p className="gt-body-strong truncate">{selectedDomainMeta.label}</p>
+                          </div>
+                          <p className="gt-caption mt-1 text-muted-foreground">{selectedDomainMeta.summary}</p>
+                          <p className="gt-body mt-2 text-muted-foreground">{selectedDomainMeta.description}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="gt-label text-muted-foreground">简要描述</p>
+                        <p className="gt-body mt-1">{selectedEvent.description}</p>
+                      </div>
+                      <div>
+                        <p className="gt-label text-muted-foreground">触发说明</p>
+                        <p className="gt-body mt-1 text-muted-foreground">{selectedEvent.trigger_description}</p>
+                      </div>
+
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <div className="rounded-md border">
+                          <SectionHeader icon={ListPlus} title="过滤字段" aside={`${selectedEvent.filters.length}`} />
+                          {selectedEvent.filters.length === 0 ? (
+                            <p className="gt-body px-4 py-3 text-muted-foreground">该事件没有声明过滤字段。</p>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5 p-3">
+                              {selectedEvent.filters.map((filter) => (
+                                <Badge key={filter} variant="outline" className="font-mono text-[10px]">
+                                  {filter}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="rounded-md border">
+                          <SectionHeader icon={Code2} title="事件载荷" aside={`${Object.keys(selectedEvent.data_schema).length}`} />
+                          {Object.keys(selectedEvent.data_schema).length === 0 ? (
+                            <p className="gt-body px-4 py-3 text-muted-foreground">该事件没有固定载荷字段。</p>
+                          ) : (
+                            <div className="divide-y">
+                              {Object.entries(selectedEvent.data_schema).map(([key, value]) => (
+                                <div key={key} className="grid grid-cols-[minmax(100px,0.45fr)_1fr] gap-2 px-3 py-2">
+                                  <span className="gt-code truncate">{key}</span>
+                                  <span className="gt-caption truncate text-muted-foreground">{value}</span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </ScrollArea>
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+    </div>
+  );
+}
+
 function SummaryView({
   record,
   canOperate,
@@ -779,7 +1189,9 @@ function YamlEditor({
 }
 
 export function FlowPanel() {
+  const [section, setSection] = useState<FlowSection>("flows");
   const [flows, setFlows] = useState<FlowListItem[]>([]);
+  const [events, setEvents] = useState<EventDefinition[]>([]);
   const [folders, setFolders] = useState<string[]>([DEFAULT_FLOW_FOLDER]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
@@ -795,6 +1207,7 @@ export function FlowPanel() {
   const [editorStatus, setEditorStatus] = useState<"idle" | "valid" | "invalid">("idle");
   const [editorError, setEditorError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isEventsLoading, setIsEventsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -830,6 +1243,19 @@ export function FlowPanel() {
     }
   }, []);
 
+  const loadEvents = useCallback(async () => {
+    setIsEventsLoading(true);
+    setLoadError(null);
+    try {
+      const list = await invoke<EventDefinition[]>("flow_event_catalog");
+      setEvents(list);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsEventsLoading(false);
+    }
+  }, []);
+
   const loadRecord = useCallback(async (id: string | null) => {
     if (!id) {
       setSelectedRecord(null);
@@ -851,6 +1277,10 @@ export function FlowPanel() {
   useEffect(() => {
     void loadFlows();
   }, [loadFlows]);
+
+  useEffect(() => {
+    void loadEvents();
+  }, [loadEvents]);
 
   useEffect(() => {
     void loadRecord(selectedId);
@@ -1095,6 +1525,15 @@ export function FlowPanel() {
     await persistFolder(path);
   };
 
+  const changeSection = (nextSection: FlowSection) => {
+    setSection(nextSection);
+    if (nextSection === "events") {
+      setIsEditingYaml(false);
+      setContextMenu(null);
+      setFolderCreateDraft(null);
+    }
+  };
+
   const deleteFolderByPath = async (path: string) => {
     try {
       const nextFolders = await invoke<string[]>("flow_delete_folder", { path });
@@ -1107,134 +1546,163 @@ export function FlowPanel() {
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Workflow className="size-4 text-muted-foreground" />
-            <h3 className="gt-title-panel">Git 笔记库流系统</h3>
-          </div>
-          <p className="gt-caption mt-1 text-muted-foreground">
-            以 Git 基座下的笔记库为核心 · {flows.length} 个流 · {enabledCount} 个启用
-          </p>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => loadFlows(selectedId)} title="刷新">
-            <RefreshCcw className="size-3.5" />
-          </Button>
-          <ModeToggle mode={mode} onChange={changeMode} />
-        </div>
+    <div className="flex h-full min-h-0 overflow-hidden bg-background">
+      <div className="flex w-10 shrink-0 flex-col items-center border-r border-border/50 py-2">
+        <IconNav
+          items={flowNavItems}
+          activeId={section}
+          onSelect={(id) => changeSection(id as FlowSection)}
+          size="sm"
+          moreStateKey="flow.nav.more.open"
+        />
       </div>
 
-      {loadError && (
-        <div className="shrink-0 border-b bg-red-50 px-4 py-2 text-sm text-red-700">
-          {loadError}
-        </div>
-      )}
-
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <aside
-          className="flex min-h-0 shrink-0 flex-col border-r"
-          style={{ width: `${fileListWidth}px` }}
-        >
-          <FlowFileBrowser
-            flows={flows}
-            folders={folders}
-            selectedId={selectedId}
-            selectedFolder={selectedFolder}
-            onSelect={selectTreeItem}
-            onContextMenu={openContextMenu}
-            canOperate={canOperate}
-            listMode={listMode}
-            onListModeChange={setListMode}
-          />
-        </aside>
-
-        <ResizeHandle
-          direction="horizontal"
-          size={fileListWidth}
-          onResize={setFileListWidth}
-          minSize={240}
-          snapTo={320}
-        />
-
-        <div className="min-h-0 flex-1 overflow-hidden">
-          {isEditingYaml ? (
-            <YamlEditor
-              yaml={editorYaml}
-              folder={editorFolder}
-              folders={folders}
-              status={editorStatus}
-              error={editorError}
-              isSaving={isSaving}
-              onChange={setEditorYaml}
-              onFolderChange={setEditorFolder}
-              onSave={saveWorkflow}
-              onCancel={cancelEdit}
-              onDelete={selectedRecord ? deleteSelected : undefined}
-            />
-          ) : isLoading ? (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">加载 Flow...</div>
-          ) : selectedRecord ? (
-            <ScrollArea className="h-full" orientation="both">
-              <SummaryView record={selectedRecord} canOperate={canOperate} onEdit={startEdit} onToggle={toggleEnabled} />
-            </ScrollArea>
-          ) : selectedFolder ? (
-            <div className="flex h-full min-h-[420px] items-center justify-center p-6">
-              <div className="w-full max-w-md rounded-md border bg-background p-5 text-center">
-                <div className="mx-auto flex size-10 items-center justify-center rounded-md bg-muted">
-                  <FolderTree className="size-5 text-muted-foreground" />
-                </div>
-                <h3 className="gt-title-panel mt-3">{selectedFolder}</h3>
-                {canOperate && (
-                  <>
-                    <p className="gt-body mt-2 text-muted-foreground">选中文件夹后添加 Flow,会直接保存到这个目录。</p>
-                    <Button className="mt-4" size="sm" onClick={startCreate}>
-                      <Plus className="size-3.5" />
-                      添加 Flow
-                    </Button>
-                  </>
-                )}
-              </div>
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <Workflow className="size-4 text-muted-foreground" />
+              <h3 className="gt-title-panel">Git 笔记库流系统</h3>
             </div>
-          ) : (
-            <EmptyState canOperate={canOperate} onCreate={startCreate} />
-          )}
+            <p className="gt-caption mt-1 text-muted-foreground">
+              以 Git 基座下的笔记库为核心 · {flows.length} 个流 · {enabledCount} 个启用
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (section === "events") {
+                  void loadEvents();
+                } else {
+                  void loadFlows(selectedId);
+                }
+              }}
+              title="刷新"
+            >
+              <RefreshCcw className="size-3.5" />
+            </Button>
+            {section === "flows" && <ModeToggle mode={mode} onChange={changeMode} />}
+          </div>
         </div>
-      </div>
 
-      {canOperate && contextMenu && (
-        <FlowFloatingActions
-          menu={contextMenu}
-          onBeginCreateChildFolder={beginCreateChildFolder}
-          onCreateFlow={(folder) => {
-            closeContextMenu();
-            startCreateInFolder(folder);
-          }}
-          onDeleteFolder={(folder) => {
-            closeContextMenu();
-            void deleteFolderByPath(folder);
-          }}
-          onEditFlow={(id) => {
-            closeContextMenu();
-            void startEditFlowById(id);
-          }}
-          onDeleteFlow={(id) => {
-            closeContextMenu();
-            void deleteFlowById(id);
-          }}
-        />
-      )}
-      {canOperate && folderCreateDraft && (
-        <FlowFolderCreateInput
-          draft={folderCreateDraft}
-          onChange={(value) => setFolderCreateDraft((draft) => draft ? { ...draft, value } : draft)}
-          onCommit={() => {
-            void commitFolderCreateDraft();
-          }}
-          onCancel={() => setFolderCreateDraft(null)}
-        />
-      )}
+        {loadError && (
+          <div className="shrink-0 border-b bg-red-50 px-4 py-2 text-sm text-red-700">
+            {loadError}
+          </div>
+        )}
+
+        {section === "events" ? (
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <EventCatalogView events={events} isLoading={isEventsLoading} />
+          </div>
+        ) : (
+          <div className="flex min-h-0 flex-1 overflow-hidden">
+            <aside
+              className="flex min-h-0 shrink-0 flex-col border-r"
+              style={{ width: `${fileListWidth}px` }}
+            >
+              <FlowFileBrowser
+                flows={flows}
+                folders={folders}
+                selectedId={selectedId}
+                selectedFolder={selectedFolder}
+                onSelect={selectTreeItem}
+                onContextMenu={openContextMenu}
+                canOperate={canOperate}
+                listMode={listMode}
+                onListModeChange={setListMode}
+              />
+            </aside>
+
+            <ResizeHandle
+              direction="horizontal"
+              size={fileListWidth}
+              onResize={setFileListWidth}
+              minSize={240}
+              snapTo={320}
+            />
+
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {isEditingYaml ? (
+                <YamlEditor
+                  yaml={editorYaml}
+                  folder={editorFolder}
+                  folders={folders}
+                  status={editorStatus}
+                  error={editorError}
+                  isSaving={isSaving}
+                  onChange={setEditorYaml}
+                  onFolderChange={setEditorFolder}
+                  onSave={saveWorkflow}
+                  onCancel={cancelEdit}
+                  onDelete={selectedRecord ? deleteSelected : undefined}
+                />
+              ) : isLoading ? (
+                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">加载 Flow...</div>
+              ) : selectedRecord ? (
+                <ScrollArea className="h-full" orientation="both">
+                  <SummaryView record={selectedRecord} canOperate={canOperate} onEdit={startEdit} onToggle={toggleEnabled} />
+                </ScrollArea>
+              ) : selectedFolder ? (
+                <div className="flex h-full min-h-[420px] items-center justify-center p-6">
+                  <div className="w-full max-w-md rounded-md border bg-background p-5 text-center">
+                    <div className="mx-auto flex size-10 items-center justify-center rounded-md bg-muted">
+                      <FolderTree className="size-5 text-muted-foreground" />
+                    </div>
+                    <h3 className="gt-title-panel mt-3">{selectedFolder}</h3>
+                    {canOperate && (
+                      <>
+                        <p className="gt-body mt-2 text-muted-foreground">选中文件夹后添加 Flow,会直接保存到这个目录。</p>
+                        <Button className="mt-4" size="sm" onClick={startCreate}>
+                          <Plus className="size-3.5" />
+                          添加 Flow
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <EmptyState canOperate={canOperate} onCreate={startCreate} />
+              )}
+            </div>
+          </div>
+        )}
+
+        {section === "flows" && canOperate && contextMenu && (
+          <FlowFloatingActions
+            menu={contextMenu}
+            onBeginCreateChildFolder={beginCreateChildFolder}
+            onCreateFlow={(folder) => {
+              closeContextMenu();
+              startCreateInFolder(folder);
+            }}
+            onDeleteFolder={(folder) => {
+              closeContextMenu();
+              void deleteFolderByPath(folder);
+            }}
+            onEditFlow={(id) => {
+              closeContextMenu();
+              void startEditFlowById(id);
+            }}
+            onDeleteFlow={(id) => {
+              closeContextMenu();
+              void deleteFlowById(id);
+            }}
+          />
+        )}
+        {section === "flows" && canOperate && folderCreateDraft && (
+          <FlowFolderCreateInput
+            draft={folderCreateDraft}
+            onChange={(value) => setFolderCreateDraft((draft) => draft ? { ...draft, value } : draft)}
+            onCommit={() => {
+              void commitFolderCreateDraft();
+            }}
+            onCancel={() => setFolderCreateDraft(null)}
+          />
+        )}
+      </div>
     </div>
   );
 }

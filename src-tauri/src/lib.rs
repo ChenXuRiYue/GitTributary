@@ -1,15 +1,21 @@
 use std::sync::Mutex;
 
-use gt_flow::{FlowRecord, FlowSummary};
-use gt_git::{GitRepo, RepoOverview, FileStatus, CommitInfo, FileDiff, BranchInfo, LogEntry, RemoteInfo, AuthMethod};
+use gt_flow::{
+    CloudEvent, EventDefinition, EventDraft, EventPool, EventReceipt, FlowRecord, FlowSummary,
+};
+use gt_git::{
+    AuthMethod, BranchInfo, CommitInfo, FileDiff, FileStatus, GitRepo, LogEntry, RemoteInfo,
+    RepoOverview,
+};
 use gt_store::Store;
-use serde_json::Value;
-use tauri::State;
+use serde_json::{json, Value};
+use tauri::{Manager, State};
 
 /// 应用状态
 pub struct AppState {
     pub repo: Mutex<Option<GitRepo>>,
     pub store: Mutex<Store>,
+    pub event_pool: Mutex<EventPool>,
 }
 
 /// 打开一个 Git 仓库并返回概况
@@ -21,8 +27,23 @@ fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoOverview, S
     let mut repo_lock = state.repo.lock().unwrap();
     *repo_lock = Some(repo);
     // 统一同步 workspace 状态(一个调用搞定)
-    let mut store = state.store.lock().unwrap();
-    let _ = store.sync_workspace(Some(&path), Some(&branch));
+    {
+        let mut store = state.store.lock().unwrap();
+        let _ = store.sync_workspace(Some(&path), Some(&branch));
+    }
+    let repo_path = overview.path.to_string_lossy().to_string();
+    let _ = publish_flow_event(
+        &state,
+        EventDraft {
+            source: "gittributary://gt-git".to_string(),
+            event_type: "git.repo.opened".to_string(),
+            subject: Some(format!("repo:{repo_path}")),
+            data: json!({
+                "repo": repo_path,
+                "branch": branch,
+            }),
+        },
+    );
     Ok(overview)
 }
 
@@ -55,7 +76,10 @@ fn stage_all(state: State<'_, AppState>) -> Result<(), String> {
 fn stage_files(paths: Vec<String>, state: State<'_, AppState>) -> Result<(), String> {
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
-    let path_refs: Vec<&std::path::Path> = paths.iter().map(|p| std::path::Path::new(p.as_str())).collect();
+    let path_refs: Vec<&std::path::Path> = paths
+        .iter()
+        .map(|p| std::path::Path::new(p.as_str()))
+        .collect();
     repo.stage_files(&path_refs).map_err(|e| e.to_string())
 }
 
@@ -64,18 +88,67 @@ fn stage_files(paths: Vec<String>, state: State<'_, AppState>) -> Result<(), Str
 fn commit_all(message: String, state: State<'_, AppState>) -> Result<CommitInfo, String> {
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
+    let repo_path = repo
+        .workdir()
+        .map(|path| path.to_string_lossy().to_string());
+    let branch = repo.current_branch().unwrap_or_else(|_| "HEAD".to_string());
     repo.stage_all().map_err(|e| e.to_string())?;
-    repo.commit(&message).map_err(|e| e.to_string())
+    let commit = repo.commit(&message).map_err(|e| e.to_string())?;
+    drop(lock);
+    if let Some(repo_path) = repo_path {
+        let _ = publish_flow_event(
+            &state,
+            EventDraft {
+                source: "gittributary://gt-git".to_string(),
+                event_type: "git.commit.created".to_string(),
+                subject: Some(format!("repo:{repo_path}")),
+                data: json!({
+                    "repo": repo_path,
+                    "branch": branch,
+                    "commit": commit.id.clone(),
+                }),
+            },
+        );
+    }
+    Ok(commit)
 }
 
 /// 暂存指定文件并提交
 #[tauri::command]
-fn commit_selected(paths: Vec<String>, message: String, state: State<'_, AppState>) -> Result<CommitInfo, String> {
+fn commit_selected(
+    paths: Vec<String>,
+    message: String,
+    state: State<'_, AppState>,
+) -> Result<CommitInfo, String> {
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
-    let path_refs: Vec<&std::path::Path> = paths.iter().map(|p| std::path::Path::new(p.as_str())).collect();
+    let repo_path = repo
+        .workdir()
+        .map(|path| path.to_string_lossy().to_string());
+    let branch = repo.current_branch().unwrap_or_else(|_| "HEAD".to_string());
+    let path_refs: Vec<&std::path::Path> = paths
+        .iter()
+        .map(|p| std::path::Path::new(p.as_str()))
+        .collect();
     repo.stage_files(&path_refs).map_err(|e| e.to_string())?;
-    repo.commit(&message).map_err(|e| e.to_string())
+    let commit = repo.commit(&message).map_err(|e| e.to_string())?;
+    drop(lock);
+    if let Some(repo_path) = repo_path {
+        let _ = publish_flow_event(
+            &state,
+            EventDraft {
+                source: "gittributary://gt-git".to_string(),
+                event_type: "git.commit.created".to_string(),
+                subject: Some(format!("repo:{repo_path}")),
+                data: json!({
+                    "repo": repo_path,
+                    "branch": branch,
+                    "commit": commit.id.clone(),
+                }),
+            },
+        );
+    }
+    Ok(commit)
 }
 
 /// 获取单个文件的 diff
@@ -137,15 +210,23 @@ fn get_log(limit: Option<usize>, state: State<'_, AppState>) -> Result<Vec<LogEn
 
 /// 获取指定分支的提交历史
 #[tauri::command]
-fn get_branch_log(branch: String, limit: Option<usize>, state: State<'_, AppState>) -> Result<Vec<LogEntry>, String> {
+fn get_branch_log(
+    branch: String,
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<LogEntry>, String> {
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
-    repo.log_branch(&branch, limit.unwrap_or(100)).map_err(|e| e.to_string())
+    repo.log_branch(&branch, limit.unwrap_or(100))
+        .map_err(|e| e.to_string())
 }
 
 /// 获取某次提交涉及的变更文件列表
 #[tauri::command]
-fn get_commit_files(commit_id: String, state: State<'_, AppState>) -> Result<Vec<FileStatus>, String> {
+fn get_commit_files(
+    commit_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<FileStatus>, String> {
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
     repo.commit_files(&commit_id).map_err(|e| e.to_string())
@@ -153,10 +234,15 @@ fn get_commit_files(commit_id: String, state: State<'_, AppState>) -> Result<Vec
 
 /// 获取某次提交中指定文件的 diff
 #[tauri::command]
-fn get_commit_file_diff(commit_id: String, path: String, state: State<'_, AppState>) -> Result<FileDiff, String> {
+fn get_commit_file_diff(
+    commit_id: String,
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<FileDiff, String> {
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
-    repo.commit_file_diff(&commit_id, &path).map_err(|e| e.to_string())
+    repo.commit_file_diff(&commit_id, &path)
+        .map_err(|e| e.to_string())
 }
 
 // ─── Remote commands ──────────────────────────────────────────────────
@@ -220,7 +306,11 @@ struct RemoteConfigEntry {
     capabilities: String,
 }
 
-fn credential_summary_for_remote(store: &Store, workdir: Option<&str>, url: &str) -> (String, Option<String>) {
+fn credential_summary_for_remote(
+    store: &Store,
+    workdir: Option<&str>,
+    url: &str,
+) -> (String, Option<String>) {
     if let Some(path) = workdir {
         let project_key = format!("project.{}.token", path);
         if let Some(val) = store.get("private.credentials", &project_key) {
@@ -232,7 +322,10 @@ fn credential_summary_for_remote(store: &Store, workdir: Option<&str>, url: &str
 
     if let Some(token) = store.get_git_token_raw() {
         if !token.is_empty() {
-            return ("app_global_token".to_string(), Some("global:git.access_token".to_string()));
+            return (
+                "app_global_token".to_string(),
+                Some("global:git.access_token".to_string()),
+            );
         }
     }
 
@@ -241,10 +334,16 @@ fn credential_summary_for_remote(store: &Store, workdir: Option<&str>, url: &str
     }
 
     if url.starts_with("git@") || url.starts_with("ssh://") {
-        return ("ssh_agent".to_string(), Some("system:ssh-agent".to_string()));
+        return (
+            "ssh_agent".to_string(),
+            Some("system:ssh-agent".to_string()),
+        );
     }
 
-    ("system".to_string(), Some("system:credential-helper".to_string()))
+    (
+        "system".to_string(),
+        Some("system:credential-helper".to_string()),
+    )
 }
 
 fn config_repo_credential_summary(store: &Store) -> (String, Option<String>) {
@@ -279,21 +378,24 @@ fn get_remote_configs(state: State<'_, AppState>) -> Result<Vec<RemoteConfigEntr
     };
 
     let store = state.store.lock().unwrap();
-    let mut entries: Vec<RemoteConfigEntry> = remotes.into_iter().map(|remote| {
-        let (credential_mode, credential_ref) =
-            credential_summary_for_remote(&store, workdir.as_deref(), &remote.url);
-        RemoteConfigEntry {
-            name: remote.name,
-            url: remote.url,
-            push_url: remote.push_url,
-            source: "local_git_config".to_string(),
-            purpose: vec!["current_repo_remote".to_string()],
-            credential_mode,
-            credential_ref,
-            verify_status: "unverified".to_string(),
-            capabilities: "unknown".to_string(),
-        }
-    }).collect();
+    let mut entries: Vec<RemoteConfigEntry> = remotes
+        .into_iter()
+        .map(|remote| {
+            let (credential_mode, credential_ref) =
+                credential_summary_for_remote(&store, workdir.as_deref(), &remote.url);
+            RemoteConfigEntry {
+                name: remote.name,
+                url: remote.url,
+                push_url: remote.push_url,
+                source: "local_git_config".to_string(),
+                purpose: vec!["current_repo_remote".to_string()],
+                credential_mode,
+                credential_ref,
+                verify_status: "unverified".to_string(),
+                capabilities: "unknown".to_string(),
+            }
+        })
+        .collect();
 
     let sync_config = {
         let base_dir = store_base_dir();
@@ -302,7 +404,13 @@ fn get_remote_configs(state: State<'_, AppState>) -> Result<Vec<RemoteConfigEntr
     };
 
     if let Some(config) = sync_config {
-        if !entries.iter().any(|entry| entry.url == config.url && entry.purpose.iter().any(|purpose| purpose == "data_center_sync")) {
+        if !entries.iter().any(|entry| {
+            entry.url == config.url
+                && entry
+                    .purpose
+                    .iter()
+                    .any(|purpose| purpose == "data_center_sync")
+        }) {
             let (credential_mode, credential_ref) = config_repo_credential_summary(&store);
             entries.push(RemoteConfigEntry {
                 name: config_repo_remote_name(&config.url),
@@ -360,7 +468,28 @@ fn git_push(remote: String, branch: String, state: State<'_, AppState>) -> Resul
     let auth = resolve_auth(&state);
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
-    repo.push(&remote, &branch, &auth).map_err(|e| e.to_string())
+    let repo_path = repo
+        .workdir()
+        .map(|path| path.to_string_lossy().to_string());
+    repo.push(&remote, &branch, &auth)
+        .map_err(|e| e.to_string())?;
+    drop(lock);
+    if let Some(repo_path) = repo_path {
+        let _ = publish_flow_event(
+            &state,
+            EventDraft {
+                source: "gittributary://gt-git".to_string(),
+                event_type: "git.push.completed".to_string(),
+                subject: Some(format!("repo:{repo_path}")),
+                data: json!({
+                    "repo": repo_path,
+                    "branch": branch,
+                    "remote": remote,
+                }),
+            },
+        );
+    }
+    Ok(())
 }
 
 /// Pull(fetch + fast-forward)
@@ -369,7 +498,8 @@ fn git_pull(remote: String, branch: String, state: State<'_, AppState>) -> Resul
     let auth = resolve_auth(&state);
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
-    repo.pull(&remote, &branch, &auth).map_err(|e| e.to_string())
+    repo.pull(&remote, &branch, &auth)
+        .map_err(|e| e.to_string())
 }
 
 /// 设置项目级 token(存入 private.credentials 命名空间)
@@ -381,7 +511,12 @@ fn set_project_token(token: String, state: State<'_, AppState>) -> Result<(), St
     let project_key = format!("project.{}.token", workdir.display());
     drop(repo_lock);
     let mut store = state.store.lock().unwrap();
-    store.set("private.credentials", &project_key, serde_json::json!(token))
+    store
+        .set(
+            "private.credentials",
+            &project_key,
+            serde_json::json!(token),
+        )
         .map_err(|e| e.to_string())
 }
 
@@ -425,6 +560,42 @@ fn flow_record_to_store_value(record: &FlowRecord) -> Result<Value, String> {
     gt_flow::record_to_value(record).map_err(|e| e.to_string())
 }
 
+fn flow_records_from_store(store: &Store) -> Vec<FlowRecord> {
+    store
+        .scan(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_KEY_PREFIX)
+        .into_iter()
+        .filter_map(|(_, value)| flow_record_from_store_value(value).ok())
+        .collect()
+}
+
+fn publish_flow_event(
+    state: &State<'_, AppState>,
+    event: EventDraft,
+) -> Result<EventReceipt, String> {
+    let flows = {
+        let store = state.store.lock().unwrap();
+        flow_records_from_store(&store)
+    };
+    let mut event_pool = state.event_pool.lock().unwrap();
+    event_pool
+        .publish(event, &flows)
+        .map_err(|error| error.to_string())
+}
+
+fn match_flow_event(
+    state: &State<'_, AppState>,
+    event: EventDraft,
+) -> Result<EventReceipt, String> {
+    let flows = {
+        let store = state.store.lock().unwrap();
+        flow_records_from_store(&store)
+    };
+    let event_pool = state.event_pool.lock().unwrap();
+    event_pool
+        .match_event(event, &flows)
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 fn flow_validate(workflow: String) -> Result<FlowSummary, String> {
     gt_flow::parse_workflow(&workflow).map_err(|e| e.to_string())
@@ -444,10 +615,18 @@ fn flow_save(request: FlowSaveRequest, state: State<'_, AppState>) -> Result<Flo
         .map(|record| record.created_at.clone())
         .unwrap_or_else(|| now.clone());
     let requested_folder = request.folder.as_deref();
-    let existing_folder = existing.as_ref().and_then(|record| record.folder.as_deref());
+    let existing_folder = existing
+        .as_ref()
+        .and_then(|record| record.folder.as_deref());
     let folder = gt_flow::normalize_folder(requested_folder.or(existing_folder), Some(&summary));
 
-    let record = FlowRecord::new(request.workflow, summary, Some(folder.clone()), created_at, now);
+    let record = FlowRecord::new(
+        request.workflow,
+        summary,
+        Some(folder.clone()),
+        created_at,
+        now,
+    );
     let value = flow_record_to_store_value(&record)?;
     store
         .set(gt_flow::FLOW_NAMESPACE, &key, value)
@@ -463,12 +642,11 @@ fn flow_save(request: FlowSaveRequest, state: State<'_, AppState>) -> Result<Flo
 #[tauri::command]
 fn flow_list(state: State<'_, AppState>) -> Vec<FlowListItem> {
     let store = state.store.lock().unwrap();
-    let mut items = store
-        .scan(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_KEY_PREFIX)
+    let mut items = flow_records_from_store(&store)
         .into_iter()
-        .filter_map(|(key, value)| {
-            let record = flow_record_from_store_value(value).ok()?;
-            Some(FlowListItem {
+        .map(|record| {
+            let key = gt_flow::workflow_key(&record.summary.id);
+            FlowListItem {
                 id: record.summary.id.clone(),
                 key,
                 folder: gt_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)),
@@ -476,10 +654,15 @@ fn flow_list(state: State<'_, AppState>) -> Vec<FlowListItem> {
                 enabled: record.enabled,
                 created_at: record.created_at,
                 updated_at: record.updated_at,
-            })
+            }
         })
         .collect::<Vec<_>>();
-    items.sort_by(|a, b| a.summary.name.cmp(&b.summary.name).then_with(|| a.id.cmp(&b.id)));
+    items.sort_by(|a, b| {
+        a.summary
+            .name
+            .cmp(&b.summary.name)
+            .then_with(|| a.id.cmp(&b.id))
+    });
     items
 }
 
@@ -503,7 +686,11 @@ fn flow_delete(id: String, state: State<'_, AppState>) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn flow_set_enabled(id: String, enabled: bool, state: State<'_, AppState>) -> Result<FlowRecord, String> {
+fn flow_set_enabled(
+    id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<FlowRecord, String> {
     let mut store = state.store.lock().unwrap();
     let key = gt_flow::workflow_key(&id);
     let value = store
@@ -549,7 +736,9 @@ fn flow_delete_folder(path: String, state: State<'_, AppState>) -> Result<Vec<St
         .scan(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_KEY_PREFIX)
         .into_iter()
         .filter_map(|(_, value)| flow_record_from_store_value(value).ok())
-        .any(|record| gt_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)) == folder);
+        .any(|record| {
+            gt_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)) == folder
+        });
     if has_flows {
         return Err("文件夹非空: 请先移动或删除其中的 Flow".to_string());
     }
@@ -572,7 +761,10 @@ fn flow_folders_from_store(store: &Store) -> Vec<String> {
 
     for (_, value) in store.scan(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_KEY_PREFIX) {
         if let Ok(record) = flow_record_from_store_value(value) {
-            folders.push(gt_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)));
+            folders.push(gt_flow::normalize_folder(
+                record.folder.as_deref(),
+                Some(&record.summary),
+            ));
         }
     }
 
@@ -581,7 +773,10 @@ fn flow_folders_from_store(store: &Store) -> Vec<String> {
     folders
 }
 
-fn save_flow_folders_to_store(store: &mut Store, folders: Vec<String>) -> Result<Vec<String>, String> {
+fn save_flow_folders_to_store(
+    store: &mut Store,
+    folders: Vec<String>,
+) -> Result<Vec<String>, String> {
     let mut folders = folders
         .into_iter()
         .map(|folder| gt_flow::normalize_folder(Some(&folder), None))
@@ -589,9 +784,39 @@ fn save_flow_folders_to_store(store: &mut Store, folders: Vec<String>) -> Result
     folders.sort();
     folders.dedup();
     store
-        .set(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_FOLDERS_KEY, serde_json::json!(folders))
+        .set(
+            gt_flow::FLOW_NAMESPACE,
+            gt_flow::FLOW_FOLDERS_KEY,
+            serde_json::json!(folders),
+        )
         .map_err(|e| e.to_string())?;
     Ok(folders)
+}
+
+#[tauri::command]
+fn flow_event_catalog(state: State<'_, AppState>) -> Vec<EventDefinition> {
+    let event_pool = state.event_pool.lock().unwrap();
+    event_pool.catalog()
+}
+
+#[tauri::command]
+fn flow_recent_events(state: State<'_, AppState>) -> Vec<CloudEvent> {
+    let event_pool = state.event_pool.lock().unwrap();
+    event_pool.recent_events()
+}
+
+#[tauri::command]
+fn flow_emit_event(event: EventDraft, state: State<'_, AppState>) -> Result<EventReceipt, String> {
+    publish_flow_event(&state, event)
+}
+
+#[tauri::command]
+fn flow_match_event(event: EventDraft, state: State<'_, AppState>) -> Result<EventReceipt, String> {
+    match_flow_event(&state, event)
+}
+
+fn is_public_event_namespace(namespace: &str) -> bool {
+    !(namespace == "secrets" || namespace.starts_with("private."))
 }
 
 #[tauri::command]
@@ -601,15 +826,58 @@ fn store_get(namespace: String, key: String, state: State<'_, AppState>) -> Opti
 }
 
 #[tauri::command]
-fn store_set(namespace: String, key: String, value: Value, state: State<'_, AppState>) -> Result<(), String> {
-    let mut store = state.store.lock().unwrap();
-    store.set(&namespace, &key, value).map_err(|e| e.to_string())
+fn store_set(
+    namespace: String,
+    key: String,
+    value: Value,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    {
+        let mut store = state.store.lock().unwrap();
+        store
+            .set(&namespace, &key, value)
+            .map_err(|e| e.to_string())?;
+    }
+    if is_public_event_namespace(&namespace) {
+        let _ = publish_flow_event(
+            &state,
+            EventDraft {
+                source: "gittributary://gt-store".to_string(),
+                event_type: "store.key.changed".to_string(),
+                subject: Some(format!("store:{namespace}/{key}")),
+                data: json!({
+                    "namespace": namespace,
+                    "key": key,
+                    "operation": "set",
+                }),
+            },
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
 fn store_delete(namespace: String, key: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut store = state.store.lock().unwrap();
-    store.delete(&namespace, &key).map_err(|e| e.to_string())
+    {
+        let mut store = state.store.lock().unwrap();
+        store.delete(&namespace, &key).map_err(|e| e.to_string())?;
+    }
+    if is_public_event_namespace(&namespace) {
+        let _ = publish_flow_event(
+            &state,
+            EventDraft {
+                source: "gittributary://gt-store".to_string(),
+                event_type: "store.key.changed".to_string(),
+                subject: Some(format!("store:{namespace}/{key}")),
+                data: json!({
+                    "namespace": namespace,
+                    "key": key,
+                    "operation": "delete",
+                }),
+            },
+        );
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -621,26 +889,42 @@ fn store_keys(namespace: String, state: State<'_, AppState>) -> Vec<String> {
 #[tauri::command]
 fn store_namespaces(state: State<'_, AppState>) -> Vec<NamespaceInfo> {
     let store = state.store.lock().unwrap();
-    store.namespaces().into_iter().map(|name| {
-        let count = store.namespace_len(&name);
-        let visibility = match store.namespace_visibility(&name) {
-            Some(gt_store::Visibility::Private) => "private",
-            _ => "public",
-        };
-        NamespaceInfo { name, count, visibility: visibility.to_string() }
-    }).collect()
+    store
+        .namespaces()
+        .into_iter()
+        .map(|name| {
+            let count = store.namespace_len(&name);
+            let visibility = match store.namespace_visibility(&name) {
+                Some(gt_store::Visibility::Private) => "private",
+                _ => "public",
+            };
+            NamespaceInfo {
+                name,
+                count,
+                visibility: visibility.to_string(),
+            }
+        })
+        .collect()
 }
 
 #[tauri::command]
 fn store_entries(namespace: String, state: State<'_, AppState>) -> Vec<KvEntry> {
     let store = state.store.lock().unwrap();
-    store.entries(&namespace).into_iter().map(|(key, value)| KvEntry { key, value }).collect()
+    store
+        .entries(&namespace)
+        .into_iter()
+        .map(|(key, value)| KvEntry { key, value })
+        .collect()
 }
 
 #[tauri::command]
 fn store_scan(namespace: String, prefix: String, state: State<'_, AppState>) -> Vec<KvEntry> {
     let store = state.store.lock().unwrap();
-    store.scan(&namespace, &prefix).into_iter().map(|(key, value)| KvEntry { key, value }).collect()
+    store
+        .scan(&namespace, &prefix)
+        .into_iter()
+        .map(|(key, value)| KvEntry { key, value })
+        .collect()
 }
 
 #[tauri::command]
@@ -760,10 +1044,19 @@ fn classify_config_repo_check_error(error: &str) -> (String, String) {
         || lower.contains("401")
         || lower.contains("403")
     {
-        return ("auth_failed".to_string(), "认证失败,请检查配置中心专用 Access Token 权限".to_string());
+        return (
+            "auth_failed".to_string(),
+            "认证失败,请检查配置中心专用 Access Token 权限".to_string(),
+        );
     }
-    if lower.contains("not found") || lower.contains("404") || lower.contains("repository not found") {
-        return ("not_found".to_string(), "仓库不存在或当前 Token 无权访问".to_string());
+    if lower.contains("not found")
+        || lower.contains("404")
+        || lower.contains("repository not found")
+    {
+        return (
+            "not_found".to_string(),
+            "仓库不存在或当前 Token 无权访问".to_string(),
+        );
     }
     if lower.contains("resolve")
         || lower.contains("network")
@@ -771,7 +1064,10 @@ fn classify_config_repo_check_error(error: &str) -> (String, String) {
         || lower.contains("couldn't connect")
         || lower.contains("failed to connect")
     {
-        return ("network_failed".to_string(), "网络连接失败,请检查网络或代理".to_string());
+        return (
+            "network_failed".to_string(),
+            "网络连接失败,请检查网络或代理".to_string(),
+        );
     }
 
     ("invalid".to_string(), error.to_string())
@@ -779,7 +1075,10 @@ fn classify_config_repo_check_error(error: &str) -> (String, String) {
 
 fn require_config_repo_url_and_token(store: &Store, url: &str) -> Result<String, String> {
     if !url.starts_with("https://") {
-        return Err("数据中心配置仓库只支持 HTTPS URL + 明确 Access Token,不能使用 SSH 或系统凭据".to_string());
+        return Err(
+            "数据中心配置仓库只支持 HTTPS URL + 明确 Access Token,不能使用 SSH 或系统凭据"
+                .to_string(),
+        );
     }
 
     store
@@ -804,7 +1103,7 @@ fn sync_get_config(state: State<'_, AppState>) -> Result<Option<SyncConfigPayloa
                 auto_sync: c.auto_sync,
                 interval_seconds: c.interval_seconds,
             }))
-        },
+        }
         Ok(None) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
@@ -835,7 +1134,9 @@ fn apply_sync_config(config: SyncConfigPayload, state: &State<'_, AppState>) -> 
     };
     engine.set_config(&cfg).map_err(|e| e.to_string())?;
     let auth = gt_store::ConfigRepoAuth { token: &token };
-    let checkout = engine.ensure_config_repo(&auth).map_err(|e| e.to_string())?;
+    let checkout = engine
+        .ensure_config_repo(&auth)
+        .map_err(|e| e.to_string())?;
     // 绑定后若远端已有数据,import 进本地;空仓库则跳过,等首次 sync_now export
     {
         let mut store = state.store.lock().unwrap();
@@ -861,21 +1162,36 @@ fn update_data_center_config_remote(
     {
         let mut store = state.store.lock().unwrap();
         if clear_token {
-            store.clear_data_center_config_token().map_err(|e| e.to_string())?;
+            store
+                .clear_data_center_config_token()
+                .map_err(|e| e.to_string())?;
         }
-        if let Some(token) = token.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
-            store.set_data_center_config_token(token).map_err(|e| e.to_string())?;
+        if let Some(token) = token
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            store
+                .set_data_center_config_token(token)
+                .map_err(|e| e.to_string())?;
         }
     }
     apply_sync_config(config, &state)
 }
 
 #[tauri::command]
-fn unbind_data_center_config_remote(clear_token: bool, state: State<'_, AppState>) -> Result<(), String> {
+fn unbind_data_center_config_remote(
+    clear_token: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let base_dir = store_base_dir();
     let engine = gt_store::SyncEngine::new(&base_dir);
     // 清除配置前先算出 checkout 路径,以便删除工作副本
-    let checkout_to_remove = engine.config().ok().flatten().map(|c| engine.config_repo_path(&c));
+    let checkout_to_remove = engine
+        .config()
+        .ok()
+        .flatten()
+        .map(|c| engine.config_repo_path(&c));
     engine.clear_config().map_err(|e| e.to_string())?;
 
     if let Some(path) = checkout_to_remove {
@@ -886,7 +1202,9 @@ fn unbind_data_center_config_remote(clear_token: bool, state: State<'_, AppState
 
     if clear_token {
         let mut store = state.store.lock().unwrap();
-        store.clear_data_center_config_token().map_err(|e| e.to_string())?;
+        store
+            .clear_data_center_config_token()
+            .map_err(|e| e.to_string())?;
     }
 
     Ok(())
@@ -959,15 +1277,21 @@ fn sync_now(state: State<'_, AppState>) -> Result<String, String> {
             let base_dir = store_base_dir();
             let engine = gt_store::SyncEngine::new(&base_dir);
             engine.config().map_err(|e| e.to_string())?
-        }.ok_or_else(|| "未配置同步远程仓库".to_string())?;
+        }
+        .ok_or_else(|| "未配置同步远程仓库".to_string())?;
         let token = require_config_repo_url_and_token(&store, &config.url)?;
-        (store.device_id().unwrap_or_else(|| "unknown".to_string()), token)
+        (
+            store.device_id().unwrap_or_else(|| "unknown".to_string()),
+            token,
+        )
     };
 
     let base_dir = store_base_dir();
     let engine = gt_store::SyncEngine::new(&base_dir);
     let auth = gt_store::ConfigRepoAuth { token: &token };
-    let checkout = engine.ensure_config_repo(&auth).map_err(|e| e.to_string())?;
+    let checkout = engine
+        .ensure_config_repo(&auth)
+        .map_err(|e| e.to_string())?;
 
     // pull(ff) → import(远端→本地 LWW) → export(本地→checkout) → commit → push
     engine.pull(&auth, &checkout).map_err(|e| e.to_string())?;
@@ -980,7 +1304,9 @@ fn sync_now(state: State<'_, AppState>) -> Result<String, String> {
             .export_public_to_checkout(&store, &checkout)
             .map_err(|e| e.to_string())?;
     }
-    engine.commit(&device_id, &checkout).map_err(|e| e.to_string())?;
+    engine
+        .commit(&device_id, &checkout)
+        .map_err(|e| e.to_string())?;
     engine.push(&auth, &checkout).map_err(|e| e.to_string())?;
     Ok("同步完成".to_string())
 }
@@ -1008,7 +1334,9 @@ fn get_git_credentials(state: State<'_, AppState>) -> gt_store::GitCredentials {
 }
 
 #[tauri::command]
-fn get_data_center_config_credential_status(state: State<'_, AppState>) -> gt_store::DataCenterConfigCredentialStatus {
+fn get_data_center_config_credential_status(
+    state: State<'_, AppState>,
+) -> gt_store::DataCenterConfigCredentialStatus {
     let store = state.store.lock().unwrap();
     store.get_data_center_config_credential_status()
 }
@@ -1046,19 +1374,29 @@ fn clear_git_token(state: State<'_, AppState>) -> Result<(), String> {
 #[tauri::command]
 fn set_data_center_config_token(token: String, state: State<'_, AppState>) -> Result<(), String> {
     let mut store = state.store.lock().unwrap();
-    store.set_data_center_config_token(&token).map_err(|e| e.to_string())
+    store
+        .set_data_center_config_token(&token)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 fn clear_data_center_config_token(state: State<'_, AppState>) -> Result<(), String> {
     let mut store = state.store.lock().unwrap();
-    store.clear_data_center_config_token().map_err(|e| e.to_string())
+    store
+        .clear_data_center_config_token()
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-fn set_git_ssh_key(path: String, passphrase: Option<String>, state: State<'_, AppState>) -> Result<(), String> {
+fn set_git_ssh_key(
+    path: String,
+    passphrase: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let mut store = state.store.lock().unwrap();
-    store.set_git_ssh_key(&path, passphrase.as_deref()).map_err(|e| e.to_string())
+    store
+        .set_git_ssh_key(&path, passphrase.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1069,7 +1407,9 @@ pub fn run() {
         .join(".git-tributary");
     let mut store = Store::open(&store_dir).expect("无法初始化数据中心");
     store.init_workspace().expect("无法初始化 workspace");
-    store.migrate_git_remote_url_to_local().expect("无法迁移 Git 默认远程配置");
+    store
+        .migrate_git_remote_url_to_local()
+        .expect("无法迁移 Git 默认远程配置");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
@@ -1077,6 +1417,20 @@ pub fn run() {
         .manage(AppState {
             repo: Mutex::new(None),
             store: Mutex::new(store),
+            event_pool: Mutex::new(EventPool::new()),
+        })
+        .setup(|app| {
+            let state = app.state::<AppState>();
+            let _ = publish_flow_event(
+                &state,
+                EventDraft {
+                    source: "gittributary://app".to_string(),
+                    event_type: "app.started".to_string(),
+                    subject: Some("app:gittributary".to_string()),
+                    data: json!({}),
+                },
+            );
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             open_repo,
@@ -1113,6 +1467,10 @@ pub fn run() {
             flow_list_folders,
             flow_create_folder,
             flow_delete_folder,
+            flow_event_catalog,
+            flow_recent_events,
+            flow_emit_event,
+            flow_match_event,
             store_get,
             store_set,
             store_delete,

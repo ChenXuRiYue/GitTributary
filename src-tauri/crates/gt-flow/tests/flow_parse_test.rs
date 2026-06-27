@@ -1,4 +1,6 @@
-use gt_flow::{parse_workflow, FlowRecord};
+use serde_json::json;
+
+use gt_flow::{parse_workflow, EventDraft, EventPool, FlowRecord};
 
 const VALID_WORKFLOW: &str = r#"
 name: 每日晚间备份
@@ -37,7 +39,10 @@ fn parses_valid_workflow_summary() {
     assert_eq!(summary.name, "每日晚间备份");
     assert!(!summary.enabled);
     assert_eq!(summary.triggers.len(), 2);
-    assert!(summary.triggers.iter().any(|trigger| trigger.kind == "schedule"));
+    assert!(summary
+        .triggers
+        .iter()
+        .any(|trigger| trigger.kind == "schedule"));
     assert!(summary.permissions.iter().any(|permission| {
         permission.scope == "git" && permission.values == ["status", "commit", "push"]
     }));
@@ -55,7 +60,10 @@ fn rejects_missing_gt_id() {
 
 #[test]
 fn rejects_step_without_uses() {
-    let workflow = VALID_WORKFLOW.replace("        uses: gittributary/git/push@v1", "        name: Push");
+    let workflow = VALID_WORKFLOW.replace(
+        "        uses: gittributary/git/push@v1",
+        "        name: Push",
+    );
     let err = parse_workflow(&workflow).unwrap_err().to_string();
 
     assert!(err.contains("steps[1].uses"));
@@ -78,4 +86,100 @@ fn flow_record_round_trips_as_json() {
     assert_eq!(restored.summary.id, "flow.daily_evening_backup");
     assert_eq!(restored.enabled, record.enabled);
     assert_eq!(restored.folder.as_deref(), Some("定时"));
+}
+
+#[test]
+fn event_pool_matches_enabled_flow_by_event_and_filters() {
+    let workflow = r#"
+name: 提交后检查
+
+gt:
+  id: flow.after_commit_check
+  enabled: true
+
+on:
+  git.commit.created:
+    branches: [main]
+    repositories:
+      - /Users/mi/note
+
+jobs:
+  check:
+    runs-on: gittributary-local
+    steps:
+      - id: notify
+        uses: gittributary/ui/notify@v1
+"#;
+    let summary = parse_workflow(workflow).unwrap();
+    assert_eq!(summary.triggers[0].filters["branches"], ["main"]);
+    assert_eq!(
+        summary.triggers[0].filters["repositories"],
+        ["/Users/mi/note"]
+    );
+
+    let record = FlowRecord::new(
+        workflow.to_string(),
+        summary,
+        Some("Git 事件".to_string()),
+        "2026-06-25T00:00:00Z".to_string(),
+        "2026-06-25T00:00:00Z".to_string(),
+    );
+    let mut pool = EventPool::new();
+
+    let receipt = pool
+        .publish(
+            EventDraft {
+                source: "gittributary://gt-git".to_string(),
+                event_type: "git.commit.created".to_string(),
+                subject: Some("repo:/Users/mi/note".to_string()),
+                data: json!({
+                    "repo": "/Users/mi/note",
+                    "branch": "main",
+                    "commit": "abc123",
+                }),
+            },
+            &[record],
+        )
+        .unwrap();
+
+    assert_eq!(receipt.event.specversion, "1.0");
+    assert_eq!(receipt.matches.len(), 1);
+    assert!(receipt.matches[0].matched);
+    assert_eq!(receipt.run_intents.len(), 1);
+    assert_eq!(receipt.run_intents[0].flow_id, "flow.after_commit_check");
+    assert_eq!(pool.recent_events().len(), 1);
+}
+
+#[test]
+fn event_pool_reports_filter_mismatch() {
+    let workflow = VALID_WORKFLOW
+        .replace("  enabled: false", "  enabled: true")
+        .replace("  schedule:\n    - cron: \"0 18 * * *\"\n      timezone: Asia/Shanghai\n  workflow_dispatch:", "  git.commit.created:\n    branches: [main]");
+    let record = FlowRecord::new(
+        workflow.clone(),
+        parse_workflow(&workflow).unwrap(),
+        Some("Git 事件".to_string()),
+        "2026-06-25T00:00:00Z".to_string(),
+        "2026-06-25T00:00:00Z".to_string(),
+    );
+    let mut pool = EventPool::new();
+    let receipt = pool
+        .publish(
+            EventDraft {
+                source: "gittributary://gt-git".to_string(),
+                event_type: "git.commit.created".to_string(),
+                subject: None,
+                data: json!({
+                    "repo": "/Users/mi/note",
+                    "branch": "dev",
+                    "commit": "abc123",
+                }),
+            },
+            &[record],
+        )
+        .unwrap();
+
+    assert!(!receipt.matches[0].matched);
+    assert_eq!(receipt.matches[0].reason, "filter_mismatch:branches");
+    assert!(receipt.run_intents.is_empty());
 }

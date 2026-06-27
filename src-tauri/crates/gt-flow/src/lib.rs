@@ -3,9 +3,18 @@
 //! GitTributary Flow 的轻量领域层。
 //! 当前只负责解析、校验和生成展示摘要,不执行 workflow。
 
+mod event;
+
+use std::collections::BTreeMap;
+
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+pub use event::{
+    CloudEvent, EventDefinition, EventDraft, EventPool, EventReceipt, FlowRunIntent,
+    FlowTriggerMatch,
+};
 
 pub const FLOW_NAMESPACE: &str = "flows";
 pub const FLOW_KEY_PREFIX: &str = "workflow.";
@@ -29,6 +38,8 @@ pub struct FlowTriggerSummary {
     pub kind: String,
     pub label: String,
     pub detail: Option<String>,
+    #[serde(default)]
+    pub filters: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -112,14 +123,20 @@ pub fn normalize_folder(folder: Option<&str>, summary: Option<&FlowSummary>) -> 
         .join("/");
 
     if normalized.is_empty() {
-        summary.map(default_folder_for_summary).unwrap_or_else(|| DEFAULT_FLOW_FOLDER.to_string())
+        summary
+            .map(default_folder_for_summary)
+            .unwrap_or_else(|| DEFAULT_FLOW_FOLDER.to_string())
     } else {
         normalized
     }
 }
 
 pub fn default_folder_for_summary(summary: &FlowSummary) -> String {
-    match summary.triggers.first().map(|trigger| trigger.kind.as_str()) {
+    match summary
+        .triggers
+        .first()
+        .map(|trigger| trigger.kind.as_str())
+    {
         Some("schedule") => "定时".to_string(),
         Some("workflow_dispatch") => "手动".to_string(),
         Some("file_watch") => "监听".to_string(),
@@ -173,7 +190,9 @@ pub fn parse_workflow(workflow: &str) -> Result<FlowSummary> {
     let on_range = section_range(&lines, "on")?;
     let triggers = parse_triggers(&lines, on_range)?;
     if triggers.is_empty() {
-        return Err(FlowError::Validation("on 至少需要声明一个触发器".to_string()));
+        return Err(FlowError::Validation(
+            "on 至少需要声明一个触发器".to_string(),
+        ));
     }
 
     let permissions = match section_range_optional(&lines, "permissions") {
@@ -183,7 +202,9 @@ pub fn parse_workflow(workflow: &str) -> Result<FlowSummary> {
 
     let jobs = parse_jobs(&lines, section_range(&lines, "jobs")?)?;
     if jobs.is_empty() {
-        return Err(FlowError::Validation("jobs 至少需要声明一个 job".to_string()));
+        return Err(FlowError::Validation(
+            "jobs 至少需要声明一个 job".to_string(),
+        ));
     }
     let step_count = jobs.iter().map(|job| job.steps.len()).sum();
 
@@ -203,7 +224,10 @@ fn parse_lines(workflow: &str) -> Result<Vec<YamlLine>> {
     let mut lines = Vec::new();
     for (index, raw) in workflow.lines().enumerate() {
         if raw.starts_with('\t') || raw.contains("\n\t") {
-            return Err(FlowError::Yaml(format!("第 {} 行不能使用 tab 缩进", index + 1)));
+            return Err(FlowError::Yaml(format!(
+                "第 {} 行不能使用 tab 缩进",
+                index + 1
+            )));
         }
         let without_comment = strip_comment(raw);
         let trimmed_end = without_comment.trim_end();
@@ -258,27 +282,34 @@ fn parse_key_value(text: &str) -> Option<KeyValue> {
     let value = value.trim();
     Some(KeyValue {
         key: key.to_string(),
-        value: if value.is_empty() { None } else { Some(value.to_string()) },
+        value: if value.is_empty() {
+            None
+        } else {
+            Some(value.to_string())
+        },
     })
 }
 
 fn top_scalar(lines: &[YamlLine], key: &str) -> Result<String> {
     let line = lines
         .iter()
-        .find(|line| line.indent == 0 && parse_key_value(&line.text).is_some_and(|kv| kv.key == key))
+        .find(|line| {
+            line.indent == 0 && parse_key_value(&line.text).is_some_and(|kv| kv.key == key)
+        })
         .ok_or_else(|| FlowError::Validation(format!("缺少必填字段 {key}")))?;
     let kv = parse_key_value(&line.text).expect("checked above");
     scalar_value(&kv, key)
 }
 
 fn section_range(lines: &[YamlLine], key: &str) -> Result<std::ops::Range<usize>> {
-    section_range_optional(lines, key).ok_or_else(|| FlowError::Validation(format!("缺少必填字段 {key}")))
+    section_range_optional(lines, key)
+        .ok_or_else(|| FlowError::Validation(format!("缺少必填字段 {key}")))
 }
 
 fn section_range_optional(lines: &[YamlLine], key: &str) -> Option<std::ops::Range<usize>> {
-    let start = lines
-        .iter()
-        .position(|line| line.indent == 0 && parse_key_value(&line.text).is_some_and(|kv| kv.key == key))?;
+    let start = lines.iter().position(|line| {
+        line.indent == 0 && parse_key_value(&line.text).is_some_and(|kv| kv.key == key)
+    })?;
     let end = lines
         .iter()
         .enumerate()
@@ -293,14 +324,20 @@ fn section_scalar(lines: &[YamlLine], range: std::ops::Range<usize>, key: &str) 
         .ok_or_else(|| FlowError::Validation(format!("缺少必填字段 {key}")))
 }
 
-fn section_scalar_optional(lines: &[YamlLine], range: std::ops::Range<usize>, key: &str) -> Option<String> {
+fn section_scalar_optional(
+    lines: &[YamlLine],
+    range: std::ops::Range<usize>,
+    key: &str,
+) -> Option<String> {
     let base_indent = child_indent(lines, range.clone())?;
     lines[range]
         .iter()
         .filter(|line| line.indent == base_indent && !line.text.starts_with('-'))
         .find_map(|line| {
             let kv = parse_key_value(&line.text)?;
-            (kv.key == key).then(|| scalar_value(&kv, key).ok()).flatten()
+            (kv.key == key)
+                .then(|| scalar_value(&kv, key).ok())
+                .flatten()
         })
 }
 
@@ -320,7 +357,10 @@ fn child_indent(lines: &[YamlLine], range: std::ops::Range<usize>) -> Option<usi
     lines[range].iter().map(|line| line.indent).min()
 }
 
-fn parse_triggers(lines: &[YamlLine], range: std::ops::Range<usize>) -> Result<Vec<FlowTriggerSummary>> {
+fn parse_triggers(
+    lines: &[YamlLine],
+    range: std::ops::Range<usize>,
+) -> Result<Vec<FlowTriggerSummary>> {
     let Some(base_indent) = child_indent(lines, range.clone()) else {
         return Ok(Vec::new());
     };
@@ -333,14 +373,20 @@ fn parse_triggers(lines: &[YamlLine], range: std::ops::Range<usize>) -> Result<V
             continue;
         }
         let kv = parse_key_value(&line.text).ok_or_else(|| {
-            FlowError::Yaml(format!("第 {} 行触发器声明必须是 key: value 形式", line.line_no))
+            FlowError::Yaml(format!(
+                "第 {} 行触发器声明必须是 key: value 形式",
+                line.line_no
+            ))
         })?;
         let trigger_end = next_sibling_index(lines, index + 1, range.end, base_indent);
-        let detail = trigger_detail(&kv.key, lines, (index + 1)..trigger_end);
+        let trigger_range = (index + 1)..trigger_end;
+        let detail = trigger_detail(&kv.key, lines, trigger_range.clone());
+        let filters = trigger_filters(&kv.key, lines, trigger_range);
         triggers.push(FlowTriggerSummary {
             kind: kv.key.clone(),
             label: kv.key,
             detail,
+            filters,
         });
         index = trigger_end;
     }
@@ -352,14 +398,26 @@ fn trigger_detail(kind: &str, lines: &[YamlLine], range: std::ops::Range<usize>)
         "workflow_dispatch" => Some("手动触发".to_string()),
         "schedule" => {
             let crons = collect_nested_scalars(lines, range, "cron");
-            if crons.is_empty() { None } else { Some(crons.join(", ")) }
+            if crons.is_empty() {
+                None
+            } else {
+                Some(crons.join(", "))
+            }
         }
         "file_watch" => mapping_fields(lines, range, &["glob", "paths", "types", "debounce"]),
-        _ => mapping_fields(lines, range, &["branches", "repositories", "paths", "types"]),
+        _ => mapping_fields(
+            lines,
+            range,
+            &["branches", "repositories", "paths", "types"],
+        ),
     }
 }
 
-fn mapping_fields(lines: &[YamlLine], range: std::ops::Range<usize>, fields: &[&str]) -> Option<String> {
+fn mapping_fields(
+    lines: &[YamlLine],
+    range: std::ops::Range<usize>,
+    fields: &[&str],
+) -> Option<String> {
     let mut parts = Vec::new();
     for field in fields {
         let values = collect_nested_scalars(lines, range.clone(), field);
@@ -367,14 +425,50 @@ fn mapping_fields(lines: &[YamlLine], range: std::ops::Range<usize>, fields: &[&
             parts.push(format!("{field}: {}", values.join(", ")));
         }
     }
-    if parts.is_empty() { None } else { Some(parts.join(" · ")) }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(" · "))
+    }
 }
 
-fn collect_nested_scalars(lines: &[YamlLine], range: std::ops::Range<usize>, key: &str) -> Vec<String> {
+fn trigger_filters(
+    kind: &str,
+    lines: &[YamlLine],
+    range: std::ops::Range<usize>,
+) -> BTreeMap<String, Vec<String>> {
+    let fields: &[&str] = match kind {
+        "file_watch" => &["paths", "types", "glob"],
+        "store_changed" => &["namespace", "keys"],
+        _ => &[
+            "branches",
+            "repositories",
+            "paths",
+            "types",
+            "namespace",
+            "keys",
+        ],
+    };
+    fields
+        .iter()
+        .filter_map(|field| {
+            let values = collect_nested_scalars(lines, range.clone(), field);
+            (!values.is_empty()).then(|| ((*field).to_string(), values))
+        })
+        .collect()
+}
+
+fn collect_nested_scalars(
+    lines: &[YamlLine],
+    range: std::ops::Range<usize>,
+    key: &str,
+) -> Vec<String> {
     let mut values = Vec::new();
     for (offset, line) in lines[range.clone()].iter().enumerate() {
         let text = line.text.strip_prefix("- ").unwrap_or(&line.text);
-        let Some(kv) = parse_key_value(text) else { continue };
+        let Some(kv) = parse_key_value(text) else {
+            continue;
+        };
         if kv.key != key {
             continue;
         }
@@ -385,13 +479,21 @@ fn collect_nested_scalars(lines: &[YamlLine], range: std::ops::Range<usize>, key
             }
         } else {
             let line_index = range.start + offset;
-            values.extend(collect_sequence_values(lines, line_index + 1, range.end, line.indent));
+            values.extend(collect_sequence_values(
+                lines,
+                line_index + 1,
+                range.end,
+                line.indent,
+            ));
         }
     }
     values
 }
 
-fn parse_permissions(lines: &[YamlLine], range: std::ops::Range<usize>) -> Result<Vec<FlowPermissionSummary>> {
+fn parse_permissions(
+    lines: &[YamlLine],
+    range: std::ops::Range<usize>,
+) -> Result<Vec<FlowPermissionSummary>> {
     let Some(base_indent) = child_indent(lines, range.clone()) else {
         return Ok(Vec::new());
     };
@@ -404,7 +506,10 @@ fn parse_permissions(lines: &[YamlLine], range: std::ops::Range<usize>) -> Resul
             continue;
         }
         let kv = parse_key_value(&line.text).ok_or_else(|| {
-            FlowError::Yaml(format!("第 {} 行权限声明必须是 key: value 形式", line.line_no))
+            FlowError::Yaml(format!(
+                "第 {} 行权限声明必须是 key: value 形式",
+                line.line_no
+            ))
         })?;
         let permission_end = next_sibling_index(lines, index + 1, range.end, base_indent);
         let (enabled, values) = match kv.value {
@@ -444,20 +549,31 @@ fn parse_jobs(lines: &[YamlLine], range: std::ops::Range<usize>) -> Result<Vec<F
             continue;
         }
         let kv = parse_key_value(&line.text).ok_or_else(|| {
-            FlowError::Yaml(format!("第 {} 行 job 声明必须是 key: value 形式", line.line_no))
+            FlowError::Yaml(format!(
+                "第 {} 行 job 声明必须是 key: value 形式",
+                line.line_no
+            ))
         })?;
         let job_end = next_sibling_index(lines, index + 1, range.end, base_indent);
         let name = direct_child_scalar(lines, (index + 1)..job_end, line.indent, "name");
         let steps_range = direct_child_range(lines, (index + 1)..job_end, line.indent, "steps")
             .ok_or_else(|| FlowError::Validation(format!("jobs.{}.steps 是必填字段", kv.key)))?;
         let steps = parse_steps(lines, steps_range, &kv.key)?;
-        jobs.push(FlowJobSummary { id: kv.key, name, steps });
+        jobs.push(FlowJobSummary {
+            id: kv.key,
+            name,
+            steps,
+        });
         index = job_end;
     }
     Ok(jobs)
 }
 
-fn parse_steps(lines: &[YamlLine], range: std::ops::Range<usize>, job_id: &str) -> Result<Vec<FlowStepSummary>> {
+fn parse_steps(
+    lines: &[YamlLine],
+    range: std::ops::Range<usize>,
+    job_id: &str,
+) -> Result<Vec<FlowStepSummary>> {
     let mut drafts = Vec::<StepDraft>::new();
     let mut current: Option<StepDraft> = None;
     let mut index = range.start;
@@ -467,11 +583,18 @@ fn parse_steps(lines: &[YamlLine], range: std::ops::Range<usize>, job_id: &str) 
             if let Some(step) = current.take() {
                 drafts.push(step);
             }
-            let mut step = StepDraft { id: None, name: None, uses: None };
+            let mut step = StepDraft {
+                id: None,
+                name: None,
+                uses: None,
+            };
             if let Some(kv) = parse_key_value(rest) {
                 apply_step_field(&mut step, kv);
             } else if !rest.trim().is_empty() {
-                return Err(FlowError::Yaml(format!("第 {} 行 step 必须是对象", line.line_no)));
+                return Err(FlowError::Yaml(format!(
+                    "第 {} 行 step 必须是对象",
+                    line.line_no
+                )));
             }
             current = Some(step);
         } else if let Some(step) = current.as_mut() {
@@ -526,7 +649,9 @@ fn direct_child_scalar(
         .filter(|line| line.indent == child_indent && !line.text.starts_with('-'))
         .find_map(|line| {
             let kv = parse_key_value(&line.text)?;
-            (kv.key == key).then(|| kv.value.map(|value| unquote(&value))).flatten()
+            (kv.key == key)
+                .then(|| kv.value.map(|value| unquote(&value)))
+                .flatten()
         })
 }
 
@@ -555,17 +680,29 @@ fn direct_child_range(
     Some((start + 1)..end)
 }
 
-fn next_sibling_index(lines: &[YamlLine], start: usize, end: usize, sibling_indent: usize) -> usize {
+fn next_sibling_index(
+    lines: &[YamlLine],
+    start: usize,
+    end: usize,
+    sibling_indent: usize,
+) -> usize {
     lines
         .iter()
         .enumerate()
         .take(end)
         .skip(start)
-        .find_map(|(index, line)| (line.indent == sibling_indent && !line.text.starts_with('-')).then_some(index))
+        .find_map(|(index, line)| {
+            (line.indent == sibling_indent && !line.text.starts_with('-')).then_some(index)
+        })
         .unwrap_or(end)
 }
 
-fn collect_sequence_values(lines: &[YamlLine], start: usize, end: usize, parent_indent: usize) -> Vec<String> {
+fn collect_sequence_values(
+    lines: &[YamlLine],
+    start: usize,
+    end: usize,
+    parent_indent: usize,
+) -> Vec<String> {
     lines
         .iter()
         .take(end)
@@ -604,7 +741,8 @@ fn parse_bool(value: &str) -> Option<bool> {
 fn unquote(value: &str) -> String {
     let value = value.trim();
     if value.len() >= 2
-        && ((value.starts_with('"') && value.ends_with('"')) || (value.starts_with('\'') && value.ends_with('\'')))
+        && ((value.starts_with('"') && value.ends_with('"'))
+            || (value.starts_with('\'') && value.ends_with('\'')))
     {
         value[1..value.len() - 1].to_string()
     } else {
