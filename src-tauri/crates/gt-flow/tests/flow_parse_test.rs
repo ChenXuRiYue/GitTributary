@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use gt_flow::{parse_workflow, EventDraft, EventPool, FlowRecord};
+use gt_flow::{parse_workflow, EventDraft, EventPool, FlowNodeRegistry, FlowRecord};
 
 const VALID_WORKFLOW: &str = r#"
 name: 每日晚间备份
@@ -182,4 +182,54 @@ fn event_pool_reports_filter_mismatch() {
     assert!(!receipt.matches[0].matched);
     assert_eq!(receipt.matches[0].reason, "filter_mismatch:branches");
     assert!(receipt.run_intents.is_empty());
+}
+
+#[test]
+fn compiles_flow_steps_into_node_specs() {
+    let workflow = r#"
+name: 发布笔记博客
+
+gt:
+  id: flow.publish_notes_blog
+  enabled: true
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: gittributary-local
+    steps:
+      - id: build
+        name: 构建 HTML
+        uses: gittributary/notes/build-html@v1
+        with:
+          repo: ${{ gt.workspace.active_repo }}
+          output: /tmp/blog-html
+      - id: push
+        uses: gittributary/git/push@v1
+        with:
+          repo: /tmp/blog
+          remote: origin
+          branch: main
+"#;
+    let summary = parse_workflow(workflow).unwrap();
+    assert_eq!(summary.jobs[0].steps[0].inputs["output"], "/tmp/blog-html");
+
+    let record = FlowRecord::new(
+        workflow.to_string(),
+        summary,
+        Some("手动".to_string()),
+        "2026-06-25T00:00:00Z".to_string(),
+        "2026-06-25T00:00:00Z".to_string(),
+    );
+    let registry = FlowNodeRegistry::new();
+    let nodes = registry.compile_record(&record);
+
+    assert_eq!(nodes.len(), 2);
+    assert_eq!(nodes[0].id, "build");
+    assert_eq!(nodes[0].node_type, "build");
+    assert!(nodes[0].known);
+    assert_eq!(nodes[1].uses, "gittributary/git/push@v1");
+    assert_eq!(nodes[1].inputs["branch"], "main");
 }

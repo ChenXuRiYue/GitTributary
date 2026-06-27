@@ -4,6 +4,7 @@
 //! 当前只负责解析、校验和生成展示摘要,不执行 workflow。
 
 mod event;
+mod node;
 
 use std::collections::BTreeMap;
 
@@ -14,6 +15,10 @@ use thiserror::Error;
 pub use event::{
     CloudEvent, EventDefinition, EventDraft, EventPool, EventReceipt, FlowRunIntent,
     FlowTriggerMatch,
+};
+pub use node::{
+    builtin_node_definitions, compile_flow_nodes, FlowNodeDefinition, FlowNodeRegistry,
+    FlowNodeSpec,
 };
 
 pub const FLOW_NAMESPACE: &str = "flows";
@@ -54,6 +59,8 @@ pub struct FlowStepSummary {
     pub id: Option<String>,
     pub name: Option<String>,
     pub uses: String,
+    #[serde(default)]
+    pub inputs: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -164,6 +171,7 @@ struct StepDraft {
     id: Option<String>,
     name: Option<String>,
     uses: Option<String>,
+    inputs: BTreeMap<String, String>,
 }
 
 pub fn workflow_key(id: &str) -> String {
@@ -587,6 +595,7 @@ fn parse_steps(
                 id: None,
                 name: None,
                 uses: None,
+                inputs: BTreeMap::new(),
             };
             if let Some(kv) = parse_key_value(rest) {
                 apply_step_field(&mut step, kv);
@@ -599,6 +608,13 @@ fn parse_steps(
             current = Some(step);
         } else if let Some(step) = current.as_mut() {
             if let Some(kv) = parse_key_value(&line.text) {
+                if kv.key == "with" && kv.value.is_none() {
+                    let with_end = nested_block_end(lines, index + 1, range.end, line.indent);
+                    step.inputs
+                        .extend(parse_step_inputs(lines, (index + 1)..with_end)?);
+                    index = with_end;
+                    continue;
+                }
                 apply_step_field(step, kv);
             }
         }
@@ -617,9 +633,45 @@ fn parse_steps(
             id: draft.id,
             name: draft.name,
             uses,
+            inputs: draft.inputs,
         });
     }
     Ok(steps)
+}
+
+fn nested_block_end(lines: &[YamlLine], start: usize, end: usize, parent_indent: usize) -> usize {
+    lines
+        .iter()
+        .enumerate()
+        .take(end)
+        .skip(start)
+        .find_map(|(index, line)| (line.indent <= parent_indent).then_some(index))
+        .unwrap_or(end)
+}
+
+fn parse_step_inputs(
+    lines: &[YamlLine],
+    range: std::ops::Range<usize>,
+) -> Result<BTreeMap<String, String>> {
+    let Some(base_indent) = child_indent(lines, range.clone()) else {
+        return Ok(BTreeMap::new());
+    };
+    let mut inputs = BTreeMap::new();
+    for line in &lines[range] {
+        if line.indent != base_indent || line.text.starts_with('-') {
+            continue;
+        }
+        let kv = parse_key_value(&line.text).ok_or_else(|| {
+            FlowError::Yaml(format!(
+                "第 {} 行 with 输入必须是 key: value 形式",
+                line.line_no
+            ))
+        })?;
+        if let Some(value) = kv.value {
+            inputs.insert(kv.key, unquote(&value));
+        }
+    }
+    Ok(inputs)
 }
 
 fn apply_step_field(step: &mut StepDraft, kv: KeyValue) {

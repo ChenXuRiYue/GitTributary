@@ -1,7 +1,8 @@
 use std::sync::Mutex;
 
 use gt_flow::{
-    CloudEvent, EventDefinition, EventDraft, EventPool, EventReceipt, FlowRecord, FlowSummary,
+    CloudEvent, EventDefinition, EventDraft, EventPool, EventReceipt, FlowNodeDefinition,
+    FlowNodeRegistry, FlowNodeSpec, FlowRecord, FlowSummary,
 };
 use gt_git::{
     AuthMethod, BranchInfo, CommitInfo, FileDiff, FileStatus, GitRepo, LogEntry, RemoteInfo,
@@ -16,6 +17,7 @@ pub struct AppState {
     pub repo: Mutex<Option<GitRepo>>,
     pub store: Mutex<Store>,
     pub event_pool: Mutex<EventPool>,
+    pub node_registry: Mutex<FlowNodeRegistry>,
 }
 
 /// 打开一个 Git 仓库并返回概况
@@ -815,6 +817,27 @@ fn flow_match_event(event: EventDraft, state: State<'_, AppState>) -> Result<Eve
     match_flow_event(&state, event)
 }
 
+#[tauri::command]
+fn flow_node_catalog(state: State<'_, AppState>) -> Vec<FlowNodeDefinition> {
+    let registry = state.node_registry.lock().unwrap();
+    registry.list()
+}
+
+#[tauri::command]
+fn flow_nodes(id: String, state: State<'_, AppState>) -> Result<Vec<FlowNodeSpec>, String> {
+    let record = {
+        let store = state.store.lock().unwrap();
+        let key = gt_flow::workflow_key(&id);
+        store
+            .get(gt_flow::FLOW_NAMESPACE, &key)
+            .map(flow_record_from_store_value)
+            .transpose()?
+            .ok_or_else(|| format!("Flow 不存在: {id}"))?
+    };
+    let registry = state.node_registry.lock().unwrap();
+    Ok(registry.compile_record(&record))
+}
+
 fn is_public_event_namespace(namespace: &str) -> bool {
     !(namespace == "secrets" || namespace.starts_with("private."))
 }
@@ -1418,6 +1441,7 @@ pub fn run() {
             repo: Mutex::new(None),
             store: Mutex::new(store),
             event_pool: Mutex::new(EventPool::new()),
+            node_registry: Mutex::new(FlowNodeRegistry::new()),
         })
         .setup(|app| {
             let state = app.state::<AppState>();
@@ -1471,6 +1495,8 @@ pub fn run() {
             flow_recent_events,
             flow_emit_event,
             flow_match_event,
+            flow_node_catalog,
+            flow_nodes,
             store_get,
             store_set,
             store_delete,
