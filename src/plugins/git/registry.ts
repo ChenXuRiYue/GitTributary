@@ -3,7 +3,6 @@ import {
   GitBranch,
   Upload,
   History,
-  Timer,
   Shield,
 } from "lucide-react";
 
@@ -12,7 +11,6 @@ import { ChangesView } from "./views/ChangesView";
 import { BranchesView } from "./views/BranchesView";
 import { RemoteView } from "./views/RemoteView";
 import { HistoryView } from "./views/HistoryView";
-import { AutoView } from "./views/AutoView";
 import { SafetyView } from "./views/SafetyView";
 
 /**
@@ -47,13 +45,6 @@ export const gitViews: GitViewDescriptor[] = [
     name: "远程",
     icon: Upload,
     panel: RemoteView,
-    pinned: false,
-  },
-  {
-    id: "auto",
-    name: "自动",
-    icon: Timer,
-    panel: AutoView,
     pinned: false,
   },
   {

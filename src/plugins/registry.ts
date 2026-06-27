@@ -1,11 +1,7 @@
-import { GitBranch, Brain, Sparkles, Database, Settings, Workflow } from "lucide-react";
+import { GitBranch, Database, Settings, Workflow } from "lucide-react";
 
 import type { PluginDescriptor } from "./types";
-import {
-  AiPanel,
-  ReviewPanel,
-  SettingsPanel,
-} from "./panels";
+import { SettingsPanel } from "./panels";
 import { FlowPanel } from "./flow/FlowPanel";
 import { GitPanel } from "./git/GitPanel";
 import { StorePanel } from "./store/StorePanel";
@@ -21,20 +17,6 @@ export const plugins: PluginDescriptor[] = [
     description: "仓库状态、变更管理与提交 —— 平台级 Git 基础能力。",
     icon: GitBranch,
     panel: GitPanel,
-  },
-  {
-    id: "review",
-    name: "复习",
-    description: "基于遗忘曲线的个人脑库与当周复习导出。",
-    icon: Brain,
-    panel: ReviewPanel,
-  },
-  {
-    id: "ai",
-    name: "AI",
-    description: "博学、富有洞察力的笔记助手。",
-    icon: Sparkles,
-    panel: AiPanel,
   },
   {
     id: "flow",
