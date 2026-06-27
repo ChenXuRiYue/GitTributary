@@ -1,4 +1,4 @@
-import { GitBranch, Brain, Sparkles, Database, Settings } from "lucide-react";
+import { GitBranch, Brain, Sparkles, Database, Settings, Workflow } from "lucide-react";
 
 import type { PluginDescriptor } from "./types";
 import {
@@ -6,6 +6,7 @@ import {
   ReviewPanel,
   SettingsPanel,
 } from "./panels";
+import { FlowPanel } from "./flow/FlowPanel";
 import { GitPanel } from "./git/GitPanel";
 import { StorePanel } from "./store/StorePanel";
 
@@ -34,6 +35,13 @@ export const plugins: PluginDescriptor[] = [
     description: "博学、富有洞察力的笔记助手。",
     icon: Sparkles,
     panel: AiPanel,
+  },
+  {
+    id: "flow",
+    name: "流",
+    description: "事件触发、自动化与任务编排。",
+    icon: Workflow,
+    panel: FlowPanel,
   },
   {
     id: "store",

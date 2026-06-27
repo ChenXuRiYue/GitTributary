@@ -1,5 +1,6 @@
 use std::sync::Mutex;
 
+use gt_flow::{FlowRecord, FlowSummary};
 use gt_git::{GitRepo, RepoOverview, FileStatus, CommitInfo, FileDiff, BranchInfo, LogEntry, RemoteInfo, AuthMethod};
 use gt_store::Store;
 use serde_json::Value;
@@ -397,6 +398,200 @@ struct NamespaceInfo {
 struct KvEntry {
     key: String,
     value: Value,
+}
+
+#[derive(serde::Serialize)]
+struct FlowListItem {
+    id: String,
+    key: String,
+    summary: FlowSummary,
+    enabled: bool,
+    folder: String,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(serde::Deserialize)]
+struct FlowSaveRequest {
+    workflow: String,
+    folder: Option<String>,
+}
+
+fn flow_record_from_store_value(value: Value) -> Result<FlowRecord, String> {
+    gt_flow::record_from_value(value).map_err(|e| e.to_string())
+}
+
+fn flow_record_to_store_value(record: &FlowRecord) -> Result<Value, String> {
+    gt_flow::record_to_value(record).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn flow_validate(workflow: String) -> Result<FlowSummary, String> {
+    gt_flow::parse_workflow(&workflow).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn flow_save(request: FlowSaveRequest, state: State<'_, AppState>) -> Result<FlowRecord, String> {
+    let summary = gt_flow::parse_workflow(&request.workflow).map_err(|e| e.to_string())?;
+    let key = gt_flow::workflow_key(&summary.id);
+    let now = gt_flow::now_rfc3339();
+    let mut store = state.store.lock().unwrap();
+    let existing = store
+        .get(gt_flow::FLOW_NAMESPACE, &key)
+        .and_then(|value| flow_record_from_store_value(value).ok());
+    let created_at = existing
+        .as_ref()
+        .map(|record| record.created_at.clone())
+        .unwrap_or_else(|| now.clone());
+    let requested_folder = request.folder.as_deref();
+    let existing_folder = existing.as_ref().and_then(|record| record.folder.as_deref());
+    let folder = gt_flow::normalize_folder(requested_folder.or(existing_folder), Some(&summary));
+
+    let record = FlowRecord::new(request.workflow, summary, Some(folder.clone()), created_at, now);
+    let value = flow_record_to_store_value(&record)?;
+    store
+        .set(gt_flow::FLOW_NAMESPACE, &key, value)
+        .map_err(|e| e.to_string())?;
+    let mut folders = flow_folders_from_store(&store);
+    if !folders.contains(&folder) {
+        folders.push(folder);
+        save_flow_folders_to_store(&mut store, folders)?;
+    }
+    Ok(record)
+}
+
+#[tauri::command]
+fn flow_list(state: State<'_, AppState>) -> Vec<FlowListItem> {
+    let store = state.store.lock().unwrap();
+    let mut items = store
+        .scan(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_KEY_PREFIX)
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let record = flow_record_from_store_value(value).ok()?;
+            Some(FlowListItem {
+                id: record.summary.id.clone(),
+                key,
+                folder: gt_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)),
+                summary: record.summary,
+                enabled: record.enabled,
+                created_at: record.created_at,
+                updated_at: record.updated_at,
+            })
+        })
+        .collect::<Vec<_>>();
+    items.sort_by(|a, b| a.summary.name.cmp(&b.summary.name).then_with(|| a.id.cmp(&b.id)));
+    items
+}
+
+#[tauri::command]
+fn flow_get(id: String, state: State<'_, AppState>) -> Result<Option<FlowRecord>, String> {
+    let store = state.store.lock().unwrap();
+    let key = gt_flow::workflow_key(&id);
+    store
+        .get(gt_flow::FLOW_NAMESPACE, &key)
+        .map(flow_record_from_store_value)
+        .transpose()
+}
+
+#[tauri::command]
+fn flow_delete(id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    let key = gt_flow::workflow_key(&id);
+    store
+        .delete(gt_flow::FLOW_NAMESPACE, &key)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn flow_set_enabled(id: String, enabled: bool, state: State<'_, AppState>) -> Result<FlowRecord, String> {
+    let mut store = state.store.lock().unwrap();
+    let key = gt_flow::workflow_key(&id);
+    let value = store
+        .get(gt_flow::FLOW_NAMESPACE, &key)
+        .ok_or_else(|| format!("Flow 不存在: {id}"))?;
+    let mut record = flow_record_from_store_value(value)?;
+    record.set_enabled(enabled, gt_flow::now_rfc3339());
+    let value = flow_record_to_store_value(&record)?;
+    store
+        .set(gt_flow::FLOW_NAMESPACE, &key, value)
+        .map_err(|e| e.to_string())?;
+    Ok(record)
+}
+
+#[tauri::command]
+fn flow_list_folders(state: State<'_, AppState>) -> Vec<String> {
+    let store = state.store.lock().unwrap();
+    flow_folders_from_store(&store)
+}
+
+#[tauri::command]
+fn flow_create_folder(path: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let mut store = state.store.lock().unwrap();
+    let folder = gt_flow::normalize_folder(Some(&path), None);
+    let mut folders = flow_folders_from_store(&store);
+    if !folders.contains(&folder) {
+        folders.push(folder);
+    }
+    save_flow_folders_to_store(&mut store, folders)
+}
+
+#[tauri::command]
+fn flow_delete_folder(path: String, state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let mut store = state.store.lock().unwrap();
+    let folder = gt_flow::normalize_folder(Some(&path), None);
+    let has_children = flow_folders_from_store(&store)
+        .iter()
+        .any(|item| item != &folder && item.starts_with(&format!("{folder}/")));
+    if has_children {
+        return Err("文件夹非空: 请先删除子文件夹".to_string());
+    }
+    let has_flows = store
+        .scan(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_KEY_PREFIX)
+        .into_iter()
+        .filter_map(|(_, value)| flow_record_from_store_value(value).ok())
+        .any(|record| gt_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)) == folder);
+    if has_flows {
+        return Err("文件夹非空: 请先移动或删除其中的 Flow".to_string());
+    }
+
+    let folders = flow_folders_from_store(&store)
+        .into_iter()
+        .filter(|item| item != &folder)
+        .collect::<Vec<_>>();
+    save_flow_folders_to_store(&mut store, folders)
+}
+
+fn flow_folders_from_store(store: &Store) -> Vec<String> {
+    let mut folders = store
+        .get(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_FOLDERS_KEY)
+        .and_then(|value| serde_json::from_value::<Vec<String>>(value).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|folder| gt_flow::normalize_folder(Some(&folder), None))
+        .collect::<Vec<_>>();
+
+    for (_, value) in store.scan(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_KEY_PREFIX) {
+        if let Ok(record) = flow_record_from_store_value(value) {
+            folders.push(gt_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)));
+        }
+    }
+
+    folders.sort();
+    folders.dedup();
+    folders
+}
+
+fn save_flow_folders_to_store(store: &mut Store, folders: Vec<String>) -> Result<Vec<String>, String> {
+    let mut folders = folders
+        .into_iter()
+        .map(|folder| gt_flow::normalize_folder(Some(&folder), None))
+        .collect::<Vec<_>>();
+    folders.sort();
+    folders.dedup();
+    store
+        .set(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_FOLDERS_KEY, serde_json::json!(folders))
+        .map_err(|e| e.to_string())?;
+    Ok(folders)
 }
 
 #[tauri::command]
@@ -909,6 +1104,15 @@ pub fn run() {
             git_push,
             git_pull,
             set_project_token,
+            flow_validate,
+            flow_save,
+            flow_list,
+            flow_get,
+            flow_delete,
+            flow_set_enabled,
+            flow_list_folders,
+            flow_create_folder,
+            flow_delete_folder,
             store_get,
             store_set,
             store_delete,

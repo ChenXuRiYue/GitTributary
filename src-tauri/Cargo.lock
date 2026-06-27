@@ -1356,6 +1356,7 @@ name = "gittributary"
 version = "0.1.0"
 dependencies = [
  "dirs-next",
+ "gt-flow",
  "gt-git",
  "gt-store",
  "serde",
@@ -1428,6 +1429,16 @@ dependencies = [
  "glib-sys",
  "libc",
  "system-deps",
+]
+
+[[package]]
+name = "gt-flow"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

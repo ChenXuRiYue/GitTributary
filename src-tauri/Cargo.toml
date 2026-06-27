@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/gt-git", "crates/gt-store"]
+members = ["crates/gt-git", "crates/gt-store", "crates/gt-flow"]
 
 [package]
 name = "gittributary"
@@ -28,5 +28,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 gt-git = { path = "crates/gt-git" }
 gt-store = { path = "crates/gt-store" }
+gt-flow = { path = "crates/gt-flow" }
 dirs-next = "2"
-
