@@ -38,6 +38,20 @@ pub struct RemoteAccessReport {
     pub refs_count: usize,
 }
 
+fn normalize_remote_input(name: &str, url: &str) -> Result<(String, String)> {
+    let name = name.trim();
+    let url = url.trim();
+
+    if name.is_empty() {
+        return Err(GitError::Internal("远程名称不能为空".to_string()));
+    }
+    if url.is_empty() {
+        return Err(GitError::Internal("远程 URL 不能为空".to_string()));
+    }
+
+    Ok((name.to_string(), url.to_string()))
+}
+
 /// 检查远程仓库是否可访问。只做 connect/list refs,不 clone/fetch/pull/push。
 pub fn check_remote_access(url: &str, auth: &AuthMethod) -> Result<RemoteAccessReport> {
     let mut remote = git2::Remote::create_detached(url)?;
@@ -76,19 +90,46 @@ impl GitRepo {
 
     /// 添加远程
     pub fn add_remote(&self, name: &str, url: &str) -> Result<()> {
-        self.repo.remote(name, url)?;
+        let (name, url) = normalize_remote_input(name, url)?;
+        if self.repo.find_remote(&name).is_ok() {
+            return Err(GitError::Internal(format!("远程 '{}' 已存在", name)));
+        }
+        self.repo
+            .remote(&name, &url)
+            .map_err(|e| {
+                GitError::Internal(format!("添加远程 '{}' 失败: {}", name, e.message()))
+            })?;
         Ok(())
     }
 
     /// 修改远程 URL
     pub fn set_remote_url(&self, name: &str, url: &str) -> Result<()> {
-        self.repo.remote_set_url(name, url)?;
+        let (name, url) = normalize_remote_input(name, url)?;
+        self.repo
+            .find_remote(&name)
+            .map_err(|_| GitError::Internal(format!("远程 '{}' 不存在", name)))?;
+        self.repo
+            .remote_set_url(&name, &url)
+            .map_err(|e| {
+                GitError::Internal(format!("修改远程 '{}' 失败: {}", name, e.message()))
+            })?;
         Ok(())
     }
 
     /// 删除远程
     pub fn remove_remote(&self, name: &str) -> Result<()> {
-        self.repo.remote_delete(name)?;
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(GitError::Internal("远程名称不能为空".to_string()));
+        }
+        self.repo
+            .find_remote(name)
+            .map_err(|_| GitError::Internal(format!("远程 '{}' 不存在", name)))?;
+        self.repo
+            .remote_delete(name)
+            .map_err(|e| {
+                GitError::Internal(format!("删除远程 '{}' 失败: {}", name, e.message()))
+            })?;
         Ok(())
     }
 

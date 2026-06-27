@@ -402,7 +402,7 @@ fn get_remote_configs(state: State<'_, AppState>) -> Result<Vec<RemoteConfigEntr
     let sync_config = {
         let base_dir = store_base_dir();
         let engine = gt_store::SyncEngine::new(&base_dir);
-        engine.config().map_err(|e| e.to_string())?
+        engine.config().ok().flatten()
     };
 
     if let Some(config) = sync_config {

@@ -1,6 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
-import { Eye, EyeOff, Globe, Link, Plus, RefreshCw, Save, ShieldCheck, Unplug } from "lucide-react";
+import {
+  Clock,
+  Eye,
+  EyeOff,
+  FolderOpen,
+  GitBranch,
+  Globe,
+  Link,
+  Plus,
+  RefreshCw,
+  Save,
+  ShieldCheck,
+  Unplug,
+} from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +48,26 @@ interface ConfigRepoCheckReport {
   message: string;
   default_branch: string | null;
   refs_count: number;
+}
+
+interface RepoOverview {
+  path: string;
+  current_branch: string;
+  is_dirty: boolean;
+  changed_count: number;
+  remote_url: string | null;
+}
+
+interface WorkspaceInfo {
+  active_repo: string | null;
+  recent_repos: string[];
+  device_id: string | null;
+  device_name: string | null;
+}
+
+function shortPath(path: string): string {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts.length > 2 ? `.../${parts.slice(-2).join("/")}` : path;
 }
 
 function sourceLabel(source: string): string {
@@ -84,6 +118,8 @@ function verifyLabel(status: string): string {
 }
 
 export function RemoteView() {
+  const [overview, setOverview] = useState<RepoOverview | null>(null);
+  const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
   const [syncConfig, setSyncConfig] = useState<SyncConfigPayload | null>(null);
   const [newName, setNewName] = useState("");
@@ -95,44 +131,119 @@ export function RemoteView() {
   const [configToken, setConfigToken] = useState("");
   const [showConfigToken, setShowConfigToken] = useState(false);
   const [checkingConfig, setCheckingConfig] = useState(false);
+  const [addingRemote, setAddingRemote] = useState(false);
   const [configCheck, setConfigCheck] = useState<ConfigRepoCheckReport | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
-    try {
-      const [r, config] = await Promise.all([
-        invoke<RemoteInfo[]>("get_remote_configs"),
-        invoke<SyncConfigPayload | null>("sync_get_config"),
-      ]);
-      setRemotes(r);
-      setSyncConfig(config);
-      if (config) {
-        setConfigUrl(config.url);
-        setConfigBranch(config.branch || "main");
-      }
-      setError(null);
-    } catch (e) { setError(String(e)); }
+  const loadRemoteConfigs = useCallback(async () => {
+    const r = await invoke<RemoteInfo[]>("get_remote_configs");
+    setRemotes(r);
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  const loadSyncConfig = useCallback(async () => {
+    const config = await invoke<SyncConfigPayload | null>("sync_get_config");
+    setSyncConfig(config);
+    if (config) {
+      setConfigUrl(config.url);
+      setConfigBranch(config.branch || "main");
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    let nextError: string | null = null;
+
+    try {
+      const ov = await invoke<RepoOverview>("get_overview");
+      setOverview(ov);
+      await loadRemoteConfigs();
+    } catch (e) {
+      setOverview(null);
+      setRemotes([]);
+      const message = String(e);
+      nextError = message === "尚未打开仓库" ? null : message;
+    }
+
+    try {
+      await loadSyncConfig();
+    } catch (e) {
+      nextError = nextError
+        ? `${nextError}; 配置中心读取失败: ${String(e)}`
+        : `配置中心读取失败: ${String(e)}`;
+    }
+
+    setError(nextError);
+  }, [loadRemoteConfigs, loadSyncConfig]);
+
+  const openRepo = useCallback(async (path: string) => {
+    try {
+      const ov = await invoke<RepoOverview>("open_repo", { path });
+      setOverview(ov);
+      await loadRemoteConfigs();
+      setError(null);
+    } catch (e) {
+      setOverview(null);
+      setRemotes([]);
+      setError(String(e));
+      return;
+    }
+
+    try {
+      await loadSyncConfig();
+    } catch (e) {
+      setError(`配置中心读取失败: ${String(e)}`);
+    }
+  }, [loadRemoteConfigs, loadSyncConfig]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const ws = await invoke<WorkspaceInfo>("get_workspace_info");
+        setRecentRepos(ws.recent_repos ?? []);
+        if (ws.active_repo) {
+          await openRepo(ws.active_repo);
+        } else {
+          await refresh();
+        }
+      } catch {
+        await refresh();
+      }
+    })();
+  }, [openRepo, refresh]);
 
   const flash = (msg: string) => {
     setStatus(msg);
     setTimeout(() => setStatus(null), 3000);
   };
 
+  const openFromDialog = async () => {
+    const selected = await open({ directory: true, multiple: false });
+    if (!selected) return;
+    await openRepo(selected as string);
+  };
+
   const handleAddRemote = async () => {
-    if (!newName.trim() || !newUrl.trim()) return;
+    if (!overview || !newName.trim() || !newUrl.trim()) return;
+    setAddingRemote(true);
     try {
+      setError(null);
       await invoke("add_remote", { name: newName.trim(), url: newUrl.trim() });
+      let tokenWarning: string | null = null;
       if (newToken.trim()) {
-        await invoke("set_project_token", { token: newToken.trim() });
+        try {
+          await invoke("set_project_token", { token: newToken.trim() });
+        } catch (e) {
+          tokenWarning = `远程已添加,但 Token 保存失败: ${String(e)}`;
+        }
       }
       setNewName(""); setNewUrl(""); setNewToken("");
-      flash("远程已添加");
-      await refresh();
-    } catch (e) { setError(String(e)); }
+      flash(tokenWarning ?? "远程已添加");
+      await loadRemoteConfigs();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setAddingRemote(false);
+    }
   };
 
   const configPayload = (): SyncConfigPayload => ({
@@ -204,8 +315,18 @@ export function RemoteView() {
           <Globe className="size-4 text-muted-foreground" />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold">远程配置</div>
-            <div className="text-[11px] text-muted-foreground">管理当前仓库 remote 与 GitTributary 远程配置</div>
+            <div className="text-[11px] text-muted-foreground">
+              {overview ? `${overview.current_branch} · ${shortPath(overview.path)}` : "管理当前仓库 remote 与 GitTributary 远程配置"}
+            </div>
           </div>
+          {recentRepos[0] && !overview && (
+            <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => openRepo(recentRepos[0])} title="打开最近仓库">
+              <Clock className="size-3.5" />
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" className="h-7 px-2" onClick={openFromDialog} title="打开仓库">
+            <FolderOpen className="size-3.5" />
+          </Button>
           <Button variant="ghost" size="sm" className="h-7 w-7 px-0" onClick={refresh} title="刷新">
             <RefreshCw className="size-3.5" />
           </Button>
@@ -215,6 +336,29 @@ export function RemoteView() {
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
       {status && <div className="rounded-md bg-primary/10 px-3 py-1.5 text-xs text-primary">{status}</div>}
       {error && <div className="rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive">{error}</div>}
+      {!overview && (
+        <div className="flex flex-col gap-3 rounded-md border border-dashed px-3 py-4">
+          <div className="flex items-center gap-2">
+            <GitBranch className="size-4 text-muted-foreground" />
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-medium">未打开当前仓库</div>
+              <div className="truncate text-[11px] text-muted-foreground">
+                请选择一个 Git 仓库后再新增本地 remote 配置。
+              </div>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {recentRepos[0] && (
+              <Button variant="outline" size="sm" className="h-8" onClick={() => openRepo(recentRepos[0])}>
+                <Clock className="size-3.5" /> {shortPath(recentRepos[0])}
+              </Button>
+            )}
+            <Button variant="outline" size="sm" className="h-8" onClick={openFromDialog}>
+              <FolderOpen className="size-3.5" /> 选择仓库
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* 远程配置列表 */}
       <Card>
@@ -372,8 +516,8 @@ export function RemoteView() {
               Token 会保存为当前项目凭据;仓库操作暂不在此页暴露。
             </p>
             <Button size="sm" className="h-8" onClick={handleAddRemote}
-              disabled={!newName.trim() || !newUrl.trim()}>
-              <Save className="size-3.5" /> 添加
+              disabled={!overview || addingRemote || !newName.trim() || !newUrl.trim()}>
+              <Save className="size-3.5" /> {addingRemote ? "添加中" : "添加"}
             </Button>
           </div>
         </CardContent>

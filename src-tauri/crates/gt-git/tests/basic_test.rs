@@ -159,3 +159,41 @@ fn test_unstage_files() {
     let hello = statuses.iter().find(|s| s.path == Path::new("hello.md")).unwrap();
     assert!(!hello.staged); // 应回到 unstaged
 }
+
+#[test]
+fn test_remote_management_trims_and_lists_remote() {
+    let (_dir, repo) = setup_repo();
+
+    repo.add_remote("  backup  ", "  https://example.com/user/repo.git  ")
+        .unwrap();
+
+    let remotes = repo.remotes().unwrap();
+    let backup = remotes.iter().find(|remote| remote.name == "backup").unwrap();
+    assert_eq!(backup.url, "https://example.com/user/repo.git");
+    assert_eq!(backup.push_url, None);
+
+    repo.set_remote_url(" backup ", " https://example.com/user/new.git ")
+        .unwrap();
+    let remotes = repo.remotes().unwrap();
+    let backup = remotes.iter().find(|remote| remote.name == "backup").unwrap();
+    assert_eq!(backup.url, "https://example.com/user/new.git");
+
+    repo.remove_remote(" backup ").unwrap();
+    assert!(repo.remotes().unwrap().is_empty());
+}
+
+#[test]
+fn test_add_remote_rejects_empty_and_duplicate_names() {
+    let (_dir, repo) = setup_repo();
+
+    let empty_name = repo.add_remote("   ", "https://example.com/user/repo.git");
+    assert!(empty_name.unwrap_err().to_string().contains("远程名称不能为空"));
+
+    let empty_url = repo.add_remote("origin", "   ");
+    assert!(empty_url.unwrap_err().to_string().contains("远程 URL 不能为空"));
+
+    repo.add_remote("origin", "https://example.com/user/repo.git")
+        .unwrap();
+    let duplicate = repo.add_remote("origin", "https://example.com/user/other.git");
+    assert!(duplicate.unwrap_err().to_string().contains("远程 'origin' 已存在"));
+}
