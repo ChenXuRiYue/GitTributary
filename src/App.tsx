@@ -63,7 +63,11 @@ function App() {
 
   const active = plugins.find((p) => p.id === activeId) ?? plugins[0];
   const ActivePanel = active?.panel;
-  const isFullHeightPanel = active?.id === "git" || active?.id === "store" || active?.id === "flow";
+  const isFullHeightPanel =
+    active?.id === "git" ||
+    active?.id === "store" ||
+    active?.id === "flow" ||
+    active?.id === "extensions";
 
   // 分组(展开态用)
   const extensionPlugins = plugins.filter((p) => (p.category ?? "extension") === "extension");

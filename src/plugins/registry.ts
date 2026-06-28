@@ -1,7 +1,8 @@
-import { GitBranch, Database, Settings, Workflow } from "lucide-react";
+import { Boxes, GitBranch, Database, Settings, Workflow } from "lucide-react";
 
 import type { PluginDescriptor } from "./types";
 import { SettingsPanel } from "./panels";
+import { ExtensionsPanel } from "./extensions/ExtensionsPanel";
 import { FlowPanel } from "./flow/FlowPanel";
 import { GitPanel } from "./git/GitPanel";
 import { StorePanel } from "./store/StorePanel";
@@ -27,10 +28,17 @@ export const plugins: PluginDescriptor[] = [
   },
   {
     id: "store",
-    name: "数据中心",
+    name: "数据",
     description: "统一配置管理 — 所有配置项的可视化浏览与 Profile 切换。",
     icon: Database,
     panel: StorePanel,
+  },
+  {
+    id: "extensions",
+    name: "拓展",
+    description: "二级拓展类插件分组，为后续插件市场预留入口。",
+    icon: Boxes,
+    panel: ExtensionsPanel,
   },
   {
     id: "settings",
