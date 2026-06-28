@@ -63,6 +63,10 @@ impl FlowNodeRegistry {
     pub fn compile_record(&self, record: &FlowRecord) -> Vec<FlowNodeSpec> {
         compile_flow_nodes(&record.summary, self)
     }
+
+    pub fn compile_summary(&self, summary: &FlowSummary) -> Vec<FlowNodeSpec> {
+        compile_flow_nodes(summary, self)
+    }
 }
 
 pub fn compile_flow_nodes(summary: &FlowSummary, registry: &FlowNodeRegistry) -> Vec<FlowNodeSpec> {
@@ -154,6 +158,15 @@ pub fn builtin_node_definitions() -> Vec<FlowNodeDefinition> {
             "用于将本地提交推送到远程仓库。该节点通常是发布类 Flow 的最后高风险动作。",
             &[("repo", "string"), ("remote", "string"), ("branch", "string")],
             &[("remote", "string"), ("branch", "string")],
+        ),
+        node_definition(
+            "gittributary/store/sync-now@v1",
+            "同步数据中心",
+            "sync",
+            "立即同步公共数据中心配置",
+            "调用数据中心同步能力,将 public 配置与已绑定的配置数据库进行一次双向同步。",
+            &[],
+            &[("message", "string")],
         ),
         node_definition(
             "gittributary/ui/notify@v1",

@@ -1,10 +1,12 @@
 //! # gt-flow
 //!
 //! GitTributary Flow 的轻量领域层。
-//! 当前只负责解析、校验和生成展示摘要,不执行 workflow。
+//! 负责解析、构造、校验和编排 workflow。具体业务动作由宿主应用注入执行器。
 
+mod builder;
 mod event;
 mod node;
+mod runner;
 
 use std::collections::BTreeMap;
 
@@ -12,6 +14,11 @@ use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub use builder::{
+    build_flow_draft, build_flow_draft_from_yaml, validate_flow_summary, FlowBuildDraft,
+    FlowBuildRequest, FlowBuildStepRequest, FlowBuildTriggerRequest, FlowDiagnostic,
+    FlowDiagnosticSeverity,
+};
 pub use event::{
     CloudEvent, EventDefinition, EventDraft, EventPool, EventReceipt, FlowRunIntent,
     FlowTriggerMatch,
@@ -19,6 +26,10 @@ pub use event::{
 pub use node::{
     builtin_node_definitions, compile_flow_nodes, FlowNodeDefinition, FlowNodeRegistry,
     FlowNodeSpec,
+};
+pub use runner::{
+    run_flow_with_executor, DryRunActionExecutor, FlowActionExecutor, FlowActionOutcome,
+    FlowExecutionContext, FlowJobRun, FlowNodeRun, FlowRunReport, FlowRunRequest, FlowRunStatus,
 };
 
 pub const FLOW_NAMESPACE: &str = "flows";
@@ -48,13 +59,6 @@ pub struct FlowTriggerSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct FlowPermissionSummary {
-    pub scope: String,
-    pub values: Vec<String>,
-    pub enabled: bool,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FlowStepSummary {
     pub id: Option<String>,
     pub name: Option<String>,
@@ -77,7 +81,6 @@ pub struct FlowSummary {
     pub description: Option<String>,
     pub enabled: bool,
     pub triggers: Vec<FlowTriggerSummary>,
-    pub permissions: Vec<FlowPermissionSummary>,
     pub jobs: Vec<FlowJobSummary>,
     pub step_count: usize,
 }
@@ -203,11 +206,6 @@ pub fn parse_workflow(workflow: &str) -> Result<FlowSummary> {
         ));
     }
 
-    let permissions = match section_range_optional(&lines, "permissions") {
-        Some(range) => parse_permissions(&lines, range)?,
-        None => Vec::new(),
-    };
-
     let jobs = parse_jobs(&lines, section_range(&lines, "jobs")?)?;
     if jobs.is_empty() {
         return Err(FlowError::Validation(
@@ -222,7 +220,6 @@ pub fn parse_workflow(workflow: &str) -> Result<FlowSummary> {
         description,
         enabled,
         triggers,
-        permissions,
         jobs,
         step_count,
     })
@@ -496,52 +493,6 @@ fn collect_nested_scalars(
         }
     }
     values
-}
-
-fn parse_permissions(
-    lines: &[YamlLine],
-    range: std::ops::Range<usize>,
-) -> Result<Vec<FlowPermissionSummary>> {
-    let Some(base_indent) = child_indent(lines, range.clone()) else {
-        return Ok(Vec::new());
-    };
-    let mut permissions = Vec::new();
-    let mut index = range.start;
-    while index < range.end {
-        let line = &lines[index];
-        if line.indent != base_indent {
-            index += 1;
-            continue;
-        }
-        let kv = parse_key_value(&line.text).ok_or_else(|| {
-            FlowError::Yaml(format!(
-                "第 {} 行权限声明必须是 key: value 形式",
-                line.line_no
-            ))
-        })?;
-        let permission_end = next_sibling_index(lines, index + 1, range.end, base_indent);
-        let (enabled, values) = match kv.value {
-            Some(value) => {
-                if let Some(enabled) = parse_bool(&value) {
-                    (enabled, Vec::new())
-                } else {
-                    (true, parse_scalar_or_list(&value)?)
-                }
-            }
-            None => {
-                let values = collect_sequence_values(lines, index + 1, permission_end, line.indent);
-                (!values.is_empty(), values)
-            }
-        };
-        permissions.push(FlowPermissionSummary {
-            scope: kv.key,
-            values,
-            enabled,
-        });
-        index = permission_end;
-    }
-    permissions.sort_by(|a, b| a.scope.cmp(&b.scope));
-    Ok(permissions)
 }
 
 fn parse_jobs(lines: &[YamlLine], range: std::ops::Range<usize>) -> Result<Vec<FlowJobSummary>> {

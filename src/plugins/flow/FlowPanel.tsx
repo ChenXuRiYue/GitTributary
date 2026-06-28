@@ -11,12 +11,12 @@ import {
   FolderTree,
   List,
   ListPlus,
+  Play,
   Plus,
   Radio,
   RefreshCcw,
   Save,
   Search,
-  ShieldCheck,
   Split,
   Trash2,
   Wrench,
@@ -39,6 +39,7 @@ import { cn } from "@/lib/utils";
 type ViewMode = "read" | "operate";
 type FlowListMode = "tree" | "list";
 type FlowSection = "flows" | "events" | "nodes";
+type FlowRunStatus = "pending" | "running" | "succeeded" | "failed" | "skipped";
 
 interface FlowTriggerSummary {
   kind: string;
@@ -80,12 +81,6 @@ interface FlowNodeSpec {
   known: boolean;
 }
 
-interface FlowPermissionSummary {
-  scope: string;
-  values: string[];
-  enabled: boolean;
-}
-
 interface FlowStepSummary {
   id?: string | null;
   name?: string | null;
@@ -105,7 +100,6 @@ interface FlowSummary {
   description?: string | null;
   enabled: boolean;
   triggers: FlowTriggerSummary[];
-  permissions: FlowPermissionSummary[];
   jobs: FlowJobSummary[];
   step_count: number;
 }
@@ -129,6 +123,47 @@ interface FlowListItem {
   folder: string;
 }
 
+interface FlowNodeRun {
+  run_id: string;
+  flow_id: string;
+  job_id: string;
+  node_id: string;
+  uses: string;
+  status: FlowRunStatus;
+  started_at?: string | null;
+  finished_at?: string | null;
+  inputs?: Record<string, string>;
+  outputs?: unknown;
+  message?: string | null;
+  error?: string | null;
+}
+
+interface FlowJobRun {
+  run_id: string;
+  flow_id: string;
+  job_id: string;
+  status: FlowRunStatus;
+  started_at?: string | null;
+  finished_at?: string | null;
+  nodes: FlowNodeRun[];
+  error?: string | null;
+}
+
+interface FlowRunReport {
+  run_id: string;
+  flow_id: string;
+  flow_name: string;
+  status: FlowRunStatus;
+  trigger: string;
+  reason: string;
+  started_at: string;
+  finished_at: string;
+  jobs: FlowJobRun[];
+  event?: unknown;
+  inputs?: unknown;
+  error?: string | null;
+}
+
 const SAMPLE_WORKFLOW = `name: 每日晚间备份
 
 gt:
@@ -138,10 +173,6 @@ gt:
 
 on:
   workflow_dispatch:
-
-permissions:
-  git: [status, commit]
-  store: [read]
 
 jobs:
   backup:
@@ -179,12 +210,6 @@ function normalizeFolder(folder?: string | null, summary?: FlowSummary) {
 
 function flowFileName(id: string) {
   return `${id.replace(/^flow\./, "").split(".").join("-")}.yml`;
-}
-
-function permissionText(permission: FlowPermissionSummary) {
-  if (!permission.enabled) return `${permission.scope}: false`;
-  if (permission.values.length === 0) return `${permission.scope}: true`;
-  return `${permission.scope}: ${permission.values.join(", ")}`;
 }
 
 function eventDomainMeta(domain: string) {
@@ -425,6 +450,66 @@ function statusTone(enabled: boolean) {
   return enabled
     ? "border-green-200 bg-green-50 text-green-700"
     : "border-slate-200 bg-slate-50 text-slate-600";
+}
+
+function runStatusText(status: FlowRunStatus) {
+  switch (status) {
+    case "pending":
+      return "等待中";
+    case "running":
+      return "运行中";
+    case "succeeded":
+      return "成功";
+    case "failed":
+      return "失败";
+    case "skipped":
+      return "已跳过";
+    default:
+      return status;
+  }
+}
+
+function runStatusTone(status: FlowRunStatus) {
+  switch (status) {
+    case "succeeded":
+      return "border-green-200 bg-green-50 text-green-700";
+    case "failed":
+      return "border-red-200 bg-red-50 text-red-700";
+    case "running":
+      return "border-blue-200 bg-blue-50 text-blue-700";
+    case "skipped":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    default:
+      return "border-slate-200 bg-slate-50 text-slate-600";
+  }
+}
+
+function triggerText(trigger: FlowTriggerSummary) {
+  switch (trigger.kind) {
+    case "workflow_dispatch":
+      return "手动运行入口";
+    case "schedule":
+      return "定时触发";
+    case "file_watch":
+      return "文件监听触发";
+    case "store_changed":
+      return "数据中心变更触发";
+    default:
+      if (trigger.kind.startsWith("git.")) return "Git 事件触发";
+      if (trigger.kind.startsWith("flow.")) return "Flow 运行事件触发";
+      return "事件触发";
+  }
+}
+
+function shortJson(value: unknown) {
+  if (value === null || value === undefined) return "-";
+  if (typeof value === "string") return value;
+  try {
+    const text = JSON.stringify(value);
+    return text.length > 120 ? `${text.slice(0, 117)}...` : text;
+  } catch {
+    return String(value);
+  }
 }
 
 function flowMarker(enabled: boolean): FileTreeLeaf["marker"] {
@@ -837,7 +922,7 @@ function EmptyState({ canOperate, onCreate }: { canOperate: boolean; onCreate: (
         </div>
         <h3 className="gt-title-panel mt-3">还没有 Flow</h3>
         <p className="gt-body mt-2 text-muted-foreground">
-          先保存一个 YAML 工作流,这里会展示它的触发器、权限和步骤摘要。
+          先保存一个 YAML 工作流,这里会展示它的触发入口、节点步骤和最近执行。
         </p>
         {canOperate && (
           <Button className="mt-4" size="sm" onClick={onCreate}>
@@ -1536,12 +1621,18 @@ function NodeCatalogView({
 function SummaryView({
   record,
   canOperate,
+  isRunning,
+  lastRun,
   onEdit,
+  onRun,
   onToggle,
 }: {
   record: FlowRecord;
   canOperate: boolean;
+  isRunning: boolean;
+  lastRun: FlowRunReport | null;
   onEdit: () => void;
+  onRun: () => void;
   onToggle: (enabled: boolean) => void;
 }) {
   const { summary } = record;
@@ -1565,6 +1656,10 @@ function SummaryView({
           {canOperate && (
             <div className="flex shrink-0 items-center gap-2">
               <Switch checked={record.enabled} onCheckedChange={onToggle} />
+              <Button variant="outline" size="sm" onClick={onRun} disabled={isRunning}>
+                <Play className="size-3.5" />
+                {isRunning ? "运行中" : "运行一次"}
+              </Button>
               <Button variant="outline" size="sm" onClick={onEdit}>
                 <Code2 className="size-3.5" />
                 编辑 YAML
@@ -1573,38 +1668,38 @@ function SummaryView({
           )}
         </div>
 
-        <div className="grid md:grid-cols-4">
+        <div className="grid md:grid-cols-3">
           <Metric label="来源" value={`flows/${normalizeFolder(record.folder, summary)}/${flowFileName(summary.id)}`} icon={FilePenLine} />
           <Metric label="触发器" value={`${summary.triggers.length}`} icon={Radio} />
-          <Metric label="权限域" value={`${summary.permissions.length}`} icon={ShieldCheck} />
           <Metric label="步骤" value={`${summary.step_count}`} icon={ListPlus} />
         </div>
       </section>
 
-      <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
-        <section className="rounded-md border">
-          <SectionHeader icon={Radio} title="触发器" />
-          {summary.triggers.length === 0 ? (
-            <p className="gt-body px-4 py-3 text-muted-foreground">未声明触发器。</p>
-          ) : summary.triggers.map((trigger) => (
-            <div key={trigger.kind} className="border-b px-4 py-3 last:border-b-0">
+      <section className="rounded-md border">
+        <SectionHeader icon={Radio} title="触发入口" />
+        {summary.triggers.length === 0 ? (
+          <p className="gt-body px-4 py-3 text-muted-foreground">未声明触发器。</p>
+        ) : summary.triggers.map((trigger) => (
+          <div key={trigger.kind} className="border-b px-4 py-3 last:border-b-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <p className="gt-body-strong">{trigger.label}</p>
-              {trigger.detail && <p className="gt-caption mt-0.5 text-muted-foreground">{trigger.detail}</p>}
+              <Badge variant="outline" className="h-5 border-slate-200 bg-slate-50 text-slate-600">
+                {triggerText(trigger)}
+              </Badge>
             </div>
-          ))}
-        </section>
-
-        <section className="rounded-md border">
-          <SectionHeader icon={ShieldCheck} title="权限" />
-          {summary.permissions.length === 0 ? (
-            <p className="gt-body px-4 py-3 text-muted-foreground">未声明权限。</p>
-          ) : summary.permissions.map((permission) => (
-            <div key={permission.scope} className="border-b px-4 py-3 last:border-b-0">
-              <p className="gt-code">{permissionText(permission)}</p>
-            </div>
-          ))}
-        </section>
-      </div>
+            {trigger.detail && <p className="gt-caption mt-0.5 text-muted-foreground">{trigger.detail}</p>}
+            {trigger.filters && Object.keys(trigger.filters).length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {Object.entries(trigger.filters).map(([key, values]) => (
+                  <Badge key={key} variant="outline" className="h-5 border-border bg-background text-muted-foreground">
+                    {key}: {values.join(", ")}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </section>
 
       <section className="rounded-md border">
         <SectionHeader icon={Workflow} title="步骤摘要" aside={`${summary.jobs.length} jobs`} />
@@ -1626,6 +1721,62 @@ function SummaryView({
             ))}
           </div>
         ))}
+      </section>
+
+      <section className="rounded-md border">
+        <SectionHeader
+          icon={Play}
+          title="最近执行"
+          aside={lastRun ? formatTime(lastRun.finished_at || lastRun.started_at) : "尚未运行"}
+        />
+        {!lastRun ? (
+          <p className="gt-body px-4 py-3 text-muted-foreground">
+            操作模式下点击“运行一次”后,这里会展示本次 run 的触发来源、节点状态和错误信息。
+          </p>
+        ) : (
+          <div>
+            <div className="grid gap-0 border-b md:grid-cols-4">
+              <Metric label="状态" value={runStatusText(lastRun.status)} icon={CheckCircle2} />
+              <Metric label="触发" value={lastRun.trigger} icon={Radio} />
+              <Metric label="Run ID" value={lastRun.run_id} icon={Workflow} />
+              <Metric label="原因" value={lastRun.reason} icon={Eye} />
+            </div>
+            {lastRun.error && (
+              <div className="border-b bg-red-50 px-4 py-2 text-sm text-red-700">
+                {lastRun.error}
+              </div>
+            )}
+            {lastRun.jobs.map((job) => (
+              <div key={job.job_id} className="border-b last:border-b-0">
+                <div className="flex items-center justify-between gap-3 border-b bg-muted/25 px-4 py-2">
+                  <p className="gt-body-strong">{job.job_id}</p>
+                  <Badge variant="outline" className={cn("h-5 border", runStatusTone(job.status))}>
+                    {runStatusText(job.status)}
+                  </Badge>
+                </div>
+                {job.nodes.map((node, index) => (
+                  <div key={`${node.job_id}-${node.node_id}-${index}`} className="grid grid-cols-[2rem_1fr_auto] gap-3 border-b px-4 py-2.5 last:border-b-0">
+                    <span className="gt-caption text-muted-foreground">{index + 1}</span>
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <p className="gt-code truncate">{node.node_id}</p>
+                        <span className="gt-caption truncate text-muted-foreground">{node.uses}</span>
+                      </div>
+                      {node.message && <p className="gt-caption mt-0.5 text-muted-foreground">{node.message}</p>}
+                      {node.error && <p className="gt-caption mt-0.5 text-red-700">{node.error}</p>}
+                      {node.outputs !== undefined && (
+                        <p className="gt-caption mt-0.5 truncate text-muted-foreground">outputs: {shortJson(node.outputs)}</p>
+                      )}
+                    </div>
+                    <Badge variant="outline" className={cn("h-5 border", runStatusTone(node.status))}>
+                      {runStatusText(node.status)}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       <section className="rounded-md border">
@@ -1755,15 +1906,24 @@ export function FlowPanel() {
   const [folderCreateDraft, setFolderCreateDraft] = useState<FlowFolderCreateDraft>(null);
   const [editorStatus, setEditorStatus] = useState<"idle" | "valid" | "invalid">("idle");
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [lastRun, setLastRun] = useState<FlowRunReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isEventsLoading, setIsEventsLoading] = useState(true);
   const [isNodeDefinitionsLoading, setIsNodeDefinitionsLoading] = useState(true);
   const [isFlowNodesLoading, setIsFlowNodesLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isRunningFlow, setIsRunningFlow] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const canOperate = mode === "operate";
   const enabledCount = flows.filter((flow) => flow.enabled).length;
+
+  const clearRunIfDifferent = useCallback((flowId: string | null) => {
+    setLastRun((current) => {
+      if (!current) return current;
+      return current.flow_id === flowId ? current : null;
+    });
+  }, []);
 
   const loadFlows = useCallback(async (preferredId?: string | null) => {
     setIsLoading(true);
@@ -1781,6 +1941,7 @@ export function FlowPanel() {
         ? preferredId
         : list[0]?.id ?? null;
       setSelectedId(nextId);
+      clearRunIfDifferent(nextId);
       if (nextId) {
         setSelectedFolder(null);
       }
@@ -1792,7 +1953,7 @@ export function FlowPanel() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [clearRunIfDifferent]);
 
   const loadEvents = useCallback(async () => {
     setIsEventsLoading(true);
@@ -1842,11 +2003,13 @@ export function FlowPanel() {
   const loadRecord = useCallback(async (id: string | null) => {
     if (!id) {
       setSelectedRecord(null);
+      clearRunIfDifferent(null);
       return;
     }
     try {
       const record = await invoke<FlowRecord | null>("flow_get", { id });
       setSelectedRecord(record);
+      clearRunIfDifferent(record?.summary.id ?? null);
       if (record && isEditingYaml) {
         setEditorYaml(record.raw_yaml);
         setEditorFolder(normalizeFolder(record.folder, record.summary));
@@ -1855,7 +2018,7 @@ export function FlowPanel() {
       setLoadError(error instanceof Error ? error.message : String(error));
       setSelectedRecord(null);
     }
-  }, [isEditingYaml]);
+  }, [clearRunIfDifferent, isEditingYaml]);
 
   useEffect(() => {
     void loadFlows();
@@ -1910,6 +2073,7 @@ export function FlowPanel() {
     setSelectedId(null);
     setSelectedFolder(editorFolder);
     setSelectedRecord(null);
+    setLastRun(null);
     setEditorYaml(SAMPLE_WORKFLOW);
     setEditorStatus("idle");
     setEditorError(null);
@@ -1921,6 +2085,7 @@ export function FlowPanel() {
     setSelectedId(null);
     setSelectedFolder(folder);
     setSelectedRecord(null);
+    setLastRun(null);
     setEditorYaml(SAMPLE_WORKFLOW);
     setEditorStatus("idle");
     setEditorError(null);
@@ -1946,6 +2111,7 @@ export function FlowPanel() {
       setSelectedId(id);
       setSelectedFolder(null);
       setSelectedRecord(record);
+      setLastRun(null);
       setEditorYaml(record.raw_yaml);
       setEditorFolder(normalizeFolder(record.folder, record.summary));
       setEditorStatus("idle");
@@ -1973,6 +2139,7 @@ export function FlowPanel() {
       setSelectedRecord(record);
       setSelectedId(record.summary.id);
       setSelectedFolder(null);
+      setLastRun(null);
       setIsEditingYaml(false);
       await loadFlows(record.summary.id);
       await loadFlowNodes(record.summary.id);
@@ -1998,12 +2165,36 @@ export function FlowPanel() {
     }
   };
 
+  const runSelectedFlow = async () => {
+    const id = selectedRecord?.summary.id;
+    if (!id) return;
+    setIsRunningFlow(true);
+    setLoadError(null);
+    try {
+      const report = await invoke<FlowRunReport>("flow_run", {
+        id,
+        request: {
+          intent: null,
+          inputs: {},
+        },
+      });
+      setLastRun(report);
+      await loadFlows(id);
+      await loadFlowNodes(id);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsRunningFlow(false);
+    }
+  };
+
   const deleteSelected = async () => {
     const id = selectedRecord?.summary.id;
     if (!id) return;
     try {
       await invoke("flow_delete", { id });
       setIsEditingYaml(false);
+      setLastRun(null);
       await loadFlows(null);
     } catch (error) {
       setEditorError(error instanceof Error ? error.message : String(error));
@@ -2016,6 +2207,7 @@ export function FlowPanel() {
       setSelectedId(null);
       setSelectedRecord(null);
       setIsEditingYaml(false);
+      setLastRun(null);
       await loadFlows(null);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
@@ -2038,12 +2230,14 @@ export function FlowPanel() {
       setSelectedId(selection.id);
       setSelectedFolder(null);
       setIsEditingYaml(false);
+      clearRunIfDifferent(selection.id);
     } else {
       setSelectedId(null);
       setSelectedRecord(null);
       setSelectedFolder(selection.path);
       setEditorFolder(selection.path);
       setIsEditingYaml(false);
+      setLastRun(null);
     }
   };
 
@@ -2247,7 +2441,15 @@ export function FlowPanel() {
                 <div className="flex h-full items-center justify-center text-sm text-muted-foreground">加载 Flow...</div>
               ) : selectedRecord ? (
                 <ScrollArea className="h-full" orientation="both">
-                  <SummaryView record={selectedRecord} canOperate={canOperate} onEdit={startEdit} onToggle={toggleEnabled} />
+                  <SummaryView
+                    record={selectedRecord}
+                    canOperate={canOperate}
+                    isRunning={isRunningFlow}
+                    lastRun={lastRun}
+                    onEdit={startEdit}
+                    onRun={runSelectedFlow}
+                    onToggle={toggleEnabled}
+                  />
                 </ScrollArea>
               ) : selectedFolder ? (
                 <div className="flex h-full min-h-[420px] items-center justify-center p-6">

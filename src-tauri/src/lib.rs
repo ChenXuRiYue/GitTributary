@@ -1,9 +1,12 @@
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use gt_flow::{
-    CloudEvent, EventDefinition, EventDraft, EventPool, EventReceipt, FlowNodeDefinition,
-    FlowNodeRegistry, FlowNodeSpec, FlowRecord, FlowSummary,
+    CloudEvent, EventDefinition, EventDraft, EventPool, EventReceipt, FlowActionExecutor,
+    FlowActionOutcome, FlowBuildDraft, FlowBuildRequest, FlowExecutionContext, FlowNodeDefinition,
+    FlowNodeRegistry, FlowNodeSpec, FlowRecord, FlowRunReport, FlowRunRequest, FlowSummary,
 };
 use gt_git::{
     AuthMethod, BranchInfo, CommitInfo, FileDiff, FileStatus, GitRepo, LogEntry, RemoteInfo,
@@ -878,9 +881,301 @@ fn match_flow_event(
         .map_err(|error| error.to_string())
 }
 
+fn workspace_context_from_store(store: &Store) -> Value {
+    json!({
+        "active_repo": store.active_repo(),
+        "active_branch": store.active_branch(),
+        "device_id": store.device_id(),
+        "device_name": store.device_name(),
+    })
+}
+
+fn sync_data_center_now(state: &AppState) -> Result<String, String> {
+    let (device_id, token) = {
+        let store = state.store.lock().unwrap();
+        let config = {
+            let base_dir = store_base_dir();
+            let engine = gt_store::SyncEngine::new(&base_dir);
+            engine.config().map_err(|e| e.to_string())?
+        }
+        .ok_or_else(|| "未配置同步远程仓库".to_string())?;
+        let token = require_config_repo_url_and_token(&store, &config.url)?;
+        (
+            store.device_id().unwrap_or_else(|| "unknown".to_string()),
+            token,
+        )
+    };
+
+    let base_dir = store_base_dir();
+    let engine = gt_store::SyncEngine::new(&base_dir);
+    let auth = gt_store::ConfigRepoAuth { token: &token };
+    let checkout = engine
+        .ensure_config_repo(&auth)
+        .map_err(|e| e.to_string())?;
+    engine.pull(&auth, &checkout).map_err(|e| e.to_string())?;
+    {
+        let mut store = state.store.lock().unwrap();
+        engine
+            .import_public_from_checkout(&mut store, &checkout)
+            .map_err(|e| e.to_string())?;
+        engine
+            .export_public_to_checkout(&store, &checkout)
+            .map_err(|e| e.to_string())?;
+    }
+    engine
+        .commit(&device_id, &checkout)
+        .map_err(|e| e.to_string())?;
+    engine.push(&auth, &checkout).map_err(|e| e.to_string())?;
+    Ok("同步完成".to_string())
+}
+
+struct AppFlowActionExecutor<'a> {
+    state: &'a AppState,
+}
+
+impl<'a> AppFlowActionExecutor<'a> {
+    fn new(state: &'a AppState) -> Self {
+        Self { state }
+    }
+}
+
+impl FlowActionExecutor for AppFlowActionExecutor<'_> {
+    fn execute(
+        &mut self,
+        node: &FlowNodeSpec,
+        inputs: &BTreeMap<String, String>,
+        context: &FlowExecutionContext,
+    ) -> gt_flow::Result<FlowActionOutcome> {
+        let outcome = match node.uses.as_str() {
+            "gittributary/workspace/resolve-publish-context@v1" => {
+                self.resolve_publish_context(inputs, context)
+            }
+            "gittributary/notes/build-html@v1" => self.build_html_placeholder(inputs),
+            "gittributary/files/assert-exists@v1" => self.assert_exists(inputs),
+            "gittributary/files/sync-dir@v1" => self.sync_dir(inputs),
+            "gittributary/git/commit-all@v1" => self.commit_all(inputs),
+            "gittributary/git/push@v1" => self.push(inputs),
+            "gittributary/store/sync-now@v1" => self.sync_store(),
+            "gittributary/ui/notify@v1" => Ok(FlowActionOutcome {
+                outputs: json!({}),
+                skipped: false,
+                message: Some(format!(
+                    "{}: {}",
+                    inputs.get("title").cloned().unwrap_or_default(),
+                    inputs.get("message").cloned().unwrap_or_default()
+                )),
+            }),
+            _ => Err(gt_flow::FlowError::Validation(format!(
+                "节点动作未实现: {}",
+                node.uses
+            ))),
+        }?;
+        Ok(outcome)
+    }
+}
+
+impl AppFlowActionExecutor<'_> {
+    fn resolve_publish_context(
+        &self,
+        inputs: &BTreeMap<String, String>,
+        context: &FlowExecutionContext,
+    ) -> gt_flow::Result<FlowActionOutcome> {
+        let workspace_repo = context
+            .workspace
+            .get("active_repo")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let workspace_branch = context
+            .workspace
+            .get("active_branch")
+            .and_then(Value::as_str)
+            .unwrap_or("main");
+        let source_repo = input_or_default(inputs, "source_repo", workspace_repo);
+        let target_repo = input_or_default(inputs, "target_repo", &source_repo);
+        let target_branch = input_or_default(inputs, "target_branch", workspace_branch);
+        let output_dir = PathBuf::from(&source_repo)
+            .join(".gittributary")
+            .join("output")
+            .to_string_lossy()
+            .to_string();
+        Ok(FlowActionOutcome {
+            outputs: json!({
+                "source_repo": source_repo,
+                "target_repo": target_repo,
+                "target_branch": target_branch,
+                "output_dir": output_dir,
+            }),
+            skipped: false,
+            message: Some("context_resolved".to_string()),
+        })
+    }
+
+    fn build_html_placeholder(
+        &self,
+        inputs: &BTreeMap<String, String>,
+    ) -> gt_flow::Result<FlowActionOutcome> {
+        let output = require_input(inputs, "output")?;
+        Ok(FlowActionOutcome {
+            outputs: json!({ "html_dir": output }),
+            skipped: false,
+            message: Some("build_html_placeholder".to_string()),
+        })
+    }
+
+    fn assert_exists(
+        &self,
+        inputs: &BTreeMap<String, String>,
+    ) -> gt_flow::Result<FlowActionOutcome> {
+        let path = require_input(inputs, "path")?;
+        let non_empty = inputs
+            .get("non_empty")
+            .map(|value| value == "true")
+            .unwrap_or(false);
+        let path_ref = Path::new(&path);
+        if !path_ref.exists() {
+            return Err(gt_flow::FlowError::Validation(format!(
+                "路径不存在: {}",
+                path
+            )));
+        }
+        if non_empty && is_empty_path(path_ref).map_err(to_validation_error)? {
+            return Err(gt_flow::FlowError::Validation(format!(
+                "路径为空: {}",
+                path
+            )));
+        }
+        Ok(FlowActionOutcome {
+            outputs: json!({ "path": path }),
+            skipped: false,
+            message: Some("path_exists".to_string()),
+        })
+    }
+
+    fn sync_dir(&self, inputs: &BTreeMap<String, String>) -> gt_flow::Result<FlowActionOutcome> {
+        let from = require_input(inputs, "from")?;
+        let to = require_input(inputs, "to")?;
+        let changed_count =
+            copy_dir_recursive(Path::new(&from), Path::new(&to)).map_err(to_validation_error)?;
+        Ok(FlowActionOutcome {
+            outputs: json!({ "changed_count": changed_count }),
+            skipped: false,
+            message: Some(format!("synced {changed_count} files")),
+        })
+    }
+
+    fn commit_all(&self, inputs: &BTreeMap<String, String>) -> gt_flow::Result<FlowActionOutcome> {
+        let repo_path = require_input(inputs, "repo")?;
+        let message = require_input(inputs, "message")?;
+        let repo = GitRepo::open(&repo_path).map_err(to_validation_error)?;
+        let branch = repo.current_branch().unwrap_or_else(|_| "HEAD".to_string());
+        repo.stage_all().map_err(to_validation_error)?;
+        match repo.commit(&message) {
+            Ok(commit) => Ok(FlowActionOutcome {
+                outputs: json!({ "commit": commit.id, "branch": branch }),
+                skipped: false,
+                message: Some("committed".to_string()),
+            }),
+            Err(gt_git::GitError::NothingToCommit) => Ok(FlowActionOutcome {
+                outputs: json!({ "commit": Value::Null, "branch": branch }),
+                skipped: true,
+                message: Some("nothing_to_commit".to_string()),
+            }),
+            Err(error) => Err(to_validation_error(error)),
+        }
+    }
+
+    fn push(&self, inputs: &BTreeMap<String, String>) -> gt_flow::Result<FlowActionOutcome> {
+        let repo_path = require_input(inputs, "repo")?;
+        let remote = require_input(inputs, "remote")?;
+        let branch = require_input(inputs, "branch")?;
+        let auth = resolve_auth(self.state);
+        let repo = GitRepo::open(&repo_path).map_err(to_validation_error)?;
+        repo.push(&remote, &branch, &auth)
+            .map_err(to_validation_error)?;
+        Ok(FlowActionOutcome {
+            outputs: json!({ "remote": remote, "branch": branch }),
+            skipped: false,
+            message: Some("pushed".to_string()),
+        })
+    }
+
+    fn sync_store(&self) -> gt_flow::Result<FlowActionOutcome> {
+        let message = sync_data_center_now(self.state).map_err(to_validation_error)?;
+        Ok(FlowActionOutcome {
+            outputs: json!({ "message": message }),
+            skipped: false,
+            message: Some("store_synced".to_string()),
+        })
+    }
+}
+
+fn input_or_default(inputs: &BTreeMap<String, String>, key: &str, fallback: &str) -> String {
+    inputs
+        .get(key)
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| fallback.to_string())
+}
+
+fn require_input(inputs: &BTreeMap<String, String>, key: &str) -> gt_flow::Result<String> {
+    inputs
+        .get(key)
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+        .ok_or_else(|| gt_flow::FlowError::Validation(format!("缺少输入: {key}")))
+}
+
+fn is_empty_path(path: &Path) -> std::io::Result<bool> {
+    if path.is_dir() {
+        Ok(fs::read_dir(path)?.next().is_none())
+    } else {
+        Ok(path.metadata()?.len() == 0)
+    }
+}
+
+fn copy_dir_recursive(from: &Path, to: &Path) -> std::io::Result<usize> {
+    if !from.is_dir() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("源目录不存在: {}", from.display()),
+        ));
+    }
+    fs::create_dir_all(to)?;
+    let mut changed_count = 0;
+    for entry in fs::read_dir(from)? {
+        let entry = entry?;
+        let source = entry.path();
+        let target = to.join(entry.file_name());
+        if source.is_dir() {
+            changed_count += copy_dir_recursive(&source, &target)?;
+        } else {
+            fs::copy(&source, &target)?;
+            changed_count += 1;
+        }
+    }
+    Ok(changed_count)
+}
+
+fn to_validation_error(error: impl ToString) -> gt_flow::FlowError {
+    gt_flow::FlowError::Validation(error.to_string())
+}
+
 #[tauri::command]
 fn flow_validate(workflow: String) -> Result<FlowSummary, String> {
     gt_flow::parse_workflow(&workflow).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn flow_build_draft(
+    request: FlowBuildRequest,
+    state: State<'_, AppState>,
+) -> Result<FlowBuildDraft, String> {
+    let events = {
+        let event_pool = state.event_pool.lock().unwrap();
+        event_pool.catalog()
+    };
+    let registry = state.node_registry.lock().unwrap();
+    gt_flow::build_flow_draft(request, &events, &registry).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -1116,6 +1411,59 @@ fn flow_nodes(id: String, state: State<'_, AppState>) -> Result<Vec<FlowNodeSpec
     };
     let registry = state.node_registry.lock().unwrap();
     Ok(registry.compile_record(&record))
+}
+
+#[tauri::command]
+fn flow_run(
+    id: String,
+    request: Option<FlowRunRequest>,
+    state: State<'_, AppState>,
+) -> Result<FlowRunReport, String> {
+    let (record, workspace) = {
+        let store = state.store.lock().unwrap();
+        let key = gt_flow::workflow_key(&id);
+        let record = store
+            .get(gt_flow::FLOW_NAMESPACE, &key)
+            .map(flow_record_from_store_value)
+            .transpose()?
+            .ok_or_else(|| format!("Flow 不存在: {id}"))?;
+        let workspace = workspace_context_from_store(&store);
+        (record, workspace)
+    };
+    let registry = state.node_registry.lock().unwrap();
+    let mut executor = AppFlowActionExecutor::new(&state);
+    let report = gt_flow::run_flow_with_executor(
+        &record,
+        request.unwrap_or(FlowRunRequest {
+            intent: None,
+            inputs: Value::Object(Default::default()),
+        }),
+        &registry,
+        workspace,
+        &mut executor,
+    );
+    drop(registry);
+
+    let _ = publish_flow_event(
+        &state,
+        EventDraft {
+            source: "gittributary://gt-flow".to_string(),
+            event_type: match report.status {
+                gt_flow::FlowRunStatus::Succeeded => "flow.run.succeeded",
+                gt_flow::FlowRunStatus::Skipped => "flow.run.skipped",
+                _ => "flow.run.failed",
+            }
+            .to_string(),
+            subject: Some(format!("flow:{}", report.flow_id)),
+            data: json!({
+                "flow_id": report.flow_id,
+                "run_id": report.run_id,
+                "status": format!("{:?}", report.status).to_ascii_lowercase(),
+            }),
+        },
+    );
+
+    Ok(report)
 }
 
 fn is_public_event_namespace(namespace: &str) -> bool {
@@ -1574,44 +1922,7 @@ fn check_data_center_config_repo(
 
 #[tauri::command]
 fn sync_now(state: State<'_, AppState>) -> Result<String, String> {
-    let (device_id, token) = {
-        let store = state.store.lock().unwrap();
-        let config = {
-            let base_dir = store_base_dir();
-            let engine = gt_store::SyncEngine::new(&base_dir);
-            engine.config().map_err(|e| e.to_string())?
-        }
-        .ok_or_else(|| "未配置同步远程仓库".to_string())?;
-        let token = require_config_repo_url_and_token(&store, &config.url)?;
-        (
-            store.device_id().unwrap_or_else(|| "unknown".to_string()),
-            token,
-        )
-    };
-
-    let base_dir = store_base_dir();
-    let engine = gt_store::SyncEngine::new(&base_dir);
-    let auth = gt_store::ConfigRepoAuth { token: &token };
-    let checkout = engine
-        .ensure_config_repo(&auth)
-        .map_err(|e| e.to_string())?;
-
-    // pull(ff) → import(远端→本地 LWW) → export(本地→checkout) → commit → push
-    engine.pull(&auth, &checkout).map_err(|e| e.to_string())?;
-    {
-        let mut store = state.store.lock().unwrap();
-        engine
-            .import_public_from_checkout(&mut store, &checkout)
-            .map_err(|e| e.to_string())?;
-        engine
-            .export_public_to_checkout(&store, &checkout)
-            .map_err(|e| e.to_string())?;
-    }
-    engine
-        .commit(&device_id, &checkout)
-        .map_err(|e| e.to_string())?;
-    engine.push(&auth, &checkout).map_err(|e| e.to_string())?;
-    Ok("同步完成".to_string())
+    sync_data_center_now(&state)
 }
 
 #[tauri::command]
@@ -1764,6 +2075,7 @@ pub fn run() {
             git_pull,
             set_project_token,
             flow_validate,
+            flow_build_draft,
             flow_save,
             flow_list,
             flow_get,
@@ -1778,6 +2090,7 @@ pub fn run() {
             flow_match_event,
             flow_node_catalog,
             flow_nodes,
+            flow_run,
             store_get,
             store_set,
             store_delete,

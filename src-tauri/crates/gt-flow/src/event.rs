@@ -301,6 +301,16 @@ pub fn builtin_event_definitions() -> Vec<EventDefinition> {
             &["flow_id"],
             &[("flow_id", "string"), ("run_id", "string")],
         ),
+        event_definition(
+            "flow.run.skipped",
+            "gittributary://gt-flow",
+            "flow",
+            "Flow 跳过",
+            "Flow 运行被跳过",
+            "Runner 判断某个 Flow 当前不应执行时触发,例如 Flow 已停用、并发策略跳过或条件不满足。",
+            &["flow_id"],
+            &[("flow_id", "string"), ("run_id", "string")],
+        ),
     ]
 }
 
@@ -473,7 +483,9 @@ fn event_summary(event: &CloudEvent) -> Value {
         "id": event.id,
         "type": event.event_type,
         "source": event.source,
+        "time": event.time,
         "subject": event.subject,
+        "data": event.data,
     })
 }
 

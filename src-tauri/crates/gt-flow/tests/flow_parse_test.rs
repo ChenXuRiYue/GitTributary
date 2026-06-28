@@ -1,6 +1,12 @@
 use serde_json::json;
 
-use gt_flow::{parse_workflow, EventDraft, EventPool, FlowNodeRegistry, FlowRecord};
+use std::collections::BTreeMap;
+
+use gt_flow::{
+    build_flow_draft, parse_workflow, run_flow_with_executor, DryRunActionExecutor, EventDraft,
+    EventPool, FlowBuildRequest, FlowBuildStepRequest, FlowBuildTriggerRequest, FlowNodeRegistry,
+    FlowRecord, FlowRunRequest, FlowRunStatus,
+};
 
 const VALID_WORKFLOW: &str = r#"
 name: 每日晚间备份
@@ -43,9 +49,6 @@ fn parses_valid_workflow_summary() {
         .triggers
         .iter()
         .any(|trigger| trigger.kind == "schedule"));
-    assert!(summary.permissions.iter().any(|permission| {
-        permission.scope == "git" && permission.values == ["status", "commit", "push"]
-    }));
     assert_eq!(summary.jobs[0].id, "backup");
     assert_eq!(summary.step_count, 2);
 }
@@ -232,4 +235,163 @@ jobs:
     assert!(nodes[0].known);
     assert_eq!(nodes[1].uses, "gittributary/git/push@v1");
     assert_eq!(nodes[1].inputs["branch"], "main");
+}
+
+#[test]
+fn builds_flow_draft_from_event_and_nodes() {
+    let pool = EventPool::new();
+    let registry = FlowNodeRegistry::new();
+    let request = FlowBuildRequest {
+        id: "flow.publish_notes_blog".to_string(),
+        name: "发布笔记博客".to_string(),
+        description: Some("构建并发布笔记博客".to_string()),
+        enabled: false,
+        trigger: FlowBuildTriggerRequest {
+            kind: "git.commit.created".to_string(),
+            filters: BTreeMap::from([("branches".to_string(), vec!["main".to_string()])]),
+        },
+        job_id: "publish".to_string(),
+        job_name: None,
+        steps: vec![
+            FlowBuildStepRequest {
+                id: Some("context".to_string()),
+                name: None,
+                uses: "gittributary/workspace/resolve-publish-context@v1".to_string(),
+                inputs: BTreeMap::from([
+                    (
+                        "source_repo".to_string(),
+                        "${{ gt.workspace.active_repo }}".to_string(),
+                    ),
+                    (
+                        "target_repo".to_string(),
+                        "${{ gt.store.blog.repo }}".to_string(),
+                    ),
+                    ("target_branch".to_string(), "main".to_string()),
+                ]),
+            },
+            FlowBuildStepRequest {
+                id: Some("build".to_string()),
+                name: None,
+                uses: "gittributary/notes/build-html@v1".to_string(),
+                inputs: BTreeMap::from([
+                    (
+                        "repo".to_string(),
+                        "${{ steps.context.outputs.source_repo }}".to_string(),
+                    ),
+                    (
+                        "output".to_string(),
+                        "${{ steps.context.outputs.output_dir }}".to_string(),
+                    ),
+                ]),
+            },
+        ],
+    };
+
+    let draft = build_flow_draft(request, &pool.catalog(), &registry).unwrap();
+
+    assert!(draft.raw_yaml.contains("on:\n  git.commit.created:"));
+    assert_eq!(draft.summary.id, "flow.publish_notes_blog");
+    assert_eq!(draft.nodes.len(), 2);
+    assert!(draft
+        .diagnostics
+        .iter()
+        .all(|diagnostic| diagnostic.code != "unknown_node"));
+}
+
+#[test]
+fn draft_reports_invalid_forward_output_reference() {
+    let workflow = r#"
+name: 引用错误
+
+gt:
+  id: flow.bad_reference
+  enabled: true
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: gittributary-local
+    steps:
+      - id: build
+        uses: gittributary/notes/build-html@v1
+        with:
+          repo: ${{ steps.context.outputs.source_repo }}
+          output: /tmp/out
+      - id: context
+        uses: gittributary/workspace/resolve-publish-context@v1
+"#;
+    let pool = EventPool::new();
+    let registry = FlowNodeRegistry::new();
+    let draft =
+        gt_flow::build_flow_draft_from_yaml(workflow.to_string(), &pool.catalog(), &registry)
+            .unwrap();
+
+    assert!(draft
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.code == "invalid_step_reference_order"));
+}
+
+#[test]
+fn runner_executes_steps_and_resolves_outputs() {
+    let workflow = r#"
+name: 运行测试
+
+gt:
+  id: flow.runner_test
+  enabled: true
+
+on:
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: gittributary-local
+    steps:
+      - id: context
+        uses: gittributary/workspace/resolve-publish-context@v1
+        with:
+          source_repo: /tmp/source
+          target_repo: /tmp/target
+          target_branch: main
+      - id: build
+        uses: gittributary/notes/build-html@v1
+        with:
+          repo: ${{ steps.context.outputs.source_repo }}
+          output: ${{ steps.context.outputs.output_dir }}
+"#;
+    let summary = parse_workflow(workflow).unwrap();
+    let record = FlowRecord::new(
+        workflow.to_string(),
+        summary,
+        Some("手动".to_string()),
+        "2026-06-25T00:00:00Z".to_string(),
+        "2026-06-25T00:00:00Z".to_string(),
+    );
+    let registry = FlowNodeRegistry::new();
+    let mut executor = DryRunActionExecutor;
+
+    let report = run_flow_with_executor(
+        &record,
+        FlowRunRequest {
+            intent: None,
+            inputs: json!({}),
+        },
+        &registry,
+        json!({
+            "active_repo": "/tmp/source",
+            "active_branch": "main",
+        }),
+        &mut executor,
+    );
+
+    assert_eq!(report.status, FlowRunStatus::Succeeded);
+    let build = &report.jobs[0].nodes[1];
+    assert_eq!(build.inputs["repo"], "/tmp/source");
+    assert_eq!(
+        build.outputs["html_dir"],
+        "/tmp/source/.gittributary/output"
+    );
 }

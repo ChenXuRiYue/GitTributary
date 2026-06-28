@@ -67,23 +67,23 @@ npm run build
 
 ## 提交规范
 
-提交标题必须使用英文，并保持简短的 Conventional Commits 形式：
+提交标题必须使用中文描述，并保持简短的 Conventional Commits 形式：
 
 ```text
-type(scope): short summary
+type(scope): 中文短摘要
 ```
 
-提交 body 作为 description，必须双语：英文在先，中文在后。标题只保留短摘要，详细背景、影响范围、实现说明和后续信息放入 body。
+提交 body 作为 description，必须双语：中文在先，英文在后。标题只保留短摘要，详细背景、影响范围、实现说明和后续信息放入 body。
 
 示例：
 
 ```text
-fix(git): improve history preview
+fix(git): 优化历史预览
+
+保持提交历史列表可滚动，并通过浮动预览卡展示较长的提交详情。
 
 Keep the history list scrollable and show long commit details in a floating
 preview card.
-
-保持提交历史列表可滚动，并通过浮动预览卡展示较长的提交详情。
 ```
 
 ## English
@@ -134,14 +134,14 @@ npm run build
 
 ### Commit Message Standard
 
-Commit subjects must be written in English and follow a short Conventional
+Commit subjects must use Chinese summaries while keeping a short Conventional
 Commits shape:
 
 ```text
-type(scope): short summary
+type(scope): 中文短摘要
 ```
 
 Use the commit body as the description. The description must be bilingual, with
-English first and Chinese second. Keep the subject concise and move detailed
+Chinese first and English second. Keep the subject concise and move detailed
 context, affected modules, implementation notes, and follow-up information into
 the body.
