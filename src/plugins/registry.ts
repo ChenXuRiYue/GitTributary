@@ -1,10 +1,11 @@
-import { Boxes, GitBranch, Database, Settings, Workflow } from "lucide-react";
+import { Boxes, FileCode, GitBranch, Database, Settings, Workflow } from "lucide-react";
 
 import type { PluginDescriptor } from "./types";
 import { SettingsPanel } from "./panels";
 import { ExtensionsPanel } from "./extensions/ExtensionsPanel";
 import { FlowPanel } from "./flow/FlowPanel";
 import { GitPanel } from "./git/GitPanel";
+import { SitePanel } from "./site/SitePanel";
 import { StorePanel } from "./store/StorePanel";
 
 /**
@@ -18,6 +19,13 @@ export const plugins: PluginDescriptor[] = [
     description: "仓库状态、变更管理与提交 —— 平台级 Git 基础能力。",
     icon: GitBranch,
     panel: GitPanel,
+  },
+  {
+    id: "site",
+    name: "站点",
+    description: "从本地仓库文档构建离线静态 HTML。",
+    icon: FileCode,
+    panel: SitePanel,
   },
   {
     id: "flow",

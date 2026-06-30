@@ -12,6 +12,7 @@ use gt_git::{
     AuthMethod, BranchInfo, CommitInfo, FileDiff, FileStatus, GitRepo, LogEntry, RemoteInfo,
     RepoOverview,
 };
+use gt_site::{SiteBuildConfig, SiteBuildReport, SiteScanReport};
 use gt_store::Store;
 use serde_json::{json, Value};
 use tauri::{Manager, State};
@@ -535,7 +536,11 @@ fn get_remote_configs(state: State<'_, AppState>) -> Result<Vec<RemoteConfigEntr
             .scan("private.credentials", "project.")
             .into_iter()
             .filter_map(|(key, value)| {
-                if !value.as_str().map(|token| !token.is_empty()).unwrap_or(false) {
+                if !value
+                    .as_str()
+                    .map(|token| !token.is_empty())
+                    .unwrap_or(false)
+                {
                     return None;
                 }
                 repo_path_from_project_token_key(&key)
@@ -683,7 +688,8 @@ fn set_remote_url(
         let repo = GitRepo::open(path).map_err(|e| e.to_string())?;
         let previous_url = remote_url_for(&repo, &name)?;
         let repo_path = repo_path_for_repo(&repo)?;
-        repo.set_remote_url(&name, &url).map_err(|e| e.to_string())?;
+        repo.set_remote_url(&name, &url)
+            .map_err(|e| e.to_string())?;
         if let Err(e) = save_project_token_and_bind_repo(&state, &repo_path, &token) {
             let _ = repo.set_remote_url(&name, &previous_url);
             return Err(e);
@@ -695,8 +701,8 @@ fn set_remote_url(
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
     let previous_url = remote_url_for(repo, &name)?;
     let repo_path = repo_path_for_repo(repo)?;
-    repo.set_remote_url(&name, &url).map_err(|e| e.to_string())
-        ?;
+    repo.set_remote_url(&name, &url)
+        .map_err(|e| e.to_string())?;
     drop(lock);
     if let Err(e) = save_project_token_and_bind_repo(&state, &repo_path, &token) {
         let lock = state.repo.lock().unwrap();
@@ -1666,6 +1672,23 @@ fn get_recent_repos(state: State<'_, AppState>) -> Vec<String> {
     store.recent_repos()
 }
 
+// ─── Static site commands ─────────────────────────────────────────────
+
+#[tauri::command]
+fn site_scan(repo_path: String) -> Result<SiteScanReport, String> {
+    gt_site::scan_repo(repo_path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn site_build(config: SiteBuildConfig) -> Result<SiteBuildReport, String> {
+    gt_site::build_site(config).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn site_open_output(path: String) -> Result<(), String> {
+    tauri_plugin_opener::open_path(path, None::<&str>).map_err(|e| e.to_string())
+}
+
 // ─── Sync commands ────────────────────────────────────────────────────
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -2111,6 +2134,9 @@ pub fn run() {
             store_delete_environment,
             get_workspace_info,
             get_recent_repos,
+            site_scan,
+            site_build,
+            site_open_output,
             sync_get_config,
             sync_set_config,
             update_data_center_config_remote,

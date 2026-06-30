@@ -65,6 +65,7 @@ function App() {
   const ActivePanel = active?.panel;
   const isFullHeightPanel =
     active?.id === "git" ||
+    active?.id === "site" ||
     active?.id === "store" ||
     active?.id === "flow" ||
     active?.id === "extensions";
