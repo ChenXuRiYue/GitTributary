@@ -290,10 +290,10 @@ src/plugins/site/SitePanel.tsx
 ### 可选
 
 ```text
-prd/pages-publish-target-design.md
+doc/站点/Pages发布目标设计.md
 ```
 
-如果实现中发现模型需要调整,同步更新 PRD。
+如果实现中发现模型需要调整,同步更新该设计文档。
 
 ### 暂不改
 

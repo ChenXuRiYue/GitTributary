@@ -3,6 +3,8 @@
 > 本文档为 GitTributary **Rust 端 Git 模块**的能力发散与架构设想。
 > 定位：作为项目的**基座服务层**，向上层所有插件（备份、复习、AI、数据库、部署…）提供统一的 Git 原语与加工数据。
 > 设计哲学：**Git 不是某个插件的私有实现，而是平台级公共能力。**
+>
+> **实现状态**: P0/P1/P2 阶段(仓库生命周期、状态、提交、分支、远程、认证)已基本完成。P3(stash/安全恢复)、P4(数据挖掘)、P5(事件总线)尚未实现。事件广播能力已由 `gt-flow` 的 EventPool + CloudEvents 部分承载。详见 `doc/架构/项目模块现状.md`。
 
 ---
 
@@ -317,6 +319,8 @@ pub struct RepoOverview {
 
 ## 五、Crate 架构
 
+### 设计目标结构
+
 ```
 crates/gt-git/
 ├── Cargo.toml
@@ -329,17 +333,37 @@ crates/gt-git/
 │   ├── commit.rs         # 变更操作：stage / unstage / commit / amend
 │   ├── branch.rs         # 分支管理：create / checkout / delete / merge
 │   ├── remote.rs         # 远程操作：push / pull / fetch / auth
-│   ├── stash.rs          # 安全恢复：stash / reflog
+│   ├── stash.rs          # 安全恢复：stash / reflog              [未实现]
 │   ├── log.rs            # 历史遍历：log / file_log
-│   ├── mining.rs         # 数据挖掘：last_modified_map / commit_count / frequency
-│   ├── event.rs          # 事件总线：GitEvent + 订阅/广播
-│   ├── cache.rs          # 缓存策略：挖掘数据的持久化与增量更新
-│   └── message.rs        # commit message 自动生成（纯格式化，非 AI）
+│   ├── mining.rs         # 数据挖掘：last_modified_map / ...      [未实现]
+│   ├── event.rs          # 事件总线：GitEvent + 订阅/广播         [未实现，已由 gt-flow EventPool 部分替代]
+│   ├── cache.rs          # 缓存策略：挖掘数据的持久化与增量更新   [未实现]
+│   └── message.rs        # commit message 自动生成                [未实现]
 └── tests/
     ├── fixtures/         # 测试用的 git 仓库 fixtures
     ├── repo_test.rs
     ├── status_test.rs
     ├── commit_test.rs
+    └── ...
+```
+
+### 当前实际结构（已实现）
+
+```
+crates/gt-git/
+├── Cargo.toml
+├── src/
+│   ├── lib.rs            # pub mod + GitRepo + check_remote_access + clone
+│   ├── error.rs          # GitError
+│   ├── repo.rs           # open / init / is_repo / workdir / overview
+│   ├── status.rs         # current_branch / status
+│   ├── commit.rs         # stage_all / stage_files / commit / commit_with_identity
+│   ├── branch.rs         # local_branches / create / checkout / delete
+│   ├── remote.rs         # remotes / add / set_url / remove / fetch / push / pull_ff / auth
+│   ├── diff.rs           # diff_file / commit_file_diff
+│   ├── log.rs            # log / log_branch / commit_files
+│   └── pages.rs          # prepare_pages_git / commit_pages_git / verify_pages_push_access
+└── tests/
     └── ...
 ```
 

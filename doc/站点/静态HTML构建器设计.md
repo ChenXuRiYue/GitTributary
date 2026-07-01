@@ -2,6 +2,7 @@
 
 > 更新时间: 2026-06-29
 > 范围: Git Tributary MVP 插件,从本地 Git 仓库捕捉 Markdown 文档目录并构建离线静态 HTML 站点。
+> **实现状态**: 已实现为 `gt-site` crate + `src/plugins/site/` 前端插件。实际代码结构已超越本设计稿,详见 `doc/架构/项目模块现状.md` 站点模块章节。Pages 发布部分另见同目录 `Pages发布目标设计.md` 与 `Pages发布落地计划.md`。
 
 ## 一、目标
 
