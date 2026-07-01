@@ -7,7 +7,7 @@ import type {
   SitePublishTargetState,
 } from "./types";
 
-const DEFAULT_BRANCH = "gh-pages";
+const DEFAULT_BRANCH = "main";
 const DEFAULT_PUBLISH_DIR = "/";
 
 export function normalizePathForCompare(path: string | null | undefined): string {
@@ -173,6 +173,7 @@ export function makePublishTarget(
     targetBranch: draft.targetBranch.trim() || DEFAULT_BRANCH,
     publishDir: draft.publishDir.trim() || DEFAULT_PUBLISH_DIR,
     remoteName: candidate.remoteName || "origin",
+    credentialRef: candidate.credentialRef,
     pagesUrl: draft.pagesUrl.trim(),
     autoCommitMessage: draft.autoCommitMessage.trim() || "deploy: 更新静态站点",
     updatedAt: Date.now(),

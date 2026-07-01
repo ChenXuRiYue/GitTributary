@@ -303,7 +303,7 @@ impl GitRepo {
 }
 
 /// 构建认证回调
-fn build_callbacks(auth: &AuthMethod) -> RemoteCallbacks<'_> {
+pub(crate) fn build_callbacks(auth: &AuthMethod) -> RemoteCallbacks<'_> {
     let mut callbacks = RemoteCallbacks::new();
     let auth = auth.clone();
 
@@ -312,7 +312,7 @@ fn build_callbacks(auth: &AuthMethod) -> RemoteCallbacks<'_> {
         match &auth {
             AuthMethod::Token(token) => {
                 // HTTPS: 用 token 作为密码,用户名用实际用户名或 "x-access-token"
-                git2::Cred::userpass_plaintext("x-access-token", token)
+                git2::Cred::userpass_plaintext(username_from_url.unwrap_or("x-access-token"), token)
             }
             AuthMethod::SshKey { private_key, passphrase } => {
                 let key_path = Path::new(private_key);

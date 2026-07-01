@@ -1,4 +1,4 @@
-export type SitePhase = "idle" | "scanning" | "ready" | "building" | "succeeded" | "failed";
+export type SitePhase = "idle" | "scanning" | "ready" | "building" | "publishing" | "succeeded" | "failed";
 export type SitePathKind = "file" | "dir";
 export type CaptureViewMode = "tree" | "list";
 export type SiteTheme = "typora-light" | "typora-dark";
@@ -51,6 +51,36 @@ export interface SiteBuildReport {
   durationMs: number;
 }
 
+export interface SitePublishRequest {
+  buildConfig: SiteBuildConfig;
+  target: {
+    targetLocalPath: string;
+    targetBranch: string;
+    publishDir: string;
+    remoteName: string;
+    credentialRef: string | null;
+    pagesUrl: string;
+    autoCommitMessage: string;
+  };
+}
+
+export interface SitePublishReport {
+  build: SiteBuildReport;
+  targetRepoPath: string;
+  publishDir: string;
+  publishPath: string;
+  branch: string;
+  remoteName: string;
+  pagesUrl: string;
+  copiedFileCount: number;
+  changedCount: number;
+  commit: string | null;
+  pushed: boolean;
+  credentialMode: string;
+  credentialRef: string | null;
+  durationMs: number;
+}
+
 export interface SiteBuildUiState {
   version: 1 | 2;
   repoPath: string;
@@ -88,6 +118,8 @@ export interface RemoteConfigEntry {
   purpose: string[];
   credential_mode: string;
   credential_ref: string | null;
+  commit_name: string | null;
+  commit_email: string | null;
   verify_status: string;
   capabilities: string;
 }
@@ -122,6 +154,7 @@ export interface SitePublishTargetState {
   targetBranch: string;
   publishDir: string;
   remoteName: string;
+  credentialRef: string | null;
   pagesUrl: string;
   autoCommitMessage: string;
   updatedAt: number;

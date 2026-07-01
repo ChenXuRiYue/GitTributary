@@ -9,8 +9,10 @@ use gt_flow::{
     FlowNodeRegistry, FlowNodeSpec, FlowRecord, FlowRunReport, FlowRunRequest, FlowSummary,
 };
 use gt_git::{
-    AuthMethod, BranchInfo, CommitInfo, FileDiff, FileStatus, GitRepo, LogEntry, RemoteInfo,
-    RepoOverview,
+    commit_pages_git, normalize_git_name, prepare_pages_git, resolve_repo_root, AuthMethod,
+    BranchInfo, CommitIdentity, CommitInfo, FileDiff, FileStatus, GitRepo, LogEntry,
+    PagesCommitGitOptions, PagesPrepareGitOptions, RemoteInfo, RepoOverview,
+    verify_pages_push_access,
 };
 use gt_site::{SiteBuildConfig, SiteBuildReport, SiteScanReport};
 use gt_store::Store;
@@ -23,6 +25,20 @@ pub struct AppState {
     pub store: Mutex<Store>,
     pub event_pool: Mutex<EventPool>,
     pub node_registry: Mutex<FlowNodeRegistry>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedAuth {
+    method: AuthMethod,
+    mode: String,
+    credential_ref: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct RemoteCommitIdentityConfig {
+    name: Option<String>,
+    email: Option<String>,
 }
 
 /// 打开一个 Git 仓库并返回概况
@@ -77,8 +93,15 @@ fn commit_all(message: String, state: State<'_, AppState>) -> Result<CommitInfo,
         .workdir()
         .map(|path| path.to_string_lossy().to_string());
     let branch = repo.current_branch().unwrap_or_else(|_| "HEAD".to_string());
+    let remote_name = preferred_commit_remote(repo);
+    let identity = repo_path
+        .as_deref()
+        .map(|path| commit_identity_for_repo_remote(&state, path, remote_name.as_deref()))
+        .unwrap_or_else(|| fallback_commit_identity(&state, None));
     repo.stage_all().map_err(|e| e.to_string())?;
-    let commit = repo.commit(&message).map_err(|e| e.to_string())?;
+    let commit = repo
+        .commit_with_identity(&message, &identity)
+        .map_err(|e| e.to_string())?;
     drop(lock);
     if let Some(repo_path) = repo_path {
         let _ = publish_flow_event(
@@ -111,12 +134,19 @@ fn commit_selected(
         .workdir()
         .map(|path| path.to_string_lossy().to_string());
     let branch = repo.current_branch().unwrap_or_else(|_| "HEAD".to_string());
+    let remote_name = preferred_commit_remote(repo);
+    let identity = repo_path
+        .as_deref()
+        .map(|path| commit_identity_for_repo_remote(&state, path, remote_name.as_deref()))
+        .unwrap_or_else(|| fallback_commit_identity(&state, None));
     let path_refs: Vec<&std::path::Path> = paths
         .iter()
         .map(|p| std::path::Path::new(p.as_str()))
         .collect();
     repo.stage_files(&path_refs).map_err(|e| e.to_string())?;
-    let commit = repo.commit(&message).map_err(|e| e.to_string())?;
+    let commit = repo
+        .commit_with_identity(&message, &identity)
+        .map_err(|e| e.to_string())?;
     drop(lock);
     if let Some(repo_path) = repo_path {
         let _ = publish_flow_event(
@@ -270,6 +300,96 @@ fn resolve_auth(state: &AppState) -> AuthMethod {
     AuthMethod::Agent
 }
 
+fn resolve_auth_for_publish_target(
+    state: &AppState,
+    repo_path: &Path,
+    remote_url: Option<&str>,
+    credential_ref: Option<&str>,
+) -> ResolvedAuth {
+    let repo_path = repo_path.to_string_lossy().to_string();
+    let store = state.store.lock().unwrap();
+    let url = remote_url.unwrap_or_default().trim().to_ascii_lowercase();
+    let prefers_ssh = url.starts_with("git@") || url.starts_with("ssh://");
+    let prefers_https = url.starts_with("http://") || url.starts_with("https://");
+
+    if !prefers_ssh {
+        if let Some(credential_ref) = credential_ref.and_then(|value| value.strip_prefix("repo:"))
+        {
+            let key = project_token_key_for_path(credential_ref);
+            if let Some(val) = store.get("private.credentials", &key) {
+                if let Some(token) = val.as_str() {
+                    if !token.is_empty() {
+                        return ResolvedAuth {
+                            method: AuthMethod::Token(token.to_string()),
+                            mode: "repo_token".to_string(),
+                            credential_ref: Some(format!("repo:{credential_ref}")),
+                        };
+                    }
+                }
+            }
+        }
+        if matches!(credential_ref, Some("global:git.access_token")) {
+            if let Some(token) = store.get_git_token_raw() {
+                if !token.is_empty() {
+                    return ResolvedAuth {
+                        method: AuthMethod::Token(token),
+                        mode: "app_global_token".to_string(),
+                        credential_ref: Some("global:git.access_token".to_string()),
+                    };
+                }
+            }
+        }
+
+        let project_key = project_token_key_for_path(&repo_path);
+        if let Some(val) = store.get("private.credentials", &project_key) {
+            if let Some(token) = val.as_str() {
+                if !token.is_empty() {
+                    return ResolvedAuth {
+                        method: AuthMethod::Token(token.to_string()),
+                        mode: "repo_token".to_string(),
+                        credential_ref: Some(format!("repo:{repo_path}")),
+                    };
+                }
+            }
+        }
+
+        if let Some(token) = store.get_git_token_raw() {
+            if !token.is_empty() {
+                return ResolvedAuth {
+                    method: AuthMethod::Token(token),
+                    mode: "app_global_token".to_string(),
+                    credential_ref: Some("global:git.access_token".to_string()),
+                };
+            }
+        }
+    }
+
+    if let Some((key_path, passphrase)) = store.get_git_ssh_key() {
+        return ResolvedAuth {
+            method: AuthMethod::SshKey {
+                private_key: key_path.clone(),
+                passphrase,
+            },
+            mode: "ssh_key".to_string(),
+            credential_ref: Some(format!("ssh:{key_path}")),
+        };
+    }
+
+    if prefers_https {
+        return ResolvedAuth {
+            method: AuthMethod::None,
+            mode: "system".to_string(),
+            credential_ref: Some("system:credential-helper".to_string()),
+        };
+    }
+
+    ResolvedAuth {
+        method: AuthMethod::Agent,
+        mode: "ssh_agent".to_string(),
+        credential_ref: Some("system:ssh-agent".to_string()),
+    }
+}
+
 /// 获取远程列表
 #[tauri::command]
 fn get_remotes(state: State<'_, AppState>) -> Result<Vec<RemoteInfo>, String> {
@@ -288,6 +408,8 @@ struct RemoteConfigEntry {
     purpose: Vec<String>,
     credential_mode: String,
     credential_ref: Option<String>,
+    commit_name: Option<String>,
+    commit_email: Option<String>,
     verify_status: String,
     capabilities: String,
 }
@@ -297,21 +419,26 @@ fn credential_summary_for_remote(
     workdir: Option<&str>,
     url: &str,
 ) -> (String, Option<String>) {
-    if let Some(path) = workdir {
-        let project_key = format!("project.{}.token", path);
-        if let Some(val) = store.get("private.credentials", &project_key) {
-            if val.as_str().map(|s| !s.is_empty()).unwrap_or(false) {
-                return ("repo_token".to_string(), Some(format!("repo:{}", path)));
+    let url = url.trim().to_ascii_lowercase();
+    let prefers_ssh = url.starts_with("git@") || url.starts_with("ssh://");
+
+    if !prefers_ssh {
+        if let Some(path) = workdir {
+            let project_key = project_token_key_for_path(path);
+            if let Some(val) = store.get("private.credentials", &project_key) {
+                if val.as_str().map(|s| !s.is_empty()).unwrap_or(false) {
+                    return ("repo_token".to_string(), Some(format!("repo:{}", path)));
+                }
             }
         }
-    }
 
-    if let Some(token) = store.get_git_token_raw() {
-        if !token.is_empty() {
-            return (
-                "app_global_token".to_string(),
-                Some("global:git.access_token".to_string()),
-            );
+        if let Some(token) = store.get_git_token_raw() {
+            if !token.is_empty() {
+                return (
+                    "app_global_token".to_string(),
+                    Some("global:git.access_token".to_string()),
+                );
+            }
         }
     }
 
@@ -319,7 +446,7 @@ fn credential_summary_for_remote(
         return ("ssh_key".to_string(), Some(format!("ssh:{}", key_path)));
     }
 
-    if url.starts_with("git@") || url.starts_with("ssh://") {
+    if prefers_ssh {
         return (
             "ssh_agent".to_string(),
             Some("system:ssh-agent".to_string()),
@@ -418,11 +545,57 @@ fn project_token_key_for_path(path: &str) -> String {
     format!("project.{}.token", path)
 }
 
+fn remote_meta_key(repo_path: &str, remote_name: &str) -> String {
+    format!("remote.{}.{}.meta", repo_path, remote_name)
+}
+
 fn repo_path_from_project_token_key(key: &str) -> Option<String> {
     key.strip_prefix("project.")
         .and_then(|path| path.strip_suffix(".token"))
         .filter(|path| !path.trim().is_empty())
         .map(str::to_string)
+}
+
+fn save_project_remote_config_and_bind_repo(
+    state: &State<'_, AppState>,
+    repo_path: &str,
+    remote_name: &str,
+    token: &str,
+    commit_name: Option<&str>,
+    commit_email: Option<&str>,
+) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store
+        .set(
+            "private.credentials",
+            &project_token_key_for_path(repo_path),
+            serde_json::json!(token),
+        )
+        .map_err(|e| e.to_string())?;
+    let identity = RemoteCommitIdentityConfig {
+        name: commit_name
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        email: commit_email
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+    };
+    if identity.name.is_some() || identity.email.is_some() {
+        store
+            .set(
+                "private.local",
+                &remote_meta_key(repo_path, remote_name),
+                serde_json::to_value(identity).map_err(|e| e.to_string())?,
+            )
+            .map_err(|e| e.to_string())?;
+    } else {
+        store
+            .delete("private.local", &remote_meta_key(repo_path, remote_name))
+            .map_err(|e| e.to_string())?;
+    }
+    store.bind_repo(repo_path).map_err(|e| e.to_string())
 }
 
 fn save_project_token_and_bind_repo(
@@ -439,6 +612,70 @@ fn save_project_token_and_bind_repo(
         )
         .map_err(|e| e.to_string())?;
     store.bind_repo(repo_path).map_err(|e| e.to_string())
+}
+
+fn remote_commit_identity_config(
+    store: &Store,
+    repo_path: &str,
+    remote_name: &str,
+) -> Option<RemoteCommitIdentityConfig> {
+    store
+        .get("private.local", &remote_meta_key(repo_path, remote_name))
+        .and_then(|value| serde_json::from_value(value).ok())
+}
+
+fn default_commit_identity_config(store: &Store) -> RemoteCommitIdentityConfig {
+    let credentials = store.get_git_credentials();
+    RemoteCommitIdentityConfig {
+        name: credentials
+            .username
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+        email: credentials
+            .email
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()),
+    }
+}
+
+fn fallback_commit_identity(
+    state: &AppState,
+    remote_identity: Option<RemoteCommitIdentityConfig>,
+) -> CommitIdentity {
+    let store = state.store.lock().unwrap();
+    let default_identity = default_commit_identity_config(&store);
+    CommitIdentity {
+        name: remote_identity
+            .as_ref()
+            .and_then(|identity| identity.name.clone())
+            .or(default_identity.name)
+            .unwrap_or_else(|| "GitTributary".to_string()),
+        email: remote_identity
+            .as_ref()
+            .and_then(|identity| identity.email.clone())
+            .or(default_identity.email)
+            .unwrap_or_else(|| "gittributary@local".to_string()),
+    }
+}
+
+fn preferred_commit_remote(repo: &GitRepo) -> Option<String> {
+    let remotes = repo.remotes().ok()?;
+    if remotes.iter().any(|remote| remote.name == "origin") {
+        return Some("origin".to_string());
+    }
+    remotes.first().map(|remote| remote.name.clone())
+}
+
+fn commit_identity_for_repo_remote(
+    state: &AppState,
+    repo_path: &str,
+    remote_name: Option<&str>,
+) -> CommitIdentity {
+    let remote_identity = {
+        let store = state.store.lock().unwrap();
+        remote_name.and_then(|remote| remote_commit_identity_config(&store, repo_path, remote))
+    };
+    fallback_commit_identity(state, remote_identity)
 }
 
 fn remote_url_for(repo: &GitRepo, name: &str) -> Result<String, String> {
@@ -460,6 +697,17 @@ fn maybe_unbind_repo_without_remotes(
         store.unbind_repo(repo_path).map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+fn delete_remote_commit_identity(
+    state: &State<'_, AppState>,
+    repo_path: &str,
+    remote_name: &str,
+) -> Result<(), String> {
+    let mut store = state.store.lock().unwrap();
+    store
+        .delete("private.local", &remote_meta_key(repo_path, remote_name))
+        .map_err(|e| e.to_string())
 }
 
 fn set_active_repo_state(
@@ -502,6 +750,7 @@ fn push_remote_config_entries_for_repo(
     for remote in repo.remotes().map_err(|e| e.to_string())? {
         let (credential_mode, credential_ref) =
             credential_summary_for_remote(store, Some(repo_path), &remote.url);
+        let identity = remote_commit_identity_config(store, repo_path, &remote.name);
         entries.push(RemoteConfigEntry {
             name: remote.name,
             url: remote.url,
@@ -511,6 +760,8 @@ fn push_remote_config_entries_for_repo(
             purpose: vec![purpose.to_string()],
             credential_mode,
             credential_ref,
+            commit_name: identity.as_ref().and_then(|identity| identity.name.clone()),
+            commit_email: identity.and_then(|identity| identity.email),
             verify_status: "unverified".to_string(),
             capabilities: "unknown".to_string(),
         });
@@ -589,6 +840,7 @@ fn get_remote_configs(state: State<'_, AppState>) -> Result<Vec<RemoteConfigEntr
                     .any(|purpose| purpose == "data_center_sync")
         }) {
             let (credential_mode, credential_ref) = config_repo_credential_summary(&store);
+            let identity = default_commit_identity_config(&store);
             entries.push(RemoteConfigEntry {
                 name: config_repo_remote_name(&config.url),
                 url: config.url,
@@ -598,6 +850,8 @@ fn get_remote_configs(state: State<'_, AppState>) -> Result<Vec<RemoteConfigEntr
                 purpose: vec!["data_center_sync".to_string()],
                 credential_mode,
                 credential_ref,
+                commit_name: identity.name,
+                commit_email: identity.email,
                 verify_status: "configured".to_string(),
                 capabilities: "config-sync".to_string(),
             });
@@ -613,6 +867,8 @@ fn clone_remote_repo(
     url: String,
     parent_path: String,
     token: String,
+    commit_name: Option<String>,
+    commit_email: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<RepoOverview, String> {
     let token = token.trim();
@@ -628,7 +884,14 @@ fn clone_remote_repo(
     )
     .map_err(|e| e.to_string())?;
     let repo_path = repo_path_for_repo(&repo)?;
-    save_project_token_and_bind_repo(&state, &repo_path, token)?;
+    save_project_remote_config_and_bind_repo(
+        &state,
+        &repo_path,
+        "origin",
+        token,
+        commit_name.as_deref(),
+        commit_email.as_deref(),
+    )?;
     set_active_repo_state(repo, &state)
 }
 
@@ -638,6 +901,8 @@ fn add_remote(
     name: String,
     url: String,
     token: Option<String>,
+    commit_name: Option<String>,
+    commit_email: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let token = token
@@ -653,7 +918,14 @@ fn add_remote(
     let repo_path = repo_path_for_repo(repo)?;
     repo.add_remote(&name, &url).map_err(|e| e.to_string())?;
     drop(lock);
-    if let Err(e) = save_project_token_and_bind_repo(&state, &repo_path, &token) {
+    if let Err(e) = save_project_remote_config_and_bind_repo(
+        &state,
+        &repo_path,
+        &name,
+        &token,
+        commit_name.as_deref(),
+        commit_email.as_deref(),
+    ) {
         let lock = state.repo.lock().unwrap();
         if let Some(repo) = lock.as_ref() {
             let _ = repo.remove_remote(&name);
@@ -670,6 +942,8 @@ fn set_remote_url(
     url: String,
     repo_path: Option<String>,
     token: Option<String>,
+    commit_name: Option<String>,
+    commit_email: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let token = token
@@ -690,7 +964,14 @@ fn set_remote_url(
         let repo_path = repo_path_for_repo(&repo)?;
         repo.set_remote_url(&name, &url)
             .map_err(|e| e.to_string())?;
-        if let Err(e) = save_project_token_and_bind_repo(&state, &repo_path, &token) {
+        if let Err(e) = save_project_remote_config_and_bind_repo(
+            &state,
+            &repo_path,
+            &name,
+            &token,
+            commit_name.as_deref(),
+            commit_email.as_deref(),
+        ) {
             let _ = repo.set_remote_url(&name, &previous_url);
             return Err(e);
         }
@@ -704,7 +985,14 @@ fn set_remote_url(
     repo.set_remote_url(&name, &url)
         .map_err(|e| e.to_string())?;
     drop(lock);
-    if let Err(e) = save_project_token_and_bind_repo(&state, &repo_path, &token) {
+    if let Err(e) = save_project_remote_config_and_bind_repo(
+        &state,
+        &repo_path,
+        &name,
+        &token,
+        commit_name.as_deref(),
+        commit_email.as_deref(),
+    ) {
         let lock = state.repo.lock().unwrap();
         if let Some(repo) = lock.as_ref() {
             let _ = repo.set_remote_url(&name, &previous_url);
@@ -729,6 +1017,7 @@ fn remove_remote(
         let repo = GitRepo::open(path).map_err(|e| e.to_string())?;
         let repo_path = repo_path_for_repo(&repo)?;
         repo.remove_remote(&name).map_err(|e| e.to_string())?;
+        delete_remote_commit_identity(&state, &repo_path, &name)?;
         let has_remotes = !repo.remotes().map_err(|e| e.to_string())?.is_empty();
         maybe_unbind_repo_without_remotes(&state, &repo_path, has_remotes)?;
         return Ok(());
@@ -739,6 +1028,7 @@ fn remove_remote(
         let repo = lock.as_ref().ok_or("尚未打开仓库")?;
         let repo_path = repo_path_for_repo(repo)?;
         repo.remove_remote(&name).map_err(|e| e.to_string())?;
+        delete_remote_commit_identity(&state, &repo_path, &name)?;
         let has_remotes = !repo.remotes().map_err(|e| e.to_string())?.is_empty();
         (repo_path, has_remotes)
     };
@@ -1074,8 +1364,10 @@ impl AppFlowActionExecutor<'_> {
         let message = require_input(inputs, "message")?;
         let repo = GitRepo::open(&repo_path).map_err(to_validation_error)?;
         let branch = repo.current_branch().unwrap_or_else(|_| "HEAD".to_string());
+        let remote = preferred_commit_remote(&repo);
+        let identity = commit_identity_for_repo_remote(self.state, &repo_path, remote.as_deref());
         repo.stage_all().map_err(to_validation_error)?;
-        match repo.commit(&message) {
+        match repo.commit_with_identity(&message, &identity) {
             Ok(commit) => Ok(FlowActionOutcome {
                 outputs: json!({ "commit": commit.id, "branch": branch }),
                 skipped: false,
@@ -1674,6 +1966,47 @@ fn get_recent_repos(state: State<'_, AppState>) -> Vec<String> {
 
 // ─── Static site commands ─────────────────────────────────────────────
 
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SitePublishRequest {
+    build_config: SiteBuildConfig,
+    target: SitePublishTarget,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SitePublishTarget {
+    target_local_path: String,
+    target_branch: String,
+    publish_dir: String,
+    remote_name: String,
+    #[serde(default)]
+    credential_ref: Option<String>,
+    #[serde(default)]
+    pages_url: String,
+    #[serde(default)]
+    auto_commit_message: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SitePublishReport {
+    build: SiteBuildReport,
+    target_repo_path: String,
+    publish_dir: String,
+    publish_path: String,
+    branch: String,
+    remote_name: String,
+    pages_url: String,
+    copied_file_count: usize,
+    changed_count: usize,
+    commit: Option<String>,
+    pushed: bool,
+    credential_mode: String,
+    credential_ref: Option<String>,
+    duration_ms: u128,
+}
+
 #[tauri::command]
 fn site_scan(repo_path: String) -> Result<SiteScanReport, String> {
     gt_site::scan_repo(repo_path).map_err(|e| e.to_string())
@@ -1682,6 +2015,101 @@ fn site_scan(repo_path: String) -> Result<SiteScanReport, String> {
 #[tauri::command]
 fn site_build(config: SiteBuildConfig) -> Result<SiteBuildReport, String> {
     gt_site::build_site(config).map_err(|e| e.to_string())
+}
+
+fn classify_pages_publish_error(error: &str) -> String {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("too many redirects")
+        || lower.contains("authentication replays")
+        || lower.contains("authentication failed")
+        || lower.contains("401")
+        || lower.contains("403")
+    {
+        return format!(
+            "{error}\n请检查 Pages 发布仓库远程 URL 与认证方式是否匹配: HTTPS 远程需要目标仓库可用的 GitHub Token, fine-grained token 至少需要 Contents: Read and write; SSH 远程请配置 SSH Key 或 Agent。"
+        );
+    }
+    error.to_string()
+}
+
+#[tauri::command]
+fn site_publish_pages(
+    request: SitePublishRequest,
+    state: State<'_, AppState>,
+) -> Result<SitePublishReport, String> {
+    let started = std::time::Instant::now();
+    let branch =
+        normalize_git_name(&request.target.target_branch, "目标分支").map_err(|e| e.to_string())?;
+    let remote_name =
+        normalize_git_name(&request.target.remote_name, "发布远程").map_err(|e| e.to_string())?;
+    let target_root =
+        resolve_repo_root(&request.target.target_local_path).map_err(|e| e.to_string())?;
+    let target_repo = GitRepo::open(&target_root).map_err(|e| e.to_string())?;
+    let target_remote_url = remote_url_for(&target_repo, &remote_name)?;
+    let auth = resolve_auth_for_publish_target(
+        &state,
+        &target_root,
+        Some(&target_remote_url),
+        request.target.credential_ref.as_deref(),
+    );
+
+    let target_plan = gt_site::plan_publish_target(
+        &request.build_config,
+        &target_root,
+        &request.target.publish_dir,
+    )
+    .map_err(|e| classify_pages_publish_error(&e.to_string()))?;
+
+    prepare_pages_git(PagesPrepareGitOptions {
+        target_local_path: target_root.clone(),
+        branch: branch.clone(),
+        remote_name: remote_name.clone(),
+        allowed_dirty_pathspec: Some(target_plan.publish_pathspec.clone()),
+        auth: auth.method.clone(),
+    })
+    .map_err(|e| classify_pages_publish_error(&e.to_string()))?;
+
+    verify_pages_push_access(&target_root, &remote_name, &branch, &auth.method)
+        .map_err(|e| classify_pages_publish_error(&e.to_string()))?;
+
+    let prepared = gt_site::prepare_publish_output(
+        request.build_config,
+        &target_root,
+        &request.target.publish_dir,
+        &request.target.pages_url,
+        &request.target.auto_commit_message,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let commit_identity =
+        commit_identity_for_repo_remote(&state, &target_root.to_string_lossy(), Some(&remote_name));
+    let git_report = commit_pages_git(PagesCommitGitOptions {
+        target_local_path: target_root,
+        branch,
+        remote_name,
+        publish_pathspec: target_plan.publish_pathspec.clone(),
+        commit_message: prepared.commit_message.clone(),
+        commit_identity,
+        auth: auth.method,
+    })
+    .map_err(|e| classify_pages_publish_error(&e.to_string()))?;
+
+    Ok(SitePublishReport {
+        build: prepared.build,
+        target_repo_path: git_report.target_repo_path,
+        publish_dir: prepared.publish_dir,
+        publish_path: prepared.publish_path,
+        branch: git_report.branch,
+        remote_name: git_report.remote_name,
+        pages_url: prepared.pages_url,
+        copied_file_count: prepared.copied_file_count,
+        changed_count: git_report.changed_count,
+        commit: git_report.commit,
+        pushed: git_report.pushed,
+        credential_mode: auth.mode,
+        credential_ref: auth.credential_ref,
+        duration_ms: started.elapsed().as_millis(),
+    })
 }
 
 #[tauri::command]
@@ -2136,6 +2564,7 @@ pub fn run() {
             get_recent_repos,
             site_scan,
             site_build,
+            site_publish_pages,
             site_open_output,
             sync_get_config,
             sync_set_config,

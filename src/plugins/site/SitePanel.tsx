@@ -55,6 +55,8 @@ import type {
   SiteBuildUiState,
   SitePhase,
   SitePublishDraft,
+  SitePublishReport,
+  SitePublishRequest,
   SitePublishTargetState,
   SiteScanReport,
   WorkspaceInfo,
@@ -65,6 +67,7 @@ function phaseText(phase: SitePhase) {
     case "scanning": return "扫描中";
     case "ready": return "待构建";
     case "building": return "构建中";
+    case "publishing": return "发布中";
     case "succeeded": return "已完成";
     case "failed": return "失败";
     default: return "待开始";
@@ -86,6 +89,7 @@ export function SitePanel() {
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [remoteConfigs, setRemoteConfigs] = useState<RemoteConfigEntry[]>([]);
   const [publishTarget, setPublishTarget] = useState<SitePublishTargetState | null>(null);
+  const [publishReport, setPublishReport] = useState<SitePublishReport | null>(null);
   const [selectedPublishCandidateId, setSelectedPublishCandidateId] = useState("");
   const [publishDraft, setPublishDraft] = useState<SitePublishDraft>(() => defaultPublishDraft(null));
   const [message, setMessage] = useState<string | null>(null);
@@ -94,8 +98,10 @@ export function SitePanel() {
   const hydratedRepoRef = useRef<string | null>(null);
 
   const selectedCount = selectedPaths.size;
-  const canScan = Boolean(repoPath.trim()) && phase !== "scanning" && phase !== "building";
-  const canBuild = Boolean(repoPath.trim() && outputDir.trim() && siteTitle.trim() && selectedCount > 0) && phase !== "building" && phase !== "scanning";
+  const busy = phase === "scanning" || phase === "building" || phase === "publishing";
+  const canScan = Boolean(repoPath.trim()) && !busy;
+  const canBuild = Boolean(repoPath.trim() && outputDir.trim() && siteTitle.trim() && selectedCount > 0) && !busy;
+  const canPublish = canBuild && Boolean(publishTarget);
 
   const buildConfig = useMemo<SiteBuildConfig>(() => ({
     repoPath: repoPath.trim(),
@@ -232,6 +238,7 @@ export function SitePanel() {
     setError(null);
     setMessage(null);
     setBuildReport(null);
+    setPublishReport(null);
     try {
       const report = await invoke<SiteScanReport>("site_scan", { repoPath: cleanPath });
       setScanReport(report);
@@ -292,6 +299,17 @@ export function SitePanel() {
       setPublishDraft(defaultPublishDraft(firstReady));
     }
   }, [publishCandidates, selectedPublishCandidateId]);
+
+  useEffect(() => {
+    if (!publishTarget) return;
+    const candidate = publishCandidates.find((item) => item.id === publishTarget.targetRepoId);
+    if (!candidate || candidate.credentialRef === publishTarget.credentialRef) return;
+    setPublishTarget({
+      ...publishTarget,
+      remoteName: candidate.remoteName || publishTarget.remoteName,
+      credentialRef: candidate.credentialRef,
+    });
+  }, [publishCandidates, publishTarget]);
 
   useEffect(() => {
     if (!scanReport || hydratedRepoRef.current !== scanReport.repoPath) return;
@@ -358,6 +376,7 @@ export function SitePanel() {
     setError(null);
     setMessage(null);
     setBuildReport(null);
+    setPublishReport(null);
     try {
       const report = await invoke<SiteBuildReport>("site_build", { config: buildConfig });
       setBuildReport(report);
@@ -387,6 +406,43 @@ export function SitePanel() {
       setMessage(`已保存 Pages 发布目标: ${candidate.name}`);
       setError(null);
     } catch (err) {
+      setError(String(err));
+    }
+  };
+
+  const runPublish = async () => {
+    if (!canPublish || !publishTarget) return;
+    setPhase("publishing");
+    setError(null);
+    setMessage(null);
+    setBuildReport(null);
+    setPublishReport(null);
+    try {
+      const request: SitePublishRequest = {
+        buildConfig,
+        target: {
+          targetLocalPath: publishTarget.targetLocalPath,
+          targetBranch: publishTarget.targetBranch,
+          publishDir: publishTarget.publishDir,
+          remoteName: publishTarget.remoteName || "origin",
+          credentialRef: publishTarget.credentialRef ?? null,
+          pagesUrl: publishTarget.pagesUrl,
+          autoCommitMessage: publishTarget.autoCommitMessage,
+        },
+      };
+      const report = await invoke<SitePublishReport>("site_publish_pages", { request });
+      setBuildReport(report.build);
+      setPublishReport(report);
+      setPhase("succeeded");
+      setMessage(report.commit
+        ? `已发布 ${report.build.pageCount} 个页面到 ${report.remoteName}/${report.branch}`
+        : `站点无变更,已确认 ${report.remoteName}/${report.branch}`);
+      await persistConfig(buildConfig, {
+        captureViewMode,
+        openPaths: Array.from(openCapturePaths).filter((path) => knownOpenPaths.has(path)).sort((a, b) => pathCollator.compare(a, b)),
+      });
+    } catch (err) {
+      setPhase("failed");
       setError(String(err));
     }
   };
@@ -439,6 +495,10 @@ export function SitePanel() {
           <Button onClick={runBuild} disabled={!canBuild}>
             {phase === "building" ? <Loader2 className="animate-spin" /> : <Play />}
             构建
+          </Button>
+          <Button onClick={runPublish} disabled={!canPublish}>
+            {phase === "publishing" ? <Loader2 className="animate-spin" /> : <Play />}
+            发布
           </Button>
         </div>
       </header>
@@ -512,9 +572,13 @@ export function SitePanel() {
                 draft={publishDraft}
                 savedTarget={publishTarget}
                 sourceRepoReady={Boolean(repoPath.trim())}
+                canPublish={canPublish}
+                isPublishing={phase === "publishing"}
+                publishReport={publishReport}
                 onSelectCandidate={selectPublishCandidate}
                 onDraftChange={setPublishDraft}
                 onSave={savePublishTarget}
+                onPublish={runPublish}
               />
 
               {buildReport && (

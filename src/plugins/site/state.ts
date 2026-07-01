@@ -109,6 +109,7 @@ export function parseSitePublishTargetState(value: unknown): SitePublishTargetSt
     targetBranch: state.targetBranch,
     publishDir: state.publishDir,
     remoteName: state.remoteName,
+    credentialRef: typeof state.credentialRef === "string" ? state.credentialRef : null,
     pagesUrl: state.pagesUrl,
     autoCommitMessage: state.autoCommitMessage,
     updatedAt: state.updatedAt,

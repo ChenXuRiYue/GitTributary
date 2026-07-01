@@ -1,7 +1,6 @@
 use std::path::Path;
 
 use chrono::{DateTime, TimeZone, Utc};
-use git2::Signature;
 use serde::Serialize;
 
 use crate::error::{GitError, Result};
@@ -20,6 +19,12 @@ pub struct CommitInfo {
     pub author: String,
     /// 提交时间(UTC)
     pub time: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CommitIdentity {
+    pub name: String,
+    pub email: String,
 }
 
 impl GitRepo {
@@ -94,6 +99,21 @@ impl GitRepo {
     ///
     /// 如果 index 和 HEAD tree 完全相同则返回 NothingToCommit 错误。
     pub fn commit(&self, message: &str) -> Result<CommitInfo> {
+        self.commit_with_identity(
+            message,
+            &CommitIdentity {
+                name: "GitTributary".to_string(),
+                email: "gittributary@local".to_string(),
+            },
+        )
+    }
+
+    /// 创建一个提交(使用显式提交身份,不读取仓库或系统 git config)。
+    pub fn commit_with_identity(
+        &self,
+        message: &str,
+        identity: &CommitIdentity,
+    ) -> Result<CommitInfo> {
         let mut index = self.repo.index()?;
         let tree_oid = index.write_tree()?;
         let tree = self.repo.find_tree(tree_oid)?;
@@ -108,7 +128,8 @@ impl GitRepo {
             }
         }
 
-        let sig = self.signature()?;
+        let sig = git2::Signature::now(&identity.name, &identity.email)
+            .map_err(|e| GitError::Internal(format!("无法创建签名: {}", e)))?;
 
         // 获取父提交(首次提交时 parents 为空)
         let parents: Vec<git2::Commit> = if let Ok(head_ref) = self.repo.head() {
@@ -137,13 +158,5 @@ impl GitRepo {
             author: sig.name().unwrap_or("unknown").to_string(),
             time,
         })
-    }
-
-    /// 获取签名(读取仓库或全局 git config 中的 user.name / user.email)。
-    fn signature(&self) -> Result<Signature<'_>> {
-        self.repo
-            .signature()
-            .or_else(|_| Signature::now("GitTributary", "gittributary@local"))
-            .map_err(|e| GitError::Internal(format!("无法创建签名: {}", e)))
     }
 }

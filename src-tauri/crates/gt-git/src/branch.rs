@@ -74,4 +74,5 @@ impl GitRepo {
 
         Ok(result)
     }
+
 }

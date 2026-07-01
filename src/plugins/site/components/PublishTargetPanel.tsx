@@ -1,4 +1,4 @@
-import { CheckCircle2, ExternalLink, GitBranch, Globe2, Save, TriangleAlert } from "lucide-react";
+import { CheckCircle2, ExternalLink, GitBranch, Globe2, Loader2, Play, Save, TriangleAlert } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,13 @@ import { cn } from "@/lib/utils";
 
 import { credentialLabel, purposeLabel } from "../publish";
 import { shortPath } from "../state";
-import type { PublishRepoCandidate, SitePublishDraft, SitePublishTargetState } from "../types";
+import type { PublishRepoCandidate, SitePublishDraft, SitePublishReport, SitePublishTargetState } from "../types";
+
+const PAGES_SOURCE_PRESETS = [
+  { id: "main-root", label: "main / root", targetBranch: "main", publishDir: "/" },
+  { id: "main-docs", label: "main / docs", targetBranch: "main", publishDir: "docs" },
+  { id: "gh-pages-root", label: "gh-pages / root", targetBranch: "gh-pages", publishDir: "/" },
+];
 
 export function PublishTargetPanel({
   candidates,
@@ -15,18 +21,26 @@ export function PublishTargetPanel({
   draft,
   savedTarget,
   sourceRepoReady,
+  canPublish,
+  isPublishing,
+  publishReport,
   onSelectCandidate,
   onDraftChange,
   onSave,
+  onPublish,
 }: {
   candidates: PublishRepoCandidate[];
   selectedCandidateId: string;
   draft: SitePublishDraft;
   savedTarget: SitePublishTargetState | null;
   sourceRepoReady: boolean;
+  canPublish: boolean;
+  isPublishing: boolean;
+  publishReport: SitePublishReport | null;
   onSelectCandidate: (candidate: PublishRepoCandidate) => void;
   onDraftChange: (draft: SitePublishDraft) => void;
   onSave: () => void;
+  onPublish: () => void;
 }) {
   const selectedCandidate = candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null;
   const canSave = sourceRepoReady && Boolean(selectedCandidate && selectedCandidate.status === "ready" && draft.targetBranch.trim() && draft.publishDir.trim());
@@ -49,9 +63,15 @@ export function PublishTargetPanel({
             从已有仓库配置中选择静态发布仓库。
           </p>
         </div>
-        <Button size="sm" onClick={onSave} disabled={!canSave}>
-          <Save /> 保存发布目标
-        </Button>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button size="sm" variant="outline" onClick={onSave} disabled={!canSave}>
+            <Save /> 保存目标
+          </Button>
+          <Button size="sm" onClick={onPublish} disabled={!canPublish}>
+            {isPublishing ? <Loader2 className="animate-spin" /> : <Play />}
+            发布
+          </Button>
+        </div>
       </div>
 
       <div className="grid gap-5 p-5 xl:grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)]">
@@ -90,7 +110,7 @@ export function PublishTargetPanel({
         <div className="min-w-0 space-y-3">
           <div>
             <div className="gt-body-strong">发布参数</div>
-            <p className="gt-caption text-muted-foreground">当前阶段只保存配置,发布执行稍后接入。</p>
+            <p className="gt-caption text-muted-foreground">构建产物会同步到目标分支并推送远程。</p>
           </div>
 
           {selectedCandidate ? (
@@ -111,6 +131,35 @@ export function PublishTargetPanel({
                   <p className="gt-caption mt-0.5 truncate text-muted-foreground">
                     {selectedCandidate.repoPath ? shortPath(selectedCandidate.repoPath) : selectedCandidate.url}
                   </p>
+                  <p className="gt-caption mt-0.5 truncate text-muted-foreground">
+                    凭证: {credentialLabel(selectedCandidate.credentialMode)}
+                    {selectedCandidate.credentialRef ? ` / ${selectedCandidate.credentialRef}` : ""}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="gt-caption text-muted-foreground">GitHub Pages 源</span>
+                <div className="grid grid-cols-3 gap-1 rounded-md border bg-muted/40 p-1">
+                  {PAGES_SOURCE_PRESETS.map((preset) => {
+                    const active = draft.targetBranch.trim() === preset.targetBranch && draft.publishDir.trim() === preset.publishDir;
+                    return (
+                      <Button
+                        key={preset.id}
+                        type="button"
+                        variant={active ? "secondary" : "ghost"}
+                        size="sm"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => onDraftChange({
+                          ...draft,
+                          targetBranch: preset.targetBranch,
+                          publishDir: preset.publishDir,
+                        })}
+                      >
+                        {preset.label}
+                      </Button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -120,7 +169,7 @@ export function PublishTargetPanel({
                   <Input
                     value={draft.targetBranch}
                     onChange={(event) => onDraftChange({ ...draft, targetBranch: event.target.value })}
-                    placeholder="gh-pages"
+                    placeholder="main"
                   />
                 </label>
                 <label className="space-y-1.5">
@@ -167,6 +216,10 @@ export function PublishTargetPanel({
                   当前选择已经保存为此仓库的 Pages 发布目标。
                 </div>
               )}
+
+              {publishReport && (
+                <PublishResultSummary report={publishReport} />
+              )}
             </>
           ) : savedTarget ? (
             <div className="flex min-h-48 flex-col items-center justify-center rounded-lg border border-dashed border-amber-500/30 bg-amber-500/10 px-4 py-6 text-center">
@@ -191,6 +244,44 @@ export function PublishTargetPanel({
         </div>
       </div>
     </section>
+  );
+}
+
+function PublishResultSummary({ report }: { report: SitePublishReport }) {
+  const shortCommit = report.commit?.slice(0, 7) ?? "无新提交";
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <CheckCircle2 className="size-4 shrink-0 text-primary" />
+          <div className="truncate gt-body-strong">
+            {report.pushed ? "已推送" : "已生成"}
+          </div>
+        </div>
+        <Badge variant="secondary" className="h-5 px-1.5 gt-caption">{shortCommit}</Badge>
+      </div>
+      <div className="mt-3 grid gap-2 text-[12px] sm:grid-cols-2">
+        <Metric label="分支" value={`${report.remoteName}/${report.branch}`} />
+        <Metric label="Pages 源" value={`${report.branch} ${report.publishDir === "/" ? "/root" : `/${report.publishDir}`}`} />
+        <Metric label="页面" value={`${report.build.pageCount}`} />
+        <Metric label="复制" value={`${report.copiedFileCount} 文件`} />
+        <Metric label="变更" value={`${report.changedCount} 项`} />
+        <Metric label="凭证" value={report.credentialRef ? `${credentialLabel(report.credentialMode)} / ${report.credentialRef}` : credentialLabel(report.credentialMode)} />
+        <Metric label="耗时" value={`${report.durationMs}ms`} />
+      </div>
+      <div className="mt-3 truncate font-mono text-[11px] text-muted-foreground" title={report.publishPath}>
+        {report.publishPath}
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 items-center justify-between gap-2 rounded-md bg-muted/60 px-2 py-1.5">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="truncate font-medium" title={value}>{value}</span>
+    </div>
   );
 }
 

@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 
-use gt_git::{repo_dir_name_from_url, ChangeKind, GitRepo};
+use gt_git::{repo_dir_name_from_url, ChangeKind, CommitIdentity, GitRepo};
 use tempfile::TempDir;
 
 /// 辅助:在临时目录创建一个新仓库并做一次初始提交
@@ -118,6 +118,27 @@ fn test_stage_all_and_commit() {
 }
 
 #[test]
+fn test_commit_with_identity_ignores_repo_config_identity() {
+    let (dir, repo) = setup_repo();
+    run_git(dir.path(), &["config", "user.name", "Repo Config"]);
+    run_git(dir.path(), &["config", "user.email", "repo@example.com"]);
+    fs::write(dir.path().join("identity.md"), "identity").unwrap();
+
+    repo.stage_all().unwrap();
+    repo.commit_with_identity(
+        "test: explicit identity",
+        &CommitIdentity {
+            name: "Remote Config".to_string(),
+            email: "remote@example.com".to_string(),
+        },
+    )
+    .unwrap();
+
+    let author = run_git_output(dir.path(), &["log", "-1", "--format=%an <%ae>"]);
+    assert_eq!(author.trim(), "Remote Config <remote@example.com>");
+}
+
+#[test]
 fn test_stage_files_selective() {
     let (dir, repo) = setup_repo();
 
@@ -215,4 +236,37 @@ fn test_repo_dir_name_from_url() {
 
     assert!(repo_dir_name_from_url("   ").is_err());
     assert!(repo_dir_name_from_url("https://github.com/team/..").is_err());
+}
+
+fn run_git(dir: &Path, args: &[&str]) {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap_or_else(|err| panic!("failed to run git {}: {err}", args.join(" ")));
+    if !output.status.success() {
+        panic!(
+            "git {} failed\nstdout:\n{}\nstderr:\n{}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+fn run_git_output(dir: &Path, args: &[&str]) -> String {
+    let output = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .unwrap_or_else(|err| panic!("failed to run git {}: {err}", args.join(" ")));
+    if !output.status.success() {
+        panic!(
+            "git {} failed\nstdout:\n{}\nstderr:\n{}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    String::from_utf8_lossy(&output.stdout).to_string()
 }

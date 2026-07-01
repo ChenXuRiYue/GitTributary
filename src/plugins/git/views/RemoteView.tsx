@@ -32,6 +32,8 @@ interface RemoteInfo {
   purpose: string[];
   credential_mode: string;
   credential_ref: string | null;
+  commit_name: string | null;
+  commit_email: string | null;
   verify_status: string;
   capabilities: string;
 }
@@ -71,6 +73,17 @@ interface WorkspaceInfo {
 interface RemoteDraft {
   url: string;
   token: string;
+  commitName: string;
+  commitEmail: string;
+  showToken: boolean;
+}
+
+interface AddRemoteDraft {
+  name: string;
+  url: string;
+  token: string;
+  commitName: string;
+  commitEmail: string;
   showToken: boolean;
 }
 
@@ -166,6 +179,8 @@ export function RemoteView() {
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneParentPath, setCloneParentPath] = useState("");
   const [cloneToken, setCloneToken] = useState("");
+  const [cloneCommitName, setCloneCommitName] = useState("");
+  const [cloneCommitEmail, setCloneCommitEmail] = useState("");
   const [showCloneToken, setShowCloneToken] = useState(false);
   const [configUrl, setConfigUrl] = useState("");
   const [configBranch, setConfigBranch] = useState("main");
@@ -173,6 +188,15 @@ export function RemoteView() {
   const [showConfigToken, setShowConfigToken] = useState(false);
   const [checkingConfig, setCheckingConfig] = useState(false);
   const [addingRemote, setAddingRemote] = useState(false);
+  const [addRemoteDraft, setAddRemoteDraft] = useState<AddRemoteDraft>({
+    name: "origin",
+    url: "",
+    token: "",
+    commitName: "",
+    commitEmail: "",
+    showToken: false,
+  });
+  const [savingNewRemote, setSavingNewRemote] = useState(false);
   const [remoteDrafts, setRemoteDrafts] = useState<Record<string, RemoteDraft>>({});
   const [remoteBusyKey, setRemoteBusyKey] = useState<string | null>(null);
   const [expandedRemoteKeys, setExpandedRemoteKeys] = useState<Record<string, boolean>>({});
@@ -189,7 +213,13 @@ export function RemoteView() {
         const key = remoteKey(remote);
         activeKeys.add(key);
         if (!next[key]) {
-          next[key] = { url: remote.url, token: "", showToken: false };
+          next[key] = {
+            url: remote.url,
+            token: "",
+            commitName: remote.commit_name ?? "",
+            commitEmail: remote.commit_email ?? "",
+            showToken: false,
+          };
         }
       });
 
@@ -309,11 +339,13 @@ export function RemoteView() {
         url: cloneUrl.trim(),
         parentPath: cloneParentPath.trim(),
         token: cloneToken.trim(),
+        commitName: cloneCommitName.trim() || null,
+        commitEmail: cloneCommitEmail.trim() || null,
       });
       setOverview(ov);
       setRecentRepos((current) => mergeRepoOptions([ov.path, ...current]).slice(0, 10));
-      setCloneUrl(""); setCloneParentPath(""); setCloneToken("");
-      flash(`Token 校验通过,仓库已 Clone 到 ${shortPath(ov.path)}`);
+      setCloneUrl(""); setCloneParentPath(""); setCloneToken(""); setCloneCommitName(""); setCloneCommitEmail("");
+      flash(`远程访问校验通过,仓库已 Clone 到 ${shortPath(ov.path)}`);
       await loadRemoteConfigs();
     } catch (e) {
       setError(String(e));
@@ -322,9 +354,38 @@ export function RemoteView() {
     }
   };
 
+  const handleAddRemote = async () => {
+    if (!overview || !addRemoteDraft.name.trim() || !addRemoteDraft.url.trim() || !addRemoteDraft.token.trim()) return;
+    setSavingNewRemote(true);
+    try {
+      setError(null);
+      await invoke("add_remote", {
+        name: addRemoteDraft.name.trim(),
+        url: addRemoteDraft.url.trim(),
+        token: addRemoteDraft.token.trim(),
+        commitName: addRemoteDraft.commitName.trim() || null,
+        commitEmail: addRemoteDraft.commitEmail.trim() || null,
+      });
+      setAddRemoteDraft({
+        name: "origin",
+        url: "",
+        token: "",
+        commitName: "",
+        commitEmail: "",
+        showToken: false,
+      });
+      flash("远程访问校验通过,远程仓库已新增");
+      await loadRemoteConfigs();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSavingNewRemote(false);
+    }
+  };
+
   const updateRemoteDraft = (key: string, patch: Partial<RemoteDraft>) => {
     setRemoteDrafts((current) => {
-      const currentDraft = current[key] ?? { url: "", token: "", showToken: false };
+      const currentDraft = current[key] ?? { url: "", token: "", commitName: "", commitEmail: "", showToken: false };
       return {
         ...current,
         [key]: {
@@ -337,7 +398,13 @@ export function RemoteView() {
 
   const handleUpdateRemote = async (remote: RemoteInfo) => {
     const key = remoteKey(remote);
-    const draft = remoteDrafts[key] ?? { url: remote.url, token: "", showToken: false };
+    const draft = remoteDrafts[key] ?? {
+      url: remote.url,
+      token: "",
+      commitName: remote.commit_name ?? "",
+      commitEmail: remote.commit_email ?? "",
+      showToken: false,
+    };
     const repoPath = remote.repo_path ?? overview?.path ?? "";
     if (!repoPath || !draft.url.trim() || !draft.token.trim()) return;
 
@@ -349,9 +416,11 @@ export function RemoteView() {
         url: draft.url.trim(),
         repoPath,
         token: draft.token.trim(),
+        commitName: draft.commitName.trim() || null,
+        commitEmail: draft.commitEmail.trim() || null,
       });
       updateRemoteDraft(key, { token: "" });
-      flash("Token 校验通过,远程已更新");
+      flash("远程访问校验通过,配置已更新");
       await loadRemoteConfigs();
     } catch (e) {
       setError(String(e));
@@ -509,7 +578,13 @@ export function RemoteView() {
               const isConfigCenter = r.source === "gittributary_config";
               const isLocalRemote = r.source === "local_git_config";
               const key = remoteKey(r);
-              const draft = remoteDrafts[key] ?? { url: r.url, token: "", showToken: false };
+              const draft = remoteDrafts[key] ?? {
+                url: r.url,
+                token: "",
+                commitName: r.commit_name ?? "",
+                commitEmail: r.commit_email ?? "",
+                showToken: false,
+              };
               const isBusy = remoteBusyKey === key;
               const isExpanded = expandedRemoteKeys[key] ?? false;
               return (
@@ -555,6 +630,11 @@ export function RemoteView() {
                     {r.credential_ref && (
                       <span className="truncate font-mono text-[10px] text-muted-foreground">{r.credential_ref}</span>
                     )}
+                    {(r.commit_name || r.commit_email) && (
+                      <span className="truncate text-[10px] text-muted-foreground">
+                        提交身份 {r.commit_name || "全局名称"} &lt;{r.commit_email || "全局邮箱"}&gt;
+                      </span>
+                    )}
                     {isLocalRemote && (
                       <div className="rounded-md bg-muted/20 p-3">
                         <div className="grid grid-cols-[72px_1fr] items-center gap-2">
@@ -582,6 +662,20 @@ export function RemoteView() {
                               {draft.showToken ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
                             </button>
                           </div>
+                          <span className="text-[11px] font-medium text-muted-foreground">提交名称</span>
+                          <Input
+                            value={draft.commitName}
+                            onChange={(e) => updateRemoteDraft(key, { commitName: e.target.value })}
+                            placeholder="留空则使用安全配置"
+                            className="h-8 text-xs"
+                          />
+                          <span className="text-[11px] font-medium text-muted-foreground">提交邮箱</span>
+                          <Input
+                            value={draft.commitEmail}
+                            onChange={(e) => updateRemoteDraft(key, { commitEmail: e.target.value })}
+                            placeholder="留空则使用安全配置"
+                            className="h-8 text-xs"
+                          />
                         </div>
                         <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
                           <Button
@@ -676,6 +770,79 @@ export function RemoteView() {
         </CardContent>
       </Card>
 
+      {overview && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <Plus className="size-4" /> 新增远程仓库
+              <Badge variant="outline" className="text-[9px]">当前仓库</Badge>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <div className="grid grid-cols-[88px_1fr] items-center gap-2">
+              <span className="text-[11px] text-muted-foreground">名称</span>
+              <Input
+                value={addRemoteDraft.name}
+                onChange={(e) => setAddRemoteDraft((draft) => ({ ...draft, name: e.target.value }))}
+                placeholder="origin"
+                className="h-8 text-xs"
+              />
+              <span className="text-[11px] text-muted-foreground">URL</span>
+              <Input
+                value={addRemoteDraft.url}
+                onChange={(e) => setAddRemoteDraft((draft) => ({ ...draft, url: e.target.value }))}
+                placeholder="https://github.com/user/repo.git"
+                className="h-8 text-xs"
+              />
+              <span className="text-[11px] text-muted-foreground">Access Token</span>
+              <div className="relative">
+                <Input
+                  type={addRemoteDraft.showToken ? "text" : "password"}
+                  value={addRemoteDraft.token}
+                  onChange={(e) => setAddRemoteDraft((draft) => ({ ...draft, token: e.target.value }))}
+                  placeholder="必填: 保存前校验仓库访问权限"
+                  className="h-8 pr-8 text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => setAddRemoteDraft((draft) => ({ ...draft, showToken: !draft.showToken }))}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                >
+                  {addRemoteDraft.showToken ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                </button>
+              </div>
+              <span className="text-[11px] text-muted-foreground">提交名称</span>
+              <Input
+                value={addRemoteDraft.commitName}
+                onChange={(e) => setAddRemoteDraft((draft) => ({ ...draft, commitName: e.target.value }))}
+                placeholder="留空则使用安全配置"
+                className="h-8 text-xs"
+              />
+              <span className="text-[11px] text-muted-foreground">提交邮箱</span>
+              <Input
+                value={addRemoteDraft.commitEmail}
+                onChange={(e) => setAddRemoteDraft((draft) => ({ ...draft, commitEmail: e.target.value }))}
+                placeholder="留空则使用安全配置"
+                className="h-8 text-xs"
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] text-muted-foreground">
+                提交身份会保存在远程仓库配置中;为空时提交使用安全配置中的全局名称和邮箱。
+              </p>
+              <Button
+                size="sm"
+                className="h-8"
+                onClick={handleAddRemote}
+                disabled={savingNewRemote || !addRemoteDraft.name.trim() || !addRemoteDraft.url.trim() || !addRemoteDraft.token.trim()}
+              >
+                <Save className="size-3.5" /> {savingNewRemote ? "校验中" : "新增"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Clone 远程仓库 */}
       <Card>
         <CardHeader>
@@ -722,6 +889,20 @@ export function RemoteView() {
                 {showCloneToken ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
               </button>
             </div>
+            <span className="text-[11px] text-muted-foreground">提交名称</span>
+            <Input
+              value={cloneCommitName}
+              onChange={(e) => setCloneCommitName(e.target.value)}
+              placeholder="留空则使用安全配置"
+              className="h-8 text-xs"
+            />
+            <span className="text-[11px] text-muted-foreground">提交邮箱</span>
+            <Input
+              value={cloneCommitEmail}
+              onChange={(e) => setCloneCommitEmail(e.target.value)}
+              placeholder="留空则使用安全配置"
+              className="h-8 text-xs"
+            />
           </div>
           <div className="flex items-center justify-between gap-2">
             <p className="text-[10px] text-muted-foreground">

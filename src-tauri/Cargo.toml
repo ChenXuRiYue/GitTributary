@@ -31,3 +31,6 @@ gt-store = { path = "crates/gt-store" }
 gt-flow = { path = "crates/gt-flow" }
 gt-site = { path = "crates/gt-site" }
 dirs-next = "2"
+
+[dev-dependencies]
+tempfile = "3"
