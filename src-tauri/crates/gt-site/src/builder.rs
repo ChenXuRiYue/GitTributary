@@ -2,9 +2,16 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 
-use crate::renderer::{build_page_map, render_index_html, render_markdown_page, render_nav, render_page_html, write_assets};
-use crate::types::{AssetContext, Result, SiteBuildConfig, SiteBuildReport, SiteBuildWarning, SiteError};
-use crate::utils::{canonical_repo, collect_markdown_files, normalize_output_dir, prepare_output_dir};
+use crate::renderer::{
+    build_page_map, markdown_frontmatter, render_index_html, render_markdown_page, render_nav,
+    render_page_html, write_assets,
+};
+use crate::types::{
+    AssetContext, Result, SiteBuildConfig, SiteBuildReport, SiteBuildWarning, SiteError,
+};
+use crate::utils::{
+    canonical_repo, collect_markdown_files, normalize_output_dir, prepare_output_dir,
+};
 
 pub fn build_site(config: SiteBuildConfig) -> Result<SiteBuildReport> {
     let started = Instant::now();
@@ -18,22 +25,16 @@ pub fn build_site(config: SiteBuildConfig) -> Result<SiteBuildReport> {
         return Err(SiteError::NoMarkdownFiles);
     }
 
-    let page_map = build_page_map(&files);
     let mut asset_context = AssetContext::default();
-    let mut rendered_pages = Vec::new();
-    for file in &files {
+    let mut render_inputs = Vec::new();
+    for file in files {
         match fs::read_to_string(&file.abs_path) {
             Ok(markdown) => {
-                let page = render_markdown_page(
-                    &repo,
-                    &output_dir,
-                    file,
-                    &markdown,
-                    &page_map,
-                    config.copy_assets,
-                    &mut asset_context,
-                )?;
-                rendered_pages.push(page);
+                let (_, hidden) = markdown_frontmatter(&markdown);
+                if hidden {
+                    continue;
+                }
+                render_inputs.push((file, markdown));
             }
             Err(err) => asset_context.warnings.push(SiteBuildWarning {
                 path: file.rel_path.clone(),
@@ -42,8 +43,27 @@ pub fn build_site(config: SiteBuildConfig) -> Result<SiteBuildReport> {
         }
     }
 
-    if rendered_pages.is_empty() {
+    if render_inputs.is_empty() {
         return Err(SiteError::NoMarkdownFiles);
+    }
+
+    let visible_files = render_inputs
+        .iter()
+        .map(|(file, _)| file.clone())
+        .collect::<Vec<_>>();
+    let page_map = build_page_map(&visible_files);
+    let mut rendered_pages = Vec::new();
+    for (file, markdown) in &render_inputs {
+        let page = render_markdown_page(
+            &repo,
+            &output_dir,
+            file,
+            markdown,
+            &page_map,
+            config.copy_assets,
+            &mut asset_context,
+        )?;
+        rendered_pages.push(page);
     }
 
     write_assets(
@@ -81,4 +101,3 @@ pub fn build_site(config: SiteBuildConfig) -> Result<SiteBuildReport> {
         duration_ms: started.elapsed().as_millis(),
     })
 }
-
