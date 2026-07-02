@@ -86,6 +86,81 @@ mod tests {
     }
 
     #[test]
+    fn build_skips_hidden_frontmatter_pages() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("README.md"), "# Hello").unwrap();
+        fs::create_dir_all(tmp.path().join("doc")).unwrap();
+        fs::write(
+            tmp.path().join("doc/hidden.md"),
+            "---\ntitle: Secret\nhidden: true\n---\n# Secret\n\nHidden text",
+        )
+        .unwrap();
+        let output = tmp.path().join("site");
+
+        let report = build_site(SiteBuildConfig {
+            repo_path: tmp.path().to_string_lossy().to_string(),
+            output_dir: output.to_string_lossy().to_string(),
+            site_title: "Test".to_string(),
+            include: vec!["README.md".to_string(), "doc".to_string()],
+            exclude: Vec::new(),
+            theme: "typora-light".to_string(),
+            with_search: true,
+            copy_assets: true,
+        })
+        .unwrap();
+
+        assert_eq!(report.page_count, 1);
+        assert!(output.join("pages/README.html").exists());
+        assert!(!output.join("pages/doc/hidden.html").exists());
+
+        let index = fs::read_to_string(output.join("index.html")).unwrap();
+        assert!(!index.contains("Secret"));
+        assert!(!index.contains("hidden.html"));
+
+        let search_index = fs::read_to_string(output.join("assets/search-index.json")).unwrap();
+        assert!(!search_index.contains("Secret"));
+        assert!(!search_index.contains("Hidden text"));
+    }
+
+    #[test]
+    fn build_reports_links_to_hidden_pages_as_broken() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(
+            tmp.path().join("README.md"),
+            "# Hello\n\nSee [Secret](doc/hidden.md).",
+        )
+        .unwrap();
+        fs::create_dir_all(tmp.path().join("doc")).unwrap();
+        fs::write(
+            tmp.path().join("doc/hidden.md"),
+            "---\nhidden: true\n---\n# Secret",
+        )
+        .unwrap();
+        let output = tmp.path().join("site");
+
+        let report = build_site(SiteBuildConfig {
+            repo_path: tmp.path().to_string_lossy().to_string(),
+            output_dir: output.to_string_lossy().to_string(),
+            site_title: "Test".to_string(),
+            include: vec!["README.md".to_string(), "doc".to_string()],
+            exclude: Vec::new(),
+            theme: "typora-light".to_string(),
+            with_search: true,
+            copy_assets: true,
+        })
+        .unwrap();
+
+        assert_eq!(report.page_count, 1);
+        assert_eq!(report.broken_links.len(), 1);
+        assert_eq!(report.broken_links[0].source, "README.md");
+        assert_eq!(report.broken_links[0].target, "doc/hidden.md");
+        assert_eq!(report.broken_links[0].kind, "markdown");
+
+        let page = fs::read_to_string(output.join("pages/README.html")).unwrap();
+        assert!(page.contains(r##"<a href="#">Secret</a>"##));
+    }
+
+    #[test]
     fn build_renders_folder_tree_nav() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("README.md"), "# Hello").unwrap();

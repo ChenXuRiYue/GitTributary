@@ -16,6 +16,11 @@ pub(crate) fn build_page_map(files: &[MarkdownFile]) -> HashMap<String, String> 
         .collect()
 }
 
+pub(crate) fn markdown_frontmatter(markdown: &str) -> (Option<String>, bool) {
+    let (_, title, hidden) = strip_frontmatter(markdown);
+    (title, hidden)
+}
+
 pub(crate) fn render_markdown_page(
     repo: &Path,
     output_dir: &Path,
@@ -26,9 +31,7 @@ pub(crate) fn render_markdown_page(
     assets: &mut AssetContext,
 ) -> Result<RenderedPage> {
     let (body, frontmatter_title, hidden) = strip_frontmatter(markdown);
-    if hidden {
-        return Ok(hidden_page(file, frontmatter_title));
-    }
+    debug_assert!(!hidden, "hidden pages should be skipped before rendering");
 
     let lines = body.lines().collect::<Vec<_>>();
     let mut index = 0;
@@ -109,15 +112,4 @@ pub(crate) fn render_markdown_page(
         headings,
         plain_text,
     })
-}
-
-fn hidden_page(file: &MarkdownFile, frontmatter_title: Option<String>) -> RenderedPage {
-    RenderedPage {
-        rel_path: file.rel_path.clone(),
-        output_rel: file.output_rel.clone(),
-        title: frontmatter_title.unwrap_or_else(|| title_from_path(&file.rel_path)),
-        html: "<p>该文档已在 frontmatter 中标记为 hidden。</p>".to_string(),
-        headings: Vec::new(),
-        plain_text: String::new(),
-    }
 }
