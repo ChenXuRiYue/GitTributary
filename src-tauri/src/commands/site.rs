@@ -14,7 +14,7 @@ use crate::auth::resolve_auth_for_publish_target;
 use crate::commands::remote::remote_url_for;
 use crate::error::classify_pages_publish_error;
 use crate::identity::commit_identity_for_repo_remote;
-use crate::AppState;
+use crate::{set_active_repo_state, AppState};
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -58,8 +58,15 @@ pub(crate) struct SitePublishReport {
 }
 
 #[tauri::command]
-pub(crate) fn site_scan(repo_path: String) -> Result<SiteScanReport, String> {
-    gt_site::scan_repo(repo_path).map_err(|e| e.to_string())
+pub(crate) fn site_scan(
+    repo_path: String,
+    state: State<'_, AppState>,
+) -> Result<SiteScanReport, String> {
+    let report = gt_site::scan_repo(repo_path).map_err(|e| e.to_string())?;
+    if let Ok(repo) = GitRepo::open(&report.repo_path) {
+        let _ = set_active_repo_state(repo, &state);
+    }
+    Ok(report)
 }
 
 #[tauri::command]
@@ -116,11 +123,8 @@ pub(crate) fn site_publish_pages(
     )
     .map_err(|e| e.to_string())?;
 
-    let commit_identity = commit_identity_for_repo_remote(
-        &state,
-        &target_root.to_string_lossy(),
-        Some(&remote_name),
-    );
+    let commit_identity =
+        commit_identity_for_repo_remote(&state, &target_root.to_string_lossy(), Some(&remote_name));
     let git_report = commit_pages_git(PagesCommitGitOptions {
         target_local_path: target_root,
         branch,

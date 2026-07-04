@@ -1,4 +1,4 @@
-import { Boxes, FileCode, GitBranch, Database, Settings, Workflow } from "lucide-react";
+import { BookOpenCheck, Boxes, GitBranch, Database, Settings, Workflow } from "lucide-react";
 
 import type { PluginDescriptor } from "./types";
 import { SettingsPanel } from "./panels";
@@ -22,9 +22,9 @@ export const plugins: PluginDescriptor[] = [
   },
   {
     id: "site",
-    name: "站点",
-    description: "从本地仓库文档构建离线静态 HTML。",
-    icon: FileCode,
+    name: "文档发布",
+    description: "捕捉仓库文档,构建阅读页并发布到 Pages。",
+    icon: BookOpenCheck,
     panel: SitePanel,
   },
   {

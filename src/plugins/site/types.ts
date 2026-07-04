@@ -1,8 +1,21 @@
 export type SitePhase = "idle" | "scanning" | "ready" | "building" | "publishing" | "succeeded" | "failed";
 export type SitePathKind = "file" | "dir";
 export type CaptureViewMode = "tree" | "list";
+export type CaptureKindFilter = "all" | "dir" | "file";
+export type CaptureSelectionFilter = "all" | "selected" | "unselected";
+export type CaptureDefaultFilter = "all" | "default" | "custom";
+export type CaptureSortMode = "path" | "score-desc" | "markdown-desc";
 export type SiteTheme = "typora-light" | "typora-dark";
 export type PublishCandidateStatus = "ready" | "needs-local" | "not-recommended";
+
+export interface CaptureFilterState {
+  query: string;
+  kind: CaptureKindFilter;
+  selection: CaptureSelectionFilter;
+  defaultState: CaptureDefaultFilter;
+  minMarkdownCount: number;
+  sort: CaptureSortMode;
+}
 
 export interface WorkspaceInfo {
   active_repo: string | null;
@@ -102,6 +115,60 @@ export interface SiteActiveRepoState {
   updatedAt: number;
 }
 
+export interface SiteWorkspaceEnvVar {
+  id: string;
+  key: string;
+  value: string;
+  enabled: boolean;
+}
+
+/** 发布任务上的目标仓库与发布参数。是发布任务的字段，不再是独立存储实体。 */
+export interface SitePublishTarget {
+  targetRepoId: string;
+  targetRepoName: string;
+  targetRepoUrl: string;
+  targetLocalPath: string;
+  targetBranch: string;
+  publishDir: string;
+  remoteName: string;
+  credentialRef: string | null;
+  pagesUrl: string;
+  autoCommitMessage: string;
+}
+
+export interface SiteWorkspaceGroup {
+  id: string;
+  name: string;
+  sourceRepoPath: string;
+  /** 文档范围：本任务勾选参与构建的候选路径集合。任务自带此配置，不再依赖按仓库路径 hash 的独立 key。 */
+  documentScope: string[];
+  target: SitePublishTarget | null;
+  env: SiteWorkspaceEnvVar[];
+  /** 近期若干次执行 (构建/发布) 记录，最新的在前，仅保留有限条数 (见 SITE_RUN_HISTORY_LIMIT)。 */
+  runHistory: SiteRunRecord[];
+  updatedAt: number;
+}
+
+/** 单次构建或发布执行的摘要记录，用于「构建结果」工作台展示近期执行历史。 */
+export interface SiteRunRecord {
+  id: string;
+  kind: "build" | "publish";
+  status: "succeeded" | "failed";
+  message: string;
+  startedAt: number;
+  durationMs: number;
+  pageCount?: number;
+  assetCount?: number;
+  commit?: string | null;
+}
+
+export interface SiteWorkspaceConfigState {
+  version: 1;
+  activeGroupId: string | null;
+  groups: SiteWorkspaceGroup[];
+  updatedAt: number;
+}
+
 export interface CaptureTreeNode {
   name: string;
   path: string;
@@ -140,24 +207,6 @@ export interface PublishRepoCandidate {
   status: PublishCandidateStatus;
   reason: string;
   recommended: boolean;
-}
-
-export interface SitePublishTargetState {
-  version: 1;
-  id: string;
-  name: string;
-  sourceRepoPath: string;
-  targetRepoId: string;
-  targetRepoName: string;
-  targetRepoUrl: string;
-  targetLocalPath: string;
-  targetBranch: string;
-  publishDir: string;
-  remoteName: string;
-  credentialRef: string | null;
-  pagesUrl: string;
-  autoCommitMessage: string;
-  updatedAt: number;
 }
 
 export interface SitePublishDraft {

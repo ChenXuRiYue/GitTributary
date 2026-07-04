@@ -4,7 +4,7 @@
 //! 和凭证绑定(`gt-store` 的 `private.credentials`),`commands::git`
 //! 只做纯本地仓库操作。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde_json::json;
 use tauri::State;
@@ -182,6 +182,26 @@ fn push_remote_config_entries_for_repo(
     Ok(())
 }
 
+fn push_remote_config_entries_for_existing_repo(
+    entries: &mut Vec<RemoteConfigEntry>,
+    store: &Store,
+    seen_paths: &mut std::collections::HashSet<String>,
+    repo_path: &str,
+    purpose: &str,
+) -> Result<(), String> {
+    let repo_path = repo_path.trim();
+    if repo_path.is_empty() || !Path::new(repo_path).exists() {
+        return Ok(());
+    }
+    if !seen_paths.insert(repo_path.to_string()) {
+        return Ok(());
+    }
+    match push_remote_config_entries_for_repo(entries, store, repo_path, purpose) {
+        Ok(()) => Ok(()),
+        Err(_) => Ok(()),
+    }
+}
+
 /// 获取远程列表
 #[tauri::command]
 pub(crate) fn get_remotes(state: State<'_, AppState>) -> Result<Vec<RemoteInfo>, String> {
@@ -196,6 +216,17 @@ pub(crate) fn get_remotes(state: State<'_, AppState>) -> Result<Vec<RemoteInfo>,
 pub(crate) fn get_remote_configs(
     state: State<'_, AppState>,
 ) -> Result<Vec<RemoteConfigEntry>, String> {
+    collect_remote_configs(&state)
+}
+
+fn collect_remote_configs(state: &AppState) -> Result<Vec<RemoteConfigEntry>, String> {
+    collect_remote_configs_with_base_dir(state, store_base_dir())
+}
+
+fn collect_remote_configs_with_base_dir(
+    state: &AppState,
+    base_dir: PathBuf,
+) -> Result<Vec<RemoteConfigEntry>, String> {
     let active_workdir = {
         let lock = state.repo.lock().unwrap();
         lock.as_ref()
@@ -203,7 +234,29 @@ pub(crate) fn get_remote_configs(
     };
 
     let store = state.store.lock().unwrap();
+    let workspace_active_repo = store.active_repo();
     let mut entries: Vec<RemoteConfigEntry> = Vec::new();
+    let mut seen_paths = std::collections::HashSet::new();
+
+    if let Some(active_path) = active_workdir.as_deref() {
+        push_remote_config_entries_for_existing_repo(
+            &mut entries,
+            &store,
+            &mut seen_paths,
+            active_path,
+            "current_repo_remote",
+        )?;
+    }
+    if let Some(active_path) = workspace_active_repo.as_deref() {
+        push_remote_config_entries_for_existing_repo(
+            &mut entries,
+            &store,
+            &mut seen_paths,
+            active_path,
+            "current_repo_remote",
+        )?;
+    }
+
     let mut repo_paths = store.bound_repos();
     repo_paths.extend(
         store
@@ -221,40 +274,25 @@ pub(crate) fn get_remote_configs(
             }),
     );
 
-    let mut seen_paths = std::collections::HashSet::new();
     for repo_path in repo_paths {
-        let repo_path = repo_path.trim();
-        if repo_path.is_empty() || !seen_paths.insert(repo_path.to_string()) {
-            continue;
-        }
-        if Path::new(repo_path).exists() {
-            push_remote_config_entries_for_repo(
-                &mut entries,
-                &store,
-                repo_path,
-                "bound_repo_remote",
-            )?;
-        }
-    }
-
-    if let Some(active_path) = active_workdir.as_deref() {
-        if !seen_paths.contains(active_path) && Path::new(active_path).exists() {
-            push_remote_config_entries_for_repo(
-                &mut entries,
-                &store,
-                active_path,
-                "current_repo_remote",
-            )?;
-        }
+        push_remote_config_entries_for_existing_repo(
+            &mut entries,
+            &store,
+            &mut seen_paths,
+            &repo_path,
+            "bound_repo_remote",
+        )?;
     }
 
     let sync_config = {
-        let base_dir = store_base_dir();
         let engine = gt_store::SyncEngine::new(&base_dir);
-        engine.config().ok().flatten()
+        engine.config().ok().flatten().map(|config| {
+            let local_path = engine.config_repo_path(&config);
+            (config, local_path)
+        })
     };
 
-    if let Some(config) = sync_config {
+    if let Some((config, local_path)) = sync_config {
         if !entries.iter().any(|entry| {
             entry.url == config.url
                 && entry
@@ -264,11 +302,16 @@ pub(crate) fn get_remote_configs(
         }) {
             let (credential_mode, credential_ref) = config_repo_credential_summary(&store);
             let identity = default_commit_identity_config(&store);
+            let repo_path = if GitRepo::is_repo(&local_path) {
+                Some(local_path.to_string_lossy().to_string())
+            } else {
+                None
+            };
             entries.push(RemoteConfigEntry {
                 name: config_repo_remote_name(&config.url),
                 url: config.url,
                 push_url: None,
-                repo_path: None,
+                repo_path,
                 source: "gittributary_config".to_string(),
                 purpose: vec!["data_center_sync".to_string()],
                 credential_mode,
@@ -619,6 +662,104 @@ mod tests {
             remote_url_for(&repo, "origin").unwrap(),
             "https://github.com/a/b.git"
         );
+    }
+
+    #[test]
+    fn collect_remote_configs_includes_workspace_active_repo() {
+        let (dir, state) = temp_app_state();
+        let repo = init_repo_with_commit(dir.path());
+        repo.add_remote("origin", "https://github.com/a/b.git")
+            .unwrap();
+        {
+            let mut store = state.store.lock().unwrap();
+            store
+                .set_active_repo(&dir.path().display().to_string())
+                .unwrap();
+        }
+
+        let entries = collect_remote_configs(&state).unwrap();
+
+        let origin = entries
+            .iter()
+            .find(|entry| entry.name == "origin" && entry.url == "https://github.com/a/b.git")
+            .unwrap();
+        assert!(origin
+            .purpose
+            .iter()
+            .any(|purpose| purpose == "current_repo_remote"));
+    }
+
+    #[test]
+    fn collect_remote_configs_skips_non_git_workspace_active_repo() {
+        let (dir, state) = temp_app_state();
+        let non_git_path = dir.path().display().to_string();
+        {
+            let mut store = state.store.lock().unwrap();
+            store.set_active_repo(&non_git_path).unwrap();
+        }
+
+        let entries = collect_remote_configs(&state).unwrap();
+
+        assert!(!entries
+            .iter()
+            .any(|entry| entry.repo_path.as_deref() == Some(non_git_path.as_str())));
+    }
+
+    #[test]
+    fn collect_remote_configs_keeps_valid_repos_when_bound_repo_is_invalid() {
+        let (_store_dir, state) = temp_app_state();
+        let valid_dir = TempDir::new().unwrap();
+        let invalid_dir = TempDir::new().unwrap();
+        let repo = init_repo_with_commit(valid_dir.path());
+        repo.add_remote("origin", "https://github.com/a/b.git")
+            .unwrap();
+        {
+            let mut store = state.store.lock().unwrap();
+            store.bind_repo(&invalid_dir.path().display().to_string()).unwrap();
+            store.bind_repo(&valid_dir.path().display().to_string()).unwrap();
+        }
+
+        let entries = collect_remote_configs(&state).unwrap();
+
+        assert!(entries
+            .iter()
+            .any(|entry| entry.name == "origin" && entry.url == "https://github.com/a/b.git"));
+    }
+
+    #[test]
+    fn collect_remote_configs_includes_config_repo_local_path_when_checkout_exists() {
+        let (store_dir, state) = temp_app_state();
+        let checkout_dir = TempDir::new().unwrap();
+        let repo = init_repo_with_commit(checkout_dir.path());
+        repo.add_remote("origin", "https://github.com/a/config.git")
+            .unwrap();
+        let engine = gt_store::SyncEngine::new(store_dir.path());
+        engine
+            .set_config(&gt_store::SyncConfig {
+                url: "https://github.com/a/config.git".to_string(),
+                branch: "main".to_string(),
+                active_environment_id: None,
+                local_database_path: Some(checkout_dir.path().to_path_buf()),
+                auto_sync: true,
+                interval_seconds: 300,
+            })
+            .unwrap();
+
+        let entries = collect_remote_configs_with_base_dir(&state, store_dir.path().to_path_buf())
+            .unwrap();
+
+        let config = entries
+            .iter()
+            .find(|entry| entry.url == "https://github.com/a/config.git")
+            .unwrap();
+        assert_eq!(
+            config.repo_path.as_deref(),
+            Some(checkout_dir.path().to_string_lossy().as_ref())
+        );
+        assert!(config
+            .purpose
+            .iter()
+            .any(|purpose| purpose == "data_center_sync"));
     }
 
     // --- store persistence via helpers -------------------------------------

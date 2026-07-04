@@ -200,6 +200,62 @@ export function CaptureTree({
   );
 }
 
+export function CapturePreviewTree({ nodes }: { nodes: CaptureTreeNode[] }) {
+  return (
+    <div className="gt-thin-scroll overflow-x-auto py-1">
+      <div className="w-max min-w-full pb-2">
+        {nodes.map((node) => (
+          <CapturePreviewTreeRow key={node.path} node={node} depth={0} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CapturePreviewTreeRow({
+  node,
+  depth,
+}: {
+  node: CaptureTreeNode;
+  depth: number;
+}) {
+  const candidatePaths = collectNodeCandidates(node);
+  const markdownCount = candidatePaths.reduce((sum, candidate) => sum + candidate.markdownCount, 0);
+  const isDir = isDirectoryNode(node);
+  const Icon = isDir ? Folder : FileText;
+
+  return (
+    <div>
+      <div
+        className="group flex h-8 items-center gap-2 px-4 text-left transition-colors hover:bg-accent/30"
+        style={{ paddingLeft: `${16 + depth * 18}px` }}
+      >
+        <Icon className="size-4 shrink-0 text-muted-foreground" />
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="shrink-0 whitespace-nowrap gt-body-strong" title={node.path}>
+            {pathName(node.path)}
+          </span>
+          {node.candidate ? (
+            <CandidateMeta candidate={node.candidate} />
+          ) : (
+            <>
+              <Badge variant="secondary" className="h-5 shrink-0 px-1.5 gt-caption">
+                {candidatePaths.length} 项
+              </Badge>
+              <Badge variant="outline" className="h-5 shrink-0 px-1.5 gt-caption">
+                {markdownCount} md
+              </Badge>
+            </>
+          )}
+        </div>
+      </div>
+      {node.children.map((child) => (
+        <CapturePreviewTreeRow key={child.path} node={child} depth={depth + 1} />
+      ))}
+    </div>
+  );
+}
+
 function CaptureTreeRow({
   node,
   depth,

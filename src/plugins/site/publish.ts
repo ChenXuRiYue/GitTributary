@@ -1,10 +1,10 @@
-import { pathCollator, stableHash } from "./state";
+import { pathCollator } from "./state";
 import type {
   PublishCandidateStatus,
   PublishRepoCandidate,
   RemoteConfigEntry,
   SitePublishDraft,
-  SitePublishTargetState,
+  SitePublishTarget,
 } from "./types";
 
 const DEFAULT_BRANCH = "main";
@@ -66,14 +66,14 @@ export function publishCandidateStatus(
   if (repoPath && source && repoPath === source) {
     return {
       status: "not-recommended",
-      reason: "当前源仓库不建议作为 Pages 发布仓库",
+      reason: "当前源仓库不建议作为发布仓库",
       recommended: false,
     };
   }
   if (purposeHas(remote, "data_center_sync")) {
     return {
       status: "not-recommended",
-      reason: "数据中心同步仓库默认不用于静态发布",
+      reason: "数据中心同步仓库默认不用于文档发布",
       recommended: false,
     };
   }
@@ -86,7 +86,7 @@ export function publishCandidateStatus(
   }
   return {
     status: "ready",
-    reason: "可作为 Pages 发布仓库",
+    reason: "可作为发布仓库",
     recommended: true,
   };
 }
@@ -136,36 +136,27 @@ export function buildPublishCandidates(
     });
 }
 
+export function isPublishCandidateUsable(candidate: PublishRepoCandidate): boolean {
+  if (!candidate.repoPath) return false;
+  if (candidate.purpose.includes("data_center_sync")) return false;
+  return candidate.status === "ready" || candidate.status === "not-recommended";
+}
+
 export function defaultPublishDraft(candidate?: PublishRepoCandidate | null): SitePublishDraft {
   return {
     targetBranch: DEFAULT_BRANCH,
     publishDir: DEFAULT_PUBLISH_DIR,
     pagesUrl: candidate ? inferPagesUrl(candidate.url) : "",
-    autoCommitMessage: "deploy: 更新静态站点",
+    autoCommitMessage: "deploy: 更新文档站点",
   };
 }
 
-export function draftFromTarget(target: SitePublishTargetState | null): SitePublishDraft {
-  if (!target) return defaultPublishDraft(null);
-  return {
-    targetBranch: target.targetBranch || DEFAULT_BRANCH,
-    publishDir: target.publishDir || DEFAULT_PUBLISH_DIR,
-    pagesUrl: target.pagesUrl || "",
-    autoCommitMessage: target.autoCommitMessage || "deploy: 更新静态站点",
-  };
-}
-
+/** 根据选中的发布仓库候选与草稿参数，产出挂在发布任务上的目标配置。 */
 export function makePublishTarget(
-  sourceRepoPath: string,
   candidate: PublishRepoCandidate,
   draft: SitePublishDraft,
-): SitePublishTargetState {
-  const id = `pages.${stableHash(`${sourceRepoPath}|${candidate.id}`)}`;
+): SitePublishTarget {
   return {
-    version: 1,
-    id,
-    name: `${candidate.name} Pages`,
-    sourceRepoPath,
     targetRepoId: candidate.id,
     targetRepoName: candidate.name,
     targetRepoUrl: candidate.url,
@@ -175,8 +166,7 @@ export function makePublishTarget(
     remoteName: candidate.remoteName || "origin",
     credentialRef: candidate.credentialRef,
     pagesUrl: draft.pagesUrl.trim(),
-    autoCommitMessage: draft.autoCommitMessage.trim() || "deploy: 更新静态站点",
-    updatedAt: Date.now(),
+    autoCommitMessage: draft.autoCommitMessage.trim() || "deploy: 更新文档站点",
   };
 }
 
