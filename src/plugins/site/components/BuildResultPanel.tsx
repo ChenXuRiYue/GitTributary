@@ -1,6 +1,5 @@
-import {
-  Badge,
-} from "@/components/ui/badge";
+import { useEffect, useMemo, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 import {
   CheckCircle2,
   ExternalLink,
@@ -14,6 +13,7 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
 import { credentialLabel } from "../publish";
 import { formatDuration, shortPath } from "../state";
@@ -21,7 +21,7 @@ import type { SiteBuildReport, SitePublishReport, SiteRunRecord, SiteWorkspaceGr
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex min-w-0 items-center justify-between gap-2 rounded-md bg-muted/60 px-2 py-1.5">
+    <div className="flex min-w-0 items-center justify-between gap-3 border-b border-border/50 py-1.5 last:border-b-0">
       <span className="shrink-0 text-muted-foreground">{label}</span>
       <span className="truncate font-medium" title={value}>{value}</span>
     </div>
@@ -37,7 +37,7 @@ function TaskSummary({
 }) {
   if (!task) {
     return (
-      <section className="rounded-lg border border-dashed bg-card px-5 py-6 text-center">
+      <section className="border-b px-5 py-8 text-center">
         <Settings2 className="mx-auto size-7 text-muted-foreground" />
         <div className="gt-body-strong mt-2">还没有可执行的发布任务</div>
         <p className="gt-caption mt-1 text-muted-foreground">先去「发布任务」创建并配置一个任务。</p>
@@ -52,8 +52,8 @@ function TaskSummary({
   const target = task.target;
 
   return (
-    <section className="rounded-lg border bg-card">
-      <div className="flex items-center justify-between gap-4 border-b px-5 py-3">
+    <section className="border-b px-5 py-4">
+      <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="gt-title-panel truncate">{task.name || "未命名任务"}</div>
           <p className="gt-caption mt-0.5 truncate text-muted-foreground">
@@ -65,15 +65,15 @@ function TaskSummary({
           编辑配置
         </Button>
       </div>
-      <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-2">
-        <div className="flex min-w-0 items-start gap-2 rounded-md bg-muted/40 px-3 py-2">
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="flex min-w-0 items-start gap-2 rounded-md bg-muted/35 px-3 py-2">
           <GitBranch className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
             <div className="gt-caption text-muted-foreground">源仓库</div>
             <div className="gt-body-strong truncate">{task.sourceRepoPath ? shortPath(task.sourceRepoPath) : "未配置"}</div>
           </div>
         </div>
-        <div className="flex min-w-0 items-start gap-2 rounded-md bg-muted/40 px-3 py-2">
+        <div className="flex min-w-0 items-start gap-2 rounded-md bg-muted/35 px-3 py-2">
           <Globe2 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
             <div className="gt-caption text-muted-foreground">发布仓库</div>
@@ -110,30 +110,30 @@ function ReadinessHint({
     { label: "文档范围", ready: hasDocumentScope, onFix: onEditScope, fixLabel: "去勾选" },
     { label: "发布仓库", ready: hasPublishTarget, onFix: onEditTask, fixLabel: "去配置" },
   ];
-  const allReady = items.every((item) => item.ready);
-  if (allReady) return null;
+  const missing = items.filter((item) => !item.ready);
+  if (missing.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+    <section className="border-b border-amber-500/20 bg-amber-500/10 px-5 py-3">
       <div className="flex items-center gap-2">
         <TriangleAlert className="size-4 shrink-0 text-amber-600" />
         <div className="gt-body-strong">还差一些配置才能执行</div>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {items.filter((item) => !item.ready).map((item) => (
+      <div className="mt-2 flex flex-wrap gap-2">
+        {missing.map((item) => (
           <Button key={item.label} size="sm" variant="outline" onClick={item.onFix}>
             {item.label} · {item.fixLabel}
           </Button>
         ))}
       </div>
-    </div>
+    </section>
   );
 }
 
-function BuildResultSummary({ report }: { report: SiteBuildReport }) {
+function BuildOutputDetails({ report }: { report: SiteBuildReport }) {
   return (
-    <div className="rounded-lg border bg-background p-3">
-      <div className="mt-0 grid grid-cols-1 gap-2 text-[12px] sm:grid-cols-3">
+    <div className="rounded-md border bg-background p-3">
+      <div className="grid grid-cols-1 gap-x-4 text-[12px] sm:grid-cols-3">
         <Metric label="页面" value={String(report.pageCount)} />
         <Metric label="资源" value={String(report.assetCount)} />
         <Metric label="耗时" value={formatDuration(report.durationMs)} />
@@ -159,10 +159,10 @@ function BuildResultSummary({ report }: { report: SiteBuildReport }) {
   );
 }
 
-function PublishResultSummary({ report }: { report: SitePublishReport }) {
+function PublishDetails({ report }: { report: SitePublishReport }) {
   const shortCommit = report.commit?.slice(0, 7) ?? "无新提交";
   return (
-    <div className="rounded-lg border bg-background p-3">
+    <div className="rounded-md border bg-background p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <CheckCircle2 className="size-4 shrink-0 text-primary" />
@@ -172,7 +172,7 @@ function PublishResultSummary({ report }: { report: SitePublishReport }) {
         </div>
         <Badge variant="secondary" className="h-5 px-1.5 gt-caption">{shortCommit}</Badge>
       </div>
-      <div className="mt-3 grid gap-2 text-[12px] sm:grid-cols-2">
+      <div className="mt-3 grid gap-x-4 text-[12px] sm:grid-cols-2">
         <Metric label="分支" value={`${report.remoteName}/${report.branch}`} />
         <Metric label="Pages 源" value={`${report.branch} ${report.publishDir === "/" ? "/root" : `/${report.publishDir}`}`} />
         <Metric label="复制" value={`${report.copiedFileCount} 文件`} />
@@ -187,44 +187,106 @@ function PublishResultSummary({ report }: { report: SitePublishReport }) {
   );
 }
 
-function RunHistoryList({ history }: { history: SiteRunRecord[] }) {
-  if (history.length === 0) return null;
+function ExecutionRecordDetails({ record }: { record: SiteRunRecord }) {
+  const ok = record.status === "succeeded";
+  const kindLabel = record.kind === "build" ? "构建" : "发布";
   return (
-    <section className="rounded-lg border bg-card">
-      <div className="border-b px-5 py-4">
-        <div className="gt-title-panel">近期执行</div>
-        <p className="gt-caption mt-1 text-muted-foreground">最近 {history.length} 次构建 / 发布记录，最新的在最前。</p>
+    <section className="border-b px-5 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2">
+          {ok ? (
+            <CheckCircle2 className="size-4 shrink-0 text-primary" />
+          ) : (
+            <TriangleAlert className="size-4 shrink-0 text-destructive" />
+          )}
+          <div className="truncate gt-title-panel">{kindLabel}记录</div>
+        </div>
+        <Badge variant={ok ? "secondary" : "destructive"} className="h-5 px-1.5 gt-caption">
+          {ok ? "成功" : "失败"}
+        </Badge>
       </div>
-      <ul className="divide-y">
-        {history.map((record) => {
-          const ok = record.status === "succeeded";
-          const kindLabel = record.kind === "build" ? "构建" : "发布";
-          return (
-            <li key={record.id} className="flex items-start gap-3 px-5 py-3">
-              {ok ? (
-                <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" />
-              ) : (
-                <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant={ok ? "secondary" : "destructive"} className="h-5 px-1.5 gt-caption">{kindLabel}</Badge>
-                  <span className="gt-caption text-muted-foreground">{new Date(record.startedAt).toLocaleString()}</span>
-                  <span className="gt-caption text-muted-foreground">{formatDuration(record.durationMs)}</span>
-                  {typeof record.pageCount === "number" && (
-                    <span className="gt-caption text-muted-foreground">{record.pageCount} 页面</span>
-                  )}
-                  {record.commit && (
-                    <Badge variant="outline" className="h-5 px-1.5 gt-caption font-mono">{record.commit.slice(0, 7)}</Badge>
-                  )}
-                </div>
-                <p className="gt-caption mt-1 truncate text-muted-foreground" title={record.message}>{record.message}</p>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="mt-3 grid gap-x-4 text-[12px] sm:grid-cols-2">
+        <Metric label="开始时间" value={new Date(record.startedAt).toLocaleString()} />
+        <Metric label="耗时" value={formatDuration(record.durationMs)} />
+        <Metric label="类型" value={kindLabel} />
+        {typeof record.pageCount === "number" && <Metric label="页面" value={String(record.pageCount)} />}
+        {typeof record.assetCount === "number" && <Metric label="资源" value={String(record.assetCount)} />}
+        {record.commit && <Metric label="提交" value={record.commit.slice(0, 7)} />}
+      </div>
+      <p className="gt-caption mt-3 text-muted-foreground" title={record.message}>{record.message}</p>
     </section>
+  );
+}
+
+function ExecutionHistoryRail({
+  history,
+  selectedId,
+  onSelect,
+}: {
+  history: SiteRunRecord[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <aside className="flex min-w-0 flex-col border-b bg-sidebar/70 lg:border-b-0 lg:border-r">
+      <div className="shrink-0 border-b px-5 py-3">
+        <div className="flex items-center justify-between gap-3">
+          <div className="gt-title-panel">执行历史</div>
+          <Badge variant="outline" className="h-5 px-1.5 gt-caption">{history.length}</Badge>
+        </div>
+        <p className="gt-caption mt-1 text-muted-foreground">构建 / 发布记录，最新在最前。</p>
+      </div>
+      <div className="gt-thin-scroll min-h-0 flex-1 overflow-auto">
+        {history.length === 0 ? (
+          <div className="flex min-h-72 flex-col items-center justify-center gap-2 px-5 py-8 text-center">
+            <CheckCircle2 className="size-8 text-muted-foreground" />
+            <div className="gt-body-strong">还没有执行历史</div>
+            <p className="gt-caption max-w-xs text-muted-foreground">执行构建或发布后，记录会出现在这里。</p>
+          </div>
+        ) : (
+          <ul className="divide-y">
+            {history.map((record) => {
+              const ok = record.status === "succeeded";
+              const selected = record.id === selectedId;
+              const kindLabel = record.kind === "build" ? "构建" : "发布";
+              return (
+                <li key={record.id}>
+                  <button
+                    type="button"
+                    className={cn(
+                      "flex w-full min-w-0 items-start gap-3 px-5 py-3 text-left transition-colors",
+                      selected ? "bg-background text-foreground" : "hover:bg-background/70",
+                    )}
+                    onClick={() => onSelect(record.id)}
+                  >
+                    {ok ? (
+                      <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" />
+                    ) : (
+                      <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
+                    )}
+                    <span className="min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="gt-body-strong">{kindLabel}</span>
+                        <span className="gt-caption text-muted-foreground">{formatDuration(record.durationMs)}</span>
+                        {record.commit && (
+                          <span className="gt-caption font-mono text-muted-foreground">{record.commit.slice(0, 7)}</span>
+                        )}
+                      </span>
+                      <span className="gt-caption mt-1 block truncate text-muted-foreground" title={record.message}>
+                        {record.message}
+                      </span>
+                      <span className="gt-caption mt-1 block text-muted-foreground">
+                        {new Date(record.startedAt).toLocaleString()}
+                      </span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </aside>
   );
 }
 
@@ -261,86 +323,117 @@ export function BuildResultPanel({
   onEditTask: () => void;
   onEditScope: () => void;
 }) {
+  const history = useMemo(() => task?.runHistory ?? [], [task?.runHistory]);
+  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(history[0]?.id ?? null);
+
+  useEffect(() => {
+    if (history.length === 0) {
+      setSelectedRecordId(null);
+      return;
+    }
+    if (!selectedRecordId || !history.some((record) => record.id === selectedRecordId)) {
+      setSelectedRecordId(history[0].id);
+    }
+  }, [history, selectedRecordId]);
+
+  const selectedRecord = history.find((record) => record.id === selectedRecordId) ?? null;
   const hasPublishTarget = Boolean(task?.target);
+  const hasCurrentDetails = Boolean(buildReport || publishReport);
 
   return (
-    <div className="flex flex-col gap-4">
-      <TaskSummary task={task} onEditTask={onEditTask} />
-
-      {task && (
-        <ReadinessHint
-          hasSourceRepo={hasSourceRepo}
-          hasDocumentScope={hasDocumentScope}
-          hasPublishTarget={hasPublishTarget}
-          onEditTask={onEditTask}
-          onEditScope={onEditScope}
+    <section className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-background">
+      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
+        <ExecutionHistoryRail
+          history={history}
+          selectedId={selectedRecordId}
+          onSelect={setSelectedRecordId}
         />
-      )}
 
-      {task && (
-        <section className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-card px-5 py-4">
-          <div>
-            <div className="gt-body-strong">执行</div>
-            <p className="gt-caption text-muted-foreground">构建仅生成静态站点;发布会构建后同步、提交并推送到发布仓库。</p>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <Button variant="outline" onClick={onBuild} disabled={!canBuild}>
-              {isBuilding ? <Loader2 className="animate-spin" /> : <Play />}
-              构建
-            </Button>
-            <Button onClick={onPublish} disabled={!canPublish}>
-              {isPublishing ? <Loader2 className="animate-spin" /> : <Play />}
-              发布
-            </Button>
-          </div>
-        </section>
-      )}
-
-      {buildReport ? (
-        <section className="rounded-lg border bg-card">
-          <div className="flex items-center justify-between gap-4 border-b px-5 py-4">
-            <div>
-              <div className="gt-title-panel">构建结果</div>
-              <p className="gt-caption mt-1 text-muted-foreground">
-                {buildReport.pageCount} 个页面 · {buildReport.assetCount} 个资源 · {formatDuration(buildReport.durationMs)}
-              </p>
+        <section className="flex min-w-0 flex-col">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b bg-muted/10 px-5 py-3">
+            <div className="min-w-0">
+              <div className="gt-title-panel">执行详情</div>
+              <p className="gt-caption mt-0.5 truncate text-muted-foreground">配置、动作和最近一次输出。</p>
             </div>
-            <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={onRevealOutput}>
-                <FolderOpen /> 输出目录
-              </Button>
-              <Button size="sm" onClick={onOpenIndex}>
-                <ExternalLink /> 打开站点
-              </Button>
-            </div>
+            {task && (
+              <div className="flex shrink-0 gap-2">
+                <Button variant="outline" size="sm" onClick={onBuild} disabled={!canBuild}>
+                  {isBuilding ? <Loader2 className="animate-spin" /> : <Play />}
+                  构建
+                </Button>
+                <Button size="sm" onClick={onPublish} disabled={!canPublish}>
+                  {isPublishing ? <Loader2 className="animate-spin" /> : <Play />}
+                  发布
+                </Button>
+              </div>
+            )}
           </div>
-          <div className="p-5">
-            <BuildResultSummary report={buildReport} />
-          </div>
-        </section>
-      ) : (
-        <section className="flex min-h-40 flex-col items-center justify-center rounded-lg border border-dashed bg-card px-6 py-8 text-center">
-          <CheckCircle2 className="size-7 text-muted-foreground" />
-          <div className="gt-body-strong mt-2">还没有构建结果</div>
-          <p className="gt-caption mt-1 max-w-sm text-muted-foreground">
-            点击上方「构建」或「发布」后,这里会显示输出目录、链接检查和提示信息。
-          </p>
-        </section>
-      )}
 
-      {publishReport && (
-        <section className="rounded-lg border bg-card">
-          <div className="border-b px-5 py-4">
-            <div className="gt-title-panel">发布结果</div>
-            <p className="gt-caption mt-1 text-muted-foreground">最近一次发布到发布仓库的记录。</p>
-          </div>
-          <div className="p-5">
-            <PublishResultSummary report={publishReport} />
+          <div className="gt-thin-scroll min-h-0 flex-1 overflow-auto">
+            <TaskSummary task={task} onEditTask={onEditTask} />
+
+            {task && (
+              <ReadinessHint
+                hasSourceRepo={hasSourceRepo}
+                hasDocumentScope={hasDocumentScope}
+                hasPublishTarget={hasPublishTarget}
+                onEditTask={onEditTask}
+                onEditScope={onEditScope}
+              />
+            )}
+
+            {selectedRecord && <ExecutionRecordDetails record={selectedRecord} />}
+
+            {hasCurrentDetails ? (
+              <section className="px-5 py-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="gt-title-panel">最近输出</div>
+                    <p className="gt-caption mt-0.5 truncate text-muted-foreground">
+                      构建生成静态站点；发布会构建后同步、提交并推送到发布仓库。
+                    </p>
+                  </div>
+                  {buildReport && (
+                    <div className="flex shrink-0 gap-2">
+                      <Button variant="outline" size="sm" onClick={onRevealOutput}>
+                        <FolderOpen /> 输出目录
+                      </Button>
+                      <Button size="sm" onClick={onOpenIndex}>
+                        <ExternalLink /> 打开站点
+                      </Button>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                  {buildReport && (
+                    <div className="min-w-0">
+                      <div className="gt-body-strong mb-2">站点输出</div>
+                      <BuildOutputDetails report={buildReport} />
+                    </div>
+                  )}
+                  {publishReport && (
+                    <div className="min-w-0">
+                      <div className="gt-body-strong mb-2">发布详情</div>
+                      <PublishDetails report={publishReport} />
+                    </div>
+                  )}
+                </div>
+              </section>
+            ) : (
+              !selectedRecord && (
+                <section className="flex min-h-72 flex-col items-center justify-center px-6 py-8 text-center">
+                  <CheckCircle2 className="size-8 text-muted-foreground" />
+                  <div className="gt-body-strong mt-2">还没有执行详情</div>
+                  <p className="gt-caption mt-1 max-w-sm text-muted-foreground">
+                    点击「构建」或「发布」后，这里会显示输出目录、链接检查、提交和推送信息。
+                  </p>
+                </section>
+              )
+            )}
           </div>
         </section>
-      )}
-
-      {task && <RunHistoryList history={task.runHistory} />}
-    </div>
+      </div>
+    </section>
   );
 }

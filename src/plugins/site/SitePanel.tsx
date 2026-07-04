@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BookOpenCheck,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -14,6 +13,7 @@ import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 
 import { Button } from "@/components/ui/button";
 import { IconNav, type NavItem } from "@/components/IconNav";
+import { DomainTrail, type DomainTrailItem } from "@/components/DomainTrail";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
@@ -81,7 +81,7 @@ const SITE_VIEW_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const siteNavItems: NavItem[] = [
   { id: "workspace", name: "发布任务", icon: Settings2 },
   { id: "capture", name: "文档范围", icon: FolderTree },
-  { id: "result", name: "构建结果", icon: CheckCircle2 },
+  { id: "result", name: "发布执行", icon: CheckCircle2 },
 ];
 
 const DEFAULT_CAPTURE_FILTERS: CaptureFilterState = {
@@ -494,7 +494,6 @@ export function SitePanel() {
       void persistActiveRepo(report.repoPath);
       void loadRemoteConfigs();
       setPhase("ready");
-      setMessage(`扫描到 ${report.markdownCount} 个 Markdown 文件`);
     } catch (err) {
       setPhase("failed");
       setError(String(err));
@@ -847,7 +846,7 @@ export function SitePanel() {
     }
   };
 
-  const createWorkspaceGroup = () => {
+  const createWorkspaceGroup = (activate = false) => {
     const firstConfiguredRepo = remoteConfigs.find((remote) => remote.repo_path?.trim())?.repo_path?.trim() ?? "";
     const sourcePath = repoPath.trim() && (
       remoteConfigs.some((remote) => remote.repo_path === repoPath)
@@ -868,8 +867,9 @@ export function SitePanel() {
       ? Array.from(selectedPaths)
       : [];
     const nextGroup = makeWorkspaceGroup(sourcePath, target, undefined, initialScope);
-    applyWorkspaceGroups([...workspaceGroups, nextGroup], nextGroup.id);
-    if (cleanSourcePath && cleanSourcePath !== repoPath.trim()) {
+    const nextActiveId = activate || !activeWorkspaceGroupId ? nextGroup.id : activeWorkspaceGroupId;
+    applyWorkspaceGroups([...workspaceGroups, nextGroup], nextActiveId);
+    if (nextActiveId === nextGroup.id && cleanSourcePath && cleanSourcePath !== repoPath.trim()) {
       setRepoPath(cleanSourcePath);
       setSiteTitle(defaultTitleFromRepo(cleanSourcePath));
       void persistActiveRepo(cleanSourcePath);
@@ -877,6 +877,7 @@ export function SitePanel() {
     }
     setMessage(`已新建发布任务: ${nextGroup.name}`);
     setError(null);
+    return nextGroup.id;
   };
 
   const deleteWorkspaceGroup = (id: string) => {
@@ -1040,127 +1041,172 @@ export function SitePanel() {
     }
   })();
 
+  const useFullCanvas = activeViewId === "workspace" || activeViewId === "capture" || activeViewId === "result";
+  const activeDomainView = siteNavItems.find((item) => item.id === activeViewId) ?? siteNavItems[0];
+  const domainTrailItems: DomainTrailItem[] = [
+    { id: "site", label: "文档发布" },
+    {
+      id: activeDomainView.id,
+      label: activeDomainView.name,
+    },
+  ];
+  const configuredWorkspaceCount = workspaceGroups.filter((group) => (
+    Boolean(group.sourceRepoPath.trim()) && Boolean(group.target)
+  )).length;
+  const primaryDomainStats = `任务:${workspaceGroups.length} 已配:${configuredWorkspaceCount}`;
+  const secondaryDomainStats = (() => {
+    switch (activeViewId) {
+      case "workspace":
+        return `已配:${configuredWorkspaceCount}/${workspaceGroups.length}`;
+      case "capture":
+        return `候选:${rawCaptureList.length} 已选:${selectedCount} md:${selectedMarkdownCount}`;
+      case "result":
+        if (publishReport) return `页面:${publishReport.build.pageCount} 变更:${publishReport.changedCount}`;
+        if (buildReport) return `页面:${buildReport.pageCount} 资源:${buildReport.assetCount}`;
+        return `记录:${activeWorkspaceGroup?.runHistory.length ?? 0}`;
+      default:
+        return "-";
+    }
+  })();
+  const headerStats = [secondaryDomainStats, primaryDomainStats];
+
+  const statusBanner = (message || error) ? (
+    <div className={cn(
+      "flex items-start gap-3 border-b px-5 py-3",
+      error ? "border-destructive/20 bg-destructive/5 text-destructive" : "border-primary/15 bg-primary/5",
+    )}>
+      {error ? <TriangleAlert className="mt-0.5 size-4 shrink-0" /> : <CheckCircle2 className="text-primary mt-0.5 size-4 shrink-0" />}
+      <div className="gt-body">{error || message}</div>
+    </div>
+  ) : null;
+
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <header className="border-border flex shrink-0 items-center gap-2 border-b px-7 py-3">
-        <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-          <BookOpenCheck className="size-[18px]" />
-        </div>
-        <h2 className="gt-title-app shrink-0">文档发布</h2>
-        <span className="shrink-0 text-muted-foreground">·</span>
-        <div ref={workspaceMenuRef} className="relative min-w-0">
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            className="h-8 max-w-[16rem] justify-between gap-2 px-2"
-            aria-haspopup="menu"
-            aria-expanded={workspaceMenuOpen}
-            onClick={() => setWorkspaceMenuOpen((open) => !open)}
-            title={workspaceLabel}
-          >
-            <span className="min-w-0 truncate gt-body-strong">{workspaceLabel}</span>
-            <ChevronDown className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", workspaceMenuOpen && "rotate-180")} />
-          </Button>
-
-          {workspaceMenuOpen && (
-            <div
-              role="menu"
-              className="absolute left-0 top-[calc(100%+0.5rem)] z-30 w-72 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-lg sm:w-80"
+      <header className="border-border flex shrink-0 items-center gap-4 border-b px-5 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <DomainTrail items={domainTrailItems} />
+          <span className="shrink-0 text-muted-foreground/60 gt-body">/</span>
+          <div ref={workspaceMenuRef} className="relative min-w-0 shrink">
+            <button
+              type="button"
+              className="flex h-7 max-w-[16rem] min-w-0 items-center gap-1.5 rounded px-1.5 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              aria-label={`切换发布任务: ${workspaceLabel}`}
+              aria-haspopup="menu"
+              aria-expanded={workspaceMenuOpen}
+              onClick={() => setWorkspaceMenuOpen((open) => !open)}
+              title={workspaceLabel}
             >
-              <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
-                <div className="min-w-0">
-                  <div className="gt-body-strong truncate">{workspaceLabel}</div>
-                  <div className="gt-caption truncate text-muted-foreground">
-                    {workspacePathLabel ? shortPath(workspacePathLabel) : "未绑定源仓库"}
+              <span className="min-w-0 truncate gt-body">{workspaceLabel}</span>
+              <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", workspaceMenuOpen && "rotate-180")} />
+            </button>
+
+            {workspaceMenuOpen && (
+              <div
+                role="menu"
+                className="absolute left-0 top-[calc(100%+0.5rem)] z-30 w-72 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-lg sm:w-80"
+              >
+                <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="gt-body-strong truncate">{workspaceLabel}</div>
+                    <div className="gt-caption truncate text-muted-foreground">
+                      {workspacePathLabel ? shortPath(workspacePathLabel) : "未绑定源仓库"}
+                    </div>
                   </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2"
+                    onClick={() => {
+                      setWorkspaceMenuOpen(false);
+                      selectSiteView("workspace");
+                    }}
+                  >
+                    <Settings2 className="size-3.5" />
+                    设置
+                  </Button>
                 </div>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 px-2"
-                  onClick={() => {
-                    setWorkspaceMenuOpen(false);
-                    selectSiteView("workspace");
-                  }}
-                >
-                  <Settings2 className="size-3.5" />
-                  设置
-                </Button>
-              </div>
 
-              <div className="max-h-72 overflow-y-auto p-1">
-                {workspaceGroups.length === 0 ? (
-                  <div className="px-3 py-6 text-center">
-                    <Settings2 className="mx-auto size-6 text-muted-foreground" />
-                    <div className="gt-body-strong mt-2">暂无发布任务</div>
-                    <p className="gt-caption mt-1 text-muted-foreground">先新建一个发布任务。</p>
-                  </div>
-                ) : (
-                  workspaceGroups.map((group) => {
-                    const isCurrent = group.id === currentWorkspaceGroupId;
-                    const sourcePath = group.sourceRepoPath.trim();
-                    return (
-                      <button
-                        key={group.id}
-                        type="button"
-                        role="menuitem"
-                        className={cn(
-                          "flex min-h-14 w-full min-w-0 items-center gap-3 rounded-md px-3 py-2 text-left transition-colors",
-                          isCurrent ? "bg-primary/8 text-foreground" : "hover:bg-accent hover:text-accent-foreground",
-                        )}
-                        onClick={() => selectWorkspaceFromMenu(group)}
-                      >
-                        <span className={cn(
-                          "flex size-6 shrink-0 items-center justify-center rounded-md border",
-                          isCurrent ? "border-primary/30 bg-primary/10 text-primary" : "bg-background text-muted-foreground",
-                        )}>
-                          {isCurrent ? <Check className="size-3.5" /> : <FolderTree className="size-3.5" />}
-                        </span>
-                        <span className="min-w-0 flex-1">
-                          <span className="gt-body-strong block truncate">{group.name || "未命名任务"}</span>
-                          <span className="gt-caption block truncate text-muted-foreground">
-                            {sourcePath ? shortPath(sourcePath) : "未绑定源仓库"}
+                <div className="max-h-72 overflow-y-auto p-1">
+                  {workspaceGroups.length === 0 ? (
+                    <div className="px-3 py-6 text-center">
+                      <Settings2 className="mx-auto size-6 text-muted-foreground" />
+                      <div className="gt-body-strong mt-2">暂无发布任务</div>
+                      <p className="gt-caption mt-1 text-muted-foreground">先新建一个发布任务。</p>
+                    </div>
+                  ) : (
+                    workspaceGroups.map((group) => {
+                      const isCurrent = group.id === currentWorkspaceGroupId;
+                      const sourcePath = group.sourceRepoPath.trim();
+                      return (
+                        <button
+                          key={group.id}
+                          type="button"
+                          role="menuitem"
+                          className={cn(
+                            "flex min-h-14 w-full min-w-0 items-center gap-3 rounded-md px-3 py-2 text-left transition-colors",
+                            isCurrent ? "bg-primary/8 text-foreground" : "hover:bg-accent hover:text-accent-foreground",
+                          )}
+                          onClick={() => selectWorkspaceFromMenu(group)}
+                        >
+                          <span className={cn(
+                            "flex size-6 shrink-0 items-center justify-center rounded-md border",
+                            isCurrent ? "border-primary/30 bg-primary/10 text-primary" : "bg-background text-muted-foreground",
+                          )}>
+                            {isCurrent ? <Check className="size-3.5" /> : <FolderTree className="size-3.5" />}
                           </span>
-                        </span>
-                      </button>
-                    );
-                  })
-                )}
-              </div>
+                          <span className="min-w-0 flex-1">
+                            <span className="gt-body-strong block truncate">{group.name || "未命名任务"}</span>
+                            <span className="gt-caption block truncate text-muted-foreground">
+                              {sourcePath ? shortPath(sourcePath) : "未绑定源仓库"}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
 
-              <div className="flex items-center justify-between gap-2 border-t bg-muted/20 px-2 py-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="h-8 px-2"
-                  onClick={() => {
-                    setWorkspaceMenuOpen(false);
-                    createWorkspaceGroup();
-                    selectSiteView("workspace");
-                  }}
-                >
-                  <Plus className="size-3.5" />
-                  新建任务
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant={activeViewId === "workspace" ? "secondary" : "outline"}
-                  className="h-8 px-2"
-                  onClick={() => {
-                    setWorkspaceMenuOpen(false);
-                    selectSiteView("workspace");
-                  }}
-                >
-                  <Settings2 className="size-3.5" />
-                  任务设置
-                </Button>
+                <div className="flex items-center justify-between gap-2 border-t bg-muted/20 px-2 py-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2"
+                    onClick={() => {
+                      setWorkspaceMenuOpen(false);
+                      createWorkspaceGroup(true);
+                      selectSiteView("workspace");
+                    }}
+                  >
+                    <Plus className="size-3.5" />
+                    新建任务
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={activeViewId === "workspace" ? "secondary" : "outline"}
+                    className="h-8 px-2"
+                    onClick={() => {
+                      setWorkspaceMenuOpen(false);
+                      selectSiteView("workspace");
+                    }}
+                  >
+                    <Settings2 className="size-3.5" />
+                    任务设置
+                  </Button>
+                </div>
               </div>
+            )}
+          </div>
+        </div>
+        <div className="ml-auto hidden shrink-0 items-center gap-2 text-right md:flex">
+          {headerStats.map((stat, index) => (
+            <div key={`${index}.${stat}`} className="flex items-center gap-2">
+              {index > 0 && <span className="text-muted-foreground/40 gt-caption">/</span>}
+              <span className="text-foreground gt-caption font-medium">{stat}</span>
             </div>
-          )}
+          ))}
         </div>
       </header>
 
@@ -1176,21 +1222,22 @@ export function SitePanel() {
             moreStateKey={SITE_MORE_STATE_KEY}
           />
         </div>
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <ScrollArea className="w-full flex-1">
-            <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-7 py-6">
-              {(message || error) && (
-                <div className={cn(
-                  "flex items-start gap-3 rounded-lg border p-4",
-                  error ? "border-destructive/30 bg-destructive/5 text-destructive" : "border-primary/20 bg-primary/5",
-                )}>
-                  {error ? <TriangleAlert className="mt-0.5 size-4 shrink-0" /> : <CheckCircle2 className="text-primary mt-0.5 size-4 shrink-0" />}
-                  <div className="gt-body">{error || message}</div>
-                </div>
-              )}
-              {activePanel}
-            </div>
-          </ScrollArea>
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {useFullCanvas ? (
+            <>
+              {statusBanner}
+              <div className="min-h-0 flex-1 overflow-hidden">
+                {activePanel}
+              </div>
+            </>
+          ) : (
+            <ScrollArea className="w-full flex-1">
+              <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-7 py-6">
+                {statusBanner}
+                {activePanel}
+              </div>
+            </ScrollArea>
+          )}
         </main>
       </div>
     </div>

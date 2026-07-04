@@ -149,7 +149,7 @@ export interface SiteWorkspaceGroup {
   updatedAt: number;
 }
 
-/** 单次构建或发布执行的摘要记录，用于「构建结果」工作台展示近期执行历史。 */
+/** 单次构建或发布执行的摘要记录，用于「发布执行」工作台展示近期执行历史。 */
 export interface SiteRunRecord {
   id: string;
   kind: "build" | "publish";
