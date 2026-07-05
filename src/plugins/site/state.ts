@@ -166,17 +166,33 @@ function parseRunRecord(value: unknown): SiteRunRecord | null {
   const record = value as Partial<SiteRunRecord>;
   if (typeof record.id !== "string" || !record.id.trim()) return null;
   if (record.kind !== "build" && record.kind !== "publish") return null;
-  if (record.status !== "succeeded" && record.status !== "failed") return null;
+  if (
+    record.status !== "queued"
+    && record.status !== "running"
+    && record.status !== "succeeded"
+    && record.status !== "failed"
+  ) return null;
   if (typeof record.message !== "string") return null;
   if (typeof record.startedAt !== "number" || !Number.isFinite(record.startedAt)) return null;
-  if (typeof record.durationMs !== "number" || !Number.isFinite(record.durationMs)) return null;
+  const durationMs = typeof record.durationMs === "number" && Number.isFinite(record.durationMs)
+    ? record.durationMs
+    : Math.max(0, Date.now() - record.startedAt);
+  const finishedAt = typeof record.finishedAt === "number" && Number.isFinite(record.finishedAt)
+    ? record.finishedAt
+    : undefined;
+  const terminal = record.status === "succeeded" || record.status === "failed";
+  const status = terminal ? record.status : "failed";
+  const message = terminal
+    ? record.message
+    : `${record.message || "任务运行中"}。上次执行未完成，可能已被应用退出中断。`;
   return {
     id: record.id,
     kind: record.kind,
-    status: record.status,
-    message: record.message,
+    status,
+    message,
     startedAt: record.startedAt,
-    durationMs: record.durationMs,
+    finishedAt: terminal ? finishedAt : Date.now(),
+    durationMs,
     pageCount: typeof record.pageCount === "number" ? record.pageCount : undefined,
     assetCount: typeof record.assetCount === "number" ? record.assetCount : undefined,
     commit: typeof record.commit === "string" ? record.commit : (record.commit === null ? null : undefined),
@@ -229,9 +245,13 @@ export function parseSiteWorkspaceConfigState(value: unknown): SiteWorkspaceConf
   };
 }
 
-/** 把一条新的执行记录插入历史列表最前面，并裁剪到 SITE_RUN_HISTORY_LIMIT 条。 */
-export function pushRunRecord(history: SiteRunRecord[], record: SiteRunRecord): SiteRunRecord[] {
-  return [record, ...history].slice(0, SITE_RUN_HISTORY_LIMIT);
+export function isRunRecordInProgress(record: SiteRunRecord): boolean {
+  return record.status === "queued" || record.status === "running";
+}
+
+/** 按 id 原地更新执行记录；如果不存在则插入到最前面。 */
+export function upsertRunRecord(history: SiteRunRecord[], record: SiteRunRecord): SiteRunRecord[] {
+  return [record, ...history.filter((item) => item.id !== record.id)].slice(0, SITE_RUN_HISTORY_LIMIT);
 }
 
 export function shortPath(path: string): string {

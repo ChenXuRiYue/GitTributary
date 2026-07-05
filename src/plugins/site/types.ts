@@ -150,12 +150,15 @@ export interface SiteWorkspaceGroup {
 }
 
 /** 单次构建或发布执行的摘要记录，用于「发布执行」工作台展示近期执行历史。 */
+export type SiteRunStatus = "queued" | "running" | "succeeded" | "failed";
+
 export interface SiteRunRecord {
   id: string;
   kind: "build" | "publish";
-  status: "succeeded" | "failed";
+  status: SiteRunStatus;
   message: string;
   startedAt: number;
+  finishedAt?: number;
   durationMs: number;
   pageCount?: number;
   assetCount?: number;

@@ -187,27 +187,51 @@ function PublishDetails({ report }: { report: SitePublishReport }) {
   );
 }
 
-function ExecutionRecordDetails({ record }: { record: SiteRunRecord }) {
+function isRecordInProgress(record: SiteRunRecord) {
+  return record.status === "queued" || record.status === "running";
+}
+
+function runStatusLabel(status: SiteRunRecord["status"]) {
+  switch (status) {
+    case "queued": return "排队中";
+    case "running": return "运行中";
+    case "succeeded": return "成功";
+    case "failed": return "失败";
+    default: return status;
+  }
+}
+
+function recordDurationLabel(record: SiteRunRecord, now: number) {
+  if (isRecordInProgress(record)) {
+    return `已运行 ${formatDuration(Math.max(0, now - record.startedAt))}`;
+  }
+  return formatDuration(record.durationMs);
+}
+
+function ExecutionRecordDetails({ record, now }: { record: SiteRunRecord; now: number }) {
   const ok = record.status === "succeeded";
+  const running = isRecordInProgress(record);
   const kindLabel = record.kind === "build" ? "构建" : "发布";
   return (
     <section className="border-b px-5 py-4">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
-          {ok ? (
+          {running ? (
+            <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+          ) : ok ? (
             <CheckCircle2 className="size-4 shrink-0 text-primary" />
           ) : (
             <TriangleAlert className="size-4 shrink-0 text-destructive" />
           )}
           <div className="truncate gt-title-panel">{kindLabel}记录</div>
         </div>
-        <Badge variant={ok ? "secondary" : "destructive"} className="h-5 px-1.5 gt-caption">
-          {ok ? "成功" : "失败"}
+        <Badge variant={ok || running ? "secondary" : "destructive"} className="h-5 px-1.5 gt-caption">
+          {runStatusLabel(record.status)}
         </Badge>
       </div>
       <div className="mt-3 grid gap-x-4 text-[12px] sm:grid-cols-2">
         <Metric label="开始时间" value={new Date(record.startedAt).toLocaleString()} />
-        <Metric label="耗时" value={formatDuration(record.durationMs)} />
+        <Metric label="耗时" value={recordDurationLabel(record, now)} />
         <Metric label="类型" value={kindLabel} />
         {typeof record.pageCount === "number" && <Metric label="页面" value={String(record.pageCount)} />}
         {typeof record.assetCount === "number" && <Metric label="资源" value={String(record.assetCount)} />}
@@ -221,10 +245,12 @@ function ExecutionRecordDetails({ record }: { record: SiteRunRecord }) {
 function ExecutionHistoryRail({
   history,
   selectedId,
+  now,
   onSelect,
 }: {
   history: SiteRunRecord[];
   selectedId: string | null;
+  now: number;
   onSelect: (id: string) => void;
 }) {
   return (
@@ -247,6 +273,7 @@ function ExecutionHistoryRail({
           <ul className="divide-y">
             {history.map((record) => {
               const ok = record.status === "succeeded";
+              const running = isRecordInProgress(record);
               const selected = record.id === selectedId;
               const kindLabel = record.kind === "build" ? "构建" : "发布";
               return (
@@ -259,7 +286,9 @@ function ExecutionHistoryRail({
                     )}
                     onClick={() => onSelect(record.id)}
                   >
-                    {ok ? (
+                    {running ? (
+                      <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-primary" />
+                    ) : ok ? (
                       <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-primary" />
                     ) : (
                       <TriangleAlert className="mt-0.5 size-4 shrink-0 text-destructive" />
@@ -267,7 +296,7 @@ function ExecutionHistoryRail({
                     <span className="min-w-0 flex-1">
                       <span className="flex min-w-0 items-center gap-2">
                         <span className="gt-body-strong">{kindLabel}</span>
-                        <span className="gt-caption text-muted-foreground">{formatDuration(record.durationMs)}</span>
+                        <span className="gt-caption text-muted-foreground">{recordDurationLabel(record, now)}</span>
                         {record.commit && (
                           <span className="gt-caption font-mono text-muted-foreground">{record.commit.slice(0, 7)}</span>
                         )}
@@ -325,16 +354,28 @@ export function BuildResultPanel({
 }) {
   const history = useMemo(() => task?.runHistory ?? [], [task?.runHistory]);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(history[0]?.id ?? null);
+  const hasRunningRecord = history.some(isRecordInProgress);
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
     if (history.length === 0) {
       setSelectedRecordId(null);
       return;
     }
+    if (isRecordInProgress(history[0]) && selectedRecordId !== history[0].id) {
+      setSelectedRecordId(history[0].id);
+      return;
+    }
     if (!selectedRecordId || !history.some((record) => record.id === selectedRecordId)) {
       setSelectedRecordId(history[0].id);
     }
   }, [history, selectedRecordId]);
+
+  useEffect(() => {
+    if (!hasRunningRecord) return;
+    const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, [hasRunningRecord]);
 
   const selectedRecord = history.find((record) => record.id === selectedRecordId) ?? null;
   const hasPublishTarget = Boolean(task?.target);
@@ -346,6 +387,7 @@ export function BuildResultPanel({
         <ExecutionHistoryRail
           history={history}
           selectedId={selectedRecordId}
+          now={now}
           onSelect={setSelectedRecordId}
         />
 
@@ -382,7 +424,7 @@ export function BuildResultPanel({
               />
             )}
 
-            {selectedRecord && <ExecutionRecordDetails record={selectedRecord} />}
+            {selectedRecord && <ExecutionRecordDetails record={selectedRecord} now={now} />}
 
             {hasCurrentDetails ? (
               <section className="px-5 py-4">

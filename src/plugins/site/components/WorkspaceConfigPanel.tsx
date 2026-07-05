@@ -327,7 +327,11 @@ export function WorkspaceConfigPanel({
 
   const saveDraft = () => {
     if (!draft) return;
-    onUpdateGroup(draft.id, () => draft);
+    onUpdateGroup(draft.id, (current) => ({
+      ...draft,
+      documentScope: current.documentScope,
+      runHistory: current.runHistory,
+    }));
   };
 
   const sourceRepoOptions = buildWorkspaceRepoOptions(remoteConfigs);

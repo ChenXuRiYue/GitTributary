@@ -33,13 +33,14 @@ import {
   parseSiteActiveRepoState,
   parseSiteBuildUiState,
   parseSiteWorkspaceConfigState,
+  isRunRecordInProgress,
   pathCollator,
-  pushRunRecord,
   shortPath,
   SITE_ACTIVE_REPO_KEY,
   SITE_STATE_NS,
   SITE_WORKSPACE_CONFIG_KEY,
   siteStateKey,
+  upsertRunRecord,
 } from "./state";
 import {
   buildPublishCandidates,
@@ -59,6 +60,7 @@ import type {
   SitePublishReport,
   SitePublishRequest,
   SitePublishTarget,
+  SiteRunRecord,
   SiteScanReport,
   SiteWorkspaceConfigState,
   SiteWorkspaceGroup,
@@ -220,11 +222,17 @@ export function SitePanel() {
   const [workspaceMenuOpen, setWorkspaceMenuOpen] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const activeWorkspaceGroupIdRef = useRef<string | null>(null);
+  const runningWorkspaceGroupIdsRef = useRef<Set<string>>(new Set());
   const hydratedRepoRef = useRef<string | null>(null);
   const defaultWorkspaceCreatedRef = useRef(false);
   const workspaceRestoredRef = useRef(false);
   const restoredWorkspaceGroupCountRef = useRef(0);
   const workspaceMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    activeWorkspaceGroupIdRef.current = activeWorkspaceGroupId;
+  }, [activeWorkspaceGroupId]);
 
   const loadRemoteConfigs = useCallback(async () => {
     try {
@@ -296,17 +304,16 @@ export function SitePanel() {
           updatedAt: Date.now(),
         };
       });
-      const nextActiveId = next.some((group) => group.id === activeWorkspaceGroupId)
-        ? activeWorkspaceGroupId
+      const currentActiveId = activeWorkspaceGroupIdRef.current;
+      const nextActiveId = currentActiveId && next.some((group) => group.id === currentActiveId)
+        ? currentActiveId
         : next[0]?.id ?? null;
       persistWorkspaceConfig(next, nextActiveId);
       return next;
     });
-  }, [activeWorkspaceGroupId, persistWorkspaceConfig]);
+  }, [persistWorkspaceConfig]);
 
   const selectedCount = selectedPaths.size;
-  const busy = phase === "scanning" || phase === "building" || phase === "publishing";
-  const canBuild = Boolean(repoPath.trim() && outputDir.trim() && siteTitle.trim() && selectedCount > 0) && !busy;
 
   const buildConfig = useMemo<SiteBuildConfig>(() => ({
     repoPath: repoPath.trim(),
@@ -373,6 +380,16 @@ export function SitePanel() {
   // 唯一的发布仓库候选来源：发布任务 (工作区组) 与执行工作台共用同一份，
   // 不再各自维护一套选择状态；也不再靠 repoPath 字符串反查当前任务——
   // activeWorkspaceGroupId 才是唯一真源。
+  const activeBuildRunning = Boolean(activeWorkspaceGroup?.runHistory.some((record) => (
+    record.kind === "build" && isRunRecordInProgress(record)
+  )));
+  const activePublishRunning = Boolean(activeWorkspaceGroup?.runHistory.some((record) => (
+    record.kind === "publish" && isRunRecordInProgress(record)
+  )));
+  const activeTaskRunning = activeBuildRunning || activePublishRunning;
+  const canBuild = Boolean(repoPath.trim() && outputDir.trim() && siteTitle.trim() && selectedCount > 0)
+    && phase !== "scanning"
+    && !activeTaskRunning;
   const canPublish = canBuild && Boolean(savedTarget);
   const publishCandidates = useMemo(
     () => buildPublishCandidates(remoteConfigs, activeWorkspaceGroup?.sourceRepoPath || repoPath, savedTarget?.targetRepoId),
@@ -716,117 +733,167 @@ export function SitePanel() {
     });
   }, []);
 
-  const runBuild = async () => {
+  const currentCaptureUiState = useCallback(() => ({
+    captureViewMode,
+    openPaths: Array.from(openCapturePaths)
+      .filter((path) => knownOpenPaths.has(path))
+      .sort((a, b) => pathCollator.compare(a, b)),
+  }), [captureViewMode, knownOpenPaths, openCapturePaths]);
+
+  const upsertWorkspaceRunRecord = useCallback((groupId: string, record: SiteRunRecord) => {
+    updateWorkspaceGroup(groupId, (group) => ({
+      ...group,
+      runHistory: upsertRunRecord(group.runHistory, record),
+    }));
+  }, [updateWorkspaceGroup]);
+
+  const makeRunRecord = (
+    kind: SiteRunRecord["kind"],
+    message: string,
+  ): SiteRunRecord => {
+    const startedAt = Date.now();
+    return {
+      id: `run.${startedAt.toString(36)}.${Math.random().toString(36).slice(2, 8)}`,
+      kind,
+      status: "running",
+      message,
+      startedAt,
+      durationMs: 0,
+    };
+  };
+
+  const runBuild = () => {
     if (!canBuild || !activeWorkspaceGroupId) return;
+    const groupId = activeWorkspaceGroupId;
+    if (runningWorkspaceGroupIdsRef.current.has(groupId)) return;
+    runningWorkspaceGroupIdsRef.current.add(groupId);
+    const configSnapshot = buildConfig;
+    const uiStateSnapshot = currentCaptureUiState();
+    const runningRecord = makeRunRecord("build", "构建已进入执行历史，后台运行中");
     setPhase("building");
     setError(null);
-    setMessage(null);
+    setMessage("构建已进入执行历史，后台运行中");
     setBuildReport(null);
     setPublishReport(null);
-    const startedAt = Date.now();
-    try {
-      const report = await invoke<SiteBuildReport>("site_build", { config: buildConfig });
-      setBuildReport(report);
-      setPhase("succeeded");
-      setMessage(`生成 ${report.pageCount} 个页面,复制 ${report.assetCount} 个资源`);
-      selectSiteView("result");
-      updateWorkspaceGroup(activeWorkspaceGroupId, (group) => ({
-        ...group,
-        runHistory: pushRunRecord(group.runHistory, {
-          id: `run.${startedAt.toString(36)}.${Math.random().toString(36).slice(2, 8)}`,
-          kind: "build",
+    selectSiteView("result");
+    upsertWorkspaceRunRecord(groupId, runningRecord);
+    void persistConfig(configSnapshot, uiStateSnapshot);
+
+    void (async () => {
+      try {
+        const report = await invoke<SiteBuildReport>("site_build", { config: configSnapshot });
+        const summary = `生成 ${report.pageCount} 个页面,复制 ${report.assetCount} 个资源`;
+        upsertWorkspaceRunRecord(groupId, {
+          ...runningRecord,
           status: "succeeded",
-          message: `生成 ${report.pageCount} 个页面,复制 ${report.assetCount} 个资源`,
-          startedAt,
+          message: summary,
+          finishedAt: Date.now(),
           durationMs: report.durationMs,
           pageCount: report.pageCount,
           assetCount: report.assetCount,
-        }),
-      }));
-      await persistConfig(buildConfig, {
-        captureViewMode,
-        openPaths: Array.from(openCapturePaths).filter((path) => knownOpenPaths.has(path)).sort((a, b) => pathCollator.compare(a, b)),
-      });
-    } catch (err) {
-      setPhase("failed");
-      setError(String(err));
-      updateWorkspaceGroup(activeWorkspaceGroupId, (group) => ({
-        ...group,
-        runHistory: pushRunRecord(group.runHistory, {
-          id: `run.${startedAt.toString(36)}.${Math.random().toString(36).slice(2, 8)}`,
-          kind: "build",
+        });
+        if (activeWorkspaceGroupIdRef.current === groupId) {
+          setBuildReport(report);
+          setPublishReport(null);
+          setPhase("succeeded");
+          setMessage(summary);
+        } else {
+          setPhase((current) => current === "building" ? "ready" : current);
+        }
+      } catch (err) {
+        const errorMessage = String(err);
+        upsertWorkspaceRunRecord(groupId, {
+          ...runningRecord,
           status: "failed",
-          message: String(err),
-          startedAt,
-          durationMs: Date.now() - startedAt,
-        }),
-      }));
-    }
+          message: errorMessage,
+          finishedAt: Date.now(),
+          durationMs: Date.now() - runningRecord.startedAt,
+        });
+        if (activeWorkspaceGroupIdRef.current === groupId) {
+          setPhase("failed");
+          setError(errorMessage);
+        } else {
+          setPhase((current) => current === "building" ? "ready" : current);
+        }
+      } finally {
+        runningWorkspaceGroupIdsRef.current.delete(groupId);
+      }
+    })();
   };
 
-  const runPublish = async () => {
+  const runPublish = () => {
     if (!canPublish || !savedTarget || !activeWorkspaceGroupId) return;
+    const groupId = activeWorkspaceGroupId;
+    if (runningWorkspaceGroupIdsRef.current.has(groupId)) return;
+    runningWorkspaceGroupIdsRef.current.add(groupId);
+    const configSnapshot = buildConfig;
+    const targetSnapshot = savedTarget;
+    const uiStateSnapshot = currentCaptureUiState();
+    const request: SitePublishRequest = {
+      buildConfig: configSnapshot,
+      target: {
+        targetLocalPath: targetSnapshot.targetLocalPath,
+        targetBranch: targetSnapshot.targetBranch,
+        publishDir: targetSnapshot.publishDir,
+        remoteName: targetSnapshot.remoteName || "origin",
+        credentialRef: targetSnapshot.credentialRef ?? null,
+        pagesUrl: targetSnapshot.pagesUrl,
+        autoCommitMessage: targetSnapshot.autoCommitMessage,
+      },
+    };
+    const runningRecord = makeRunRecord("publish", "发布已进入执行历史，后台执行构建、同步、提交和推送");
     setPhase("publishing");
     setError(null);
-    setMessage(null);
+    setMessage("发布已进入执行历史，后台运行中");
     setBuildReport(null);
     setPublishReport(null);
-    const startedAt = Date.now();
-    try {
-      const request: SitePublishRequest = {
-        buildConfig,
-        target: {
-          targetLocalPath: savedTarget.targetLocalPath,
-          targetBranch: savedTarget.targetBranch,
-          publishDir: savedTarget.publishDir,
-          remoteName: savedTarget.remoteName || "origin",
-          credentialRef: savedTarget.credentialRef ?? null,
-          pagesUrl: savedTarget.pagesUrl,
-          autoCommitMessage: savedTarget.autoCommitMessage,
-        },
-      };
-      const report = await invoke<SitePublishReport>("site_publish_pages", { request });
-      setBuildReport(report.build);
-      setPublishReport(report);
-      setPhase("succeeded");
-      const summary = report.commit
-        ? `已发布 ${report.build.pageCount} 个页面到 ${report.remoteName}/${report.branch}`
-        : `站点无变更,已确认 ${report.remoteName}/${report.branch}`;
-      setMessage(summary);
-      selectSiteView("result");
-      updateWorkspaceGroup(activeWorkspaceGroupId, (group) => ({
-        ...group,
-        runHistory: pushRunRecord(group.runHistory, {
-          id: `run.${startedAt.toString(36)}.${Math.random().toString(36).slice(2, 8)}`,
-          kind: "publish",
+    selectSiteView("result");
+    upsertWorkspaceRunRecord(groupId, runningRecord);
+    void persistConfig(configSnapshot, uiStateSnapshot);
+
+    void (async () => {
+      try {
+        const report = await invoke<SitePublishReport>("site_publish_pages", { request });
+        const summary = report.commit
+          ? `已发布 ${report.build.pageCount} 个页面到 ${report.remoteName}/${report.branch}`
+          : `站点无变更,已确认 ${report.remoteName}/${report.branch}`;
+        upsertWorkspaceRunRecord(groupId, {
+          ...runningRecord,
           status: "succeeded",
           message: summary,
-          startedAt,
+          finishedAt: Date.now(),
           durationMs: report.durationMs,
           pageCount: report.build.pageCount,
           assetCount: report.build.assetCount,
           commit: report.commit,
-        }),
-      }));
-      await persistConfig(buildConfig, {
-        captureViewMode,
-        openPaths: Array.from(openCapturePaths).filter((path) => knownOpenPaths.has(path)).sort((a, b) => pathCollator.compare(a, b)),
-      });
-    } catch (err) {
-      setPhase("failed");
-      setError(String(err));
-      updateWorkspaceGroup(activeWorkspaceGroupId, (group) => ({
-        ...group,
-        runHistory: pushRunRecord(group.runHistory, {
-          id: `run.${startedAt.toString(36)}.${Math.random().toString(36).slice(2, 8)}`,
-          kind: "publish",
+        });
+        if (activeWorkspaceGroupIdRef.current === groupId) {
+          setBuildReport(report.build);
+          setPublishReport(report);
+          setPhase("succeeded");
+          setMessage(summary);
+        } else {
+          setPhase((current) => current === "publishing" ? "ready" : current);
+        }
+      } catch (err) {
+        const errorMessage = String(err);
+        upsertWorkspaceRunRecord(groupId, {
+          ...runningRecord,
           status: "failed",
-          message: String(err),
-          startedAt,
-          durationMs: Date.now() - startedAt,
-        }),
-      }));
-    }
+          message: errorMessage,
+          finishedAt: Date.now(),
+          durationMs: Date.now() - runningRecord.startedAt,
+        });
+        if (activeWorkspaceGroupIdRef.current === groupId) {
+          setPhase("failed");
+          setError(errorMessage);
+        } else {
+          setPhase((current) => current === "publishing" ? "ready" : current);
+        }
+      } finally {
+        runningWorkspaceGroupIdsRef.current.delete(groupId);
+      }
+    })();
   };
 
   const selectWorkspaceGroup = (id: string) => {
@@ -1018,9 +1085,9 @@ export function SitePanel() {
       hasSourceRepo={Boolean(activeWorkspaceGroup?.sourceRepoPath.trim())}
       hasDocumentScope={selectedCount > 0}
       canBuild={canBuild}
-      isBuilding={phase === "building"}
+      isBuilding={activeBuildRunning}
       canPublish={canPublish}
-      isPublishing={phase === "publishing"}
+      isPublishing={activePublishRunning}
       buildReport={buildReport}
       publishReport={publishReport}
       onBuild={runBuild}
@@ -1061,6 +1128,10 @@ export function SitePanel() {
       case "capture":
         return `候选:${rawCaptureList.length} 已选:${selectedCount} md:${selectedMarkdownCount}`;
       case "result":
+        if (activeTaskRunning) {
+          const runningCount = activeWorkspaceGroup?.runHistory.filter(isRunRecordInProgress).length ?? 0;
+          return `运行中:${runningCount} 记录:${activeWorkspaceGroup?.runHistory.length ?? 0}`;
+        }
         if (publishReport) return `页面:${publishReport.build.pageCount} 变更:${publishReport.changedCount}`;
         if (buildReport) return `页面:${buildReport.pageCount} 资源:${buildReport.assetCount}`;
         return `记录:${activeWorkspaceGroup?.runHistory.length ?? 0}`;
