@@ -33,9 +33,6 @@ jobs:
           - label: macOS Apple Silicon
             platform: macos-latest
             args: "--target aarch64-apple-darwin"
-          - label: macOS Intel
-            platform: macos-latest
-            args: "--target x86_64-apple-darwin"
           - label: Windows
             platform: windows-latest
             args: ""
@@ -78,7 +75,7 @@ jobs:
         if: matrix.platform == 'macos-latest'
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin,x86_64-apple-darwin
+          targets: aarch64-apple-darwin
 
       - name: Cache Rust
         uses: swatinem/rust-cache@v2
