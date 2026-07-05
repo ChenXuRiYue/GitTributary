@@ -162,7 +162,6 @@ function valueKind(value: unknown): string {
 
 function domainLabel(namespace: string): string {
   if (namespace.startsWith("private.")) return namespace.slice("private.".length);
-  if (namespace.startsWith("plugins/")) return namespace.replace("plugins/", "plugins.");
   return namespace;
 }
 

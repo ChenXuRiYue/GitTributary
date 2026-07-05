@@ -5,8 +5,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { IconNav, type NavItem } from "@/components/IconNav";
 
-import { plugins } from "./plugins/registry";
-import type { PluginDescriptor } from "./plugins/types";
+import { modules } from "./plugins/registry";
+import type { ModuleDescriptor } from "./plugins/types";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -44,37 +44,32 @@ function parseNavMoreUiState(value: unknown): NavMoreUiState | null {
   };
 }
 
-/** 将 PluginDescriptor 转换为通用 NavItem(收起态使用 IconNav) */
-const navItems: NavItem[] = plugins.map((p) => ({
-  id: p.id,
-  name: p.name,
-  icon: p.icon,
-  pinned: p.pinned,
-  group: p.category === "system" ? "system" : "extension",
+/** 将模块描述转换为通用 NavItem(收起态使用 IconNav) */
+const navItems: NavItem[] = modules.map((module) => ({
+  id: module.id,
+  name: module.name,
+  icon: module.icon,
+  pinned: module.pinned,
+  group: module.group === "system" ? "system" : "main",
 }));
 
 function App() {
-  const [activeId, setActiveId] = useState(plugins[0]?.id ?? "");
+  const [activeId, setActiveId] = useState(modules[0]?.id ?? "");
   const [collapsed, setCollapsed] = useState(true);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [dragging, setDragging] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const asideRef = useRef<HTMLElement>(null);
 
-  const active = plugins.find((p) => p.id === activeId) ?? plugins[0];
+  const active = modules.find((module) => module.id === activeId) ?? modules[0];
   const ActivePanel = active?.panel;
-  const isFullHeightPanel =
-    active?.id === "git" ||
-    active?.id === "site" ||
-    active?.id === "store" ||
-    active?.id === "flow" ||
-    active?.id === "extensions";
+  const isFullHeightPanel = active?.fullHeight === true;
 
   // 分组(展开态用)
-  const extensionPlugins = plugins.filter((p) => (p.category ?? "extension") === "extension");
-  const systemPlugins = plugins.filter((p) => p.category === "system");
-  const pinnedExtensions = extensionPlugins.filter((p) => p.pinned !== false);
-  const overflowExtensions = extensionPlugins.filter((p) => p.pinned === false);
+  const mainModules = modules.filter((module) => (module.group ?? "main") === "main");
+  const systemModules = modules.filter((module) => module.group === "system");
+  const pinnedModules = mainModules.filter((module) => module.pinned !== false);
+  const overflowModules = mainModules.filter((module) => module.pinned === false);
 
   const openProjectRepo = useCallback(() => {
     void openUrl(PROJECT_REPO_URL);
@@ -161,14 +156,14 @@ function App() {
   }, []);
 
   /** 展开态按钮(带文字) */
-  function ExpandedButton({ plugin }: { plugin: PluginDescriptor }) {
-    const Icon = plugin.icon;
-    const isActive = plugin.id === active?.id;
+  function ExpandedButton({ module }: { module: ModuleDescriptor }) {
+    const Icon = module.icon;
+    const isActive = module.id === active?.id;
     return (
       <button
         type="button"
-        onClick={() => setActiveId(plugin.id)}
-        aria-label={plugin.name}
+        onClick={() => setActiveId(module.id)}
+        aria-label={module.name}
         className={cn(
           "flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm transition-colors",
           isActive
@@ -177,7 +172,7 @@ function App() {
         )}
       >
         <Icon className="size-[18px] shrink-0" />
-        <span className="truncate">{plugin.name}</span>
+        <span className="truncate">{module.name}</span>
       </button>
     );
   }
@@ -241,11 +236,11 @@ function App() {
             <>
               <ScrollArea className="flex-1">
                 <nav className="flex flex-col gap-1">
-                  {pinnedExtensions.map((p) => (
-                    <ExpandedButton key={p.id} plugin={p} />
+                  {pinnedModules.map((module) => (
+                    <ExpandedButton key={module.id} module={module} />
                   ))}
                   {/* 溢出折叠 */}
-                  {overflowExtensions.length > 0 && (
+                  {overflowModules.length > 0 && (
                     <>
                       <Separator className="bg-sidebar-border my-1" />
                       <button
@@ -261,8 +256,8 @@ function App() {
                         <MoreHorizontal className="size-[16px] shrink-0" />
                         <span>更多</span>
                       </button>
-                      {moreOpen && overflowExtensions.map((p) => (
-                        <ExpandedButton key={p.id} plugin={p} />
+                      {moreOpen && overflowModules.map((module) => (
+                        <ExpandedButton key={module.id} module={module} />
                       ))}
                     </>
                   )}
@@ -270,11 +265,11 @@ function App() {
               </ScrollArea>
 
               {/* 系统区(底部固定) */}
-              {systemPlugins.length > 0 && (
+              {systemModules.length > 0 && (
                 <div className="mt-2 flex flex-col gap-1">
                   <Separator className="bg-sidebar-border mb-1" />
-                  {systemPlugins.map((p) => (
-                    <ExpandedButton key={p.id} plugin={p} />
+                  {systemModules.map((module) => (
+                    <ExpandedButton key={module.id} module={module} />
                   ))}
                 </div>
               )}

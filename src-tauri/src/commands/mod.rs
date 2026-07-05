@@ -1,6 +1,6 @@
 //! Tauri command 分组模块。
 //!
-//! 每个子模块对应前端一个插件面板调用的一组命令,只做:
+//! 每个子模块对应前端一个功能面板调用的一组命令,只做:
 //!   - `#[tauri::command]` 转发
 //!   - 拿 `AppState` 里的锁,调用对应业务 crate
 //!   - 把 crate 的 `Result` 转成 `Result<T, String>` 给前端

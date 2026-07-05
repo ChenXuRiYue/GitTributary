@@ -2,7 +2,7 @@
 //!
 //! GitTributary 的 Git 基础能力层。
 //! 提供仓库打开/初始化、状态查询、暂存与提交等核心操作。
-//! 作为平台级公共能力, 所有插件通过此 crate 获取 Git 服务。
+//! 作为平台级公共能力, 各功能模块通过此 crate 获取 Git 服务。
 
 pub mod branch;
 pub mod commit;

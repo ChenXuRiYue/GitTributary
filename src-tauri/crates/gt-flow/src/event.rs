@@ -233,7 +233,7 @@ pub fn builtin_event_definitions() -> Vec<EventDefinition> {
             "ui",
             "手动触发",
             "用户手动触发 Flow",
-            "用户在界面、命令面板或后续插件入口主动运行某个 Flow 时触发,通常携带用户填写的 inputs。",
+            "用户在界面或命令面板主动运行某个 Flow 时触发,通常携带用户填写的 inputs。",
             &["inputs"],
             &[("inputs", "object")],
         ),

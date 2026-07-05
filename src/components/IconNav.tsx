@@ -17,8 +17,8 @@ export interface NavItem {
   icon: LucideIcon;
   /** false → 归入 ... 折叠区。默认 true */
   pinned?: boolean;
-  /** "system" → 固定在底部系统区。默认 "extension" */
-  group?: "extension" | "system";
+  /** "system" → 固定在底部系统区。默认 "main" */
+  group?: "main" | "system";
 }
 
 interface IconNavProps {
@@ -66,7 +66,7 @@ function parseMoreUiState(value: unknown): MoreUiState | null {
  * 通用纵向图标导航条。
  *
  * 特性:
- * - 固定区(pinned) + 溢出折叠区(...) + 系统区(底部固定)
+ * - 主导航区 + 溢出折叠区(...) + 系统区(底部固定)
  * - tooltip 悬浮名称
  * - 选中高亮
  * - 全局可复用:一级侧边栏、二级侧边栏
@@ -83,11 +83,11 @@ export function IconNav({
 }: IconNavProps) {
   const [uncontrolledMoreOpen, setUncontrolledMoreOpen] = useState(false);
 
-  const extensionItems = items.filter((i) => (i.group ?? "extension") === "extension");
+  const mainItems = items.filter((i) => (i.group ?? "main") === "main");
   const systemItems = items.filter((i) => i.group === "system");
 
-  const pinnedItems = extensionItems.filter((i) => i.pinned !== false);
-  const overflowItems = extensionItems.filter((i) => i.pinned === false);
+  const pinnedItems = mainItems.filter((i) => i.pinned !== false);
+  const overflowItems = mainItems.filter((i) => i.pinned === false);
 
   const btnSize = size === "md" ? "size-9" : "size-8";
   const iconSize = size === "md" ? "size-[18px]" : "size-4";

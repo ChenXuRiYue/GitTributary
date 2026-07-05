@@ -236,7 +236,7 @@ function eventDomainMeta(domain: string) {
       return {
         label: "数据中心",
         summary: "GitTributary 数据中心配置变化事件域。",
-        description: "用于描述公共配置、工作区状态、插件配置等数据中心 key 的变化。private 和 secrets 类命名空间默认不进入该域事件,避免敏感信息外泄。",
+        description: "用于描述公共配置、工作区状态、模块配置等数据中心 key 的变化。private 和 secrets 类命名空间默认不进入该域事件,避免敏感信息外泄。",
       };
     case "flow":
       return {
@@ -245,13 +245,6 @@ function eventDomainMeta(domain: string) {
         description: "用于描述 Flow 自身的 queued、started、succeeded、failed、skipped 等运行结果。这个域用于串联 Flow、构建失败恢复链路和展示自动化运行状态。",
       };
     default:
-      if (domain.startsWith("plugin.")) {
-        return {
-          label: "插件",
-          summary: "插件扩展事件域。",
-          description: "用于承载第三方或本地插件发布的事件。插件事件应通过 plugin.<plugin_id>.* 命名空间隔离,并声明事件定义、权限、版本和载荷 schema。",
-        };
-      }
       return {
         label: domain,
         summary: "自定义事件域。",

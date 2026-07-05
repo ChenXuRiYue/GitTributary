@@ -3,7 +3,6 @@ import { FileDown, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import {
   Card,
   CardContent,
@@ -90,35 +89,6 @@ export function DatabasePanel() {
           <Badge variant="outline">#算法</Badge>
           <Badge variant="outline">#待整理</Badge>
         </div>
-      </Block>
-    </>
-  );
-}
-
-// ─── Settings Panel ───────────────────────────────────────────────────
-
-function SettingRow({ label, defaultChecked }: { label: string; defaultChecked?: boolean }) {
-  return (
-    <div className="flex items-center justify-between py-1">
-      <span className="text-sm">{label}</span>
-      <Switch defaultChecked={defaultChecked} />
-    </div>
-  );
-}
-
-export function SettingsPanel() {
-  return (
-    <>
-      <Block title="通用">
-        <SettingRow label="启用非 Git 模式" />
-        <SettingRow label="监听目录变更" defaultChecked />
-      </Block>
-      <Block title="安全">
-        <SettingRow label="个人信息脱敏" />
-        <SettingRow label="日记加密" />
-      </Block>
-      <Block title="插件">
-        <Button variant="outline">管理插件…</Button>
       </Block>
     </>
   );
