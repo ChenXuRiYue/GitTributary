@@ -1,46 +1,61 @@
-name: Build Installers
+name: Release Installers
 
 on:
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create or update, for example v0.1.0"
+        required: true
+        default: "v0.1.0"
+      source_ref:
+        description: "Git ref to build from. Use the same tag to rebuild an existing release."
+        required: true
+        default: "main"
   push:
     tags:
       - "v*"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
-    name: Build ${{ matrix.label }}
-    runs-on: ${{ matrix.os }}
+  release:
+    name: Release ${{ matrix.label }}
+    runs-on: ${{ matrix.platform }}
 
     strategy:
       fail-fast: false
       matrix:
         include:
           - label: Linux
-            os: ubuntu-latest
-            artifact: git-tributary-linux
-            bundle-paths: |
-              src-tauri/target/release/bundle/deb/*.deb
-              src-tauri/target/release/bundle/rpm/*.rpm
-              src-tauri/target/release/bundle/appimage/*.AppImage
-          - label: macOS
-            os: macos-latest
-            artifact: git-tributary-macos
-            bundle-paths: |
-              src-tauri/target/release/bundle/dmg/*.dmg
-              src-tauri/target/release/bundle/macos/*.app
+            platform: ubuntu-22.04
+            args: ""
+          - label: macOS Apple Silicon
+            platform: macos-latest
+            args: "--target aarch64-apple-darwin"
+          - label: macOS Intel
+            platform: macos-latest
+            args: "--target x86_64-apple-darwin"
           - label: Windows
-            os: windows-latest
-            artifact: git-tributary-windows
-            bundle-paths: |
-              src-tauri/target/release/bundle/msi/*.msi
-              src-tauri/target/release/bundle/nsis/*.exe
+            platform: windows-latest
+            args: ""
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'push' && github.ref_name || inputs.source_ref }}
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libwebkit2gtk-4.1-dev \
+            patchelf \
+            xdg-utils
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -49,32 +64,31 @@ jobs:
           cache: npm
 
       - name: Setup Rust
+        if: matrix.platform != 'macos-latest'
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            wget
+      - name: Setup Rust for macOS
+        if: matrix.platform == 'macos-latest'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
 
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build installer
-        run: npm run tauri -- build
-
-      - name: Upload installer artifact
-        uses: actions/upload-artifact@v4
+      - name: Build and upload release assets
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.bundle-paths }}
-          if-no-files-found: error
+          tagName: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
+          releaseName: "Git Tributary ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}"
+          releaseBody: "See the assets below to download and install Git Tributary."
+          releaseDraft: true
+          prerelease: true
+          args: ${{ matrix.args }}

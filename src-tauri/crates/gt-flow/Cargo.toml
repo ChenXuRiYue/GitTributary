@@ -1,6 +1,6 @@
 [package]
 name = "gt-flow"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "GitTributary Flow 解析与展示摘要层"
 

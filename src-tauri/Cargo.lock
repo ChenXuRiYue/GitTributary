@@ -1353,7 +1353,7 @@ dependencies = [
 
 [[package]]
 name = "gittributary"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "dirs-next",
  "gt-flow",
@@ -1435,7 +1435,7 @@ dependencies = [
 
 [[package]]
 name = "gt-flow"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "serde",
@@ -1445,7 +1445,7 @@ dependencies = [
 
 [[package]]
 name = "gt-git"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "git2",
@@ -1456,7 +1456,7 @@ dependencies = [
 
 [[package]]
 name = "gt-site"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -1466,7 +1466,7 @@ dependencies = [
 
 [[package]]
 name = "gt-store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "git2",
