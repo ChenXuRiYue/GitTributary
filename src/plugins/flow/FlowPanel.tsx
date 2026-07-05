@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import {
+  Check,
   CheckCircle2,
+  ChevronDown,
   Code2,
   Database,
   Eye,
@@ -27,6 +29,7 @@ import type { LucideIcon } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { DomainTrail, type DomainTrailItem } from "@/components/DomainTrail";
 import { FileTree, type FileTreeLeaf } from "@/components/FileTree";
 import { IconNav, type NavItem } from "@/components/IconNav";
 import { Input } from "@/components/ui/input";
@@ -185,10 +188,20 @@ jobs:
 const DEFAULT_FLOW_FOLDER = "未分类";
 
 const flowNavItems: NavItem[] = [
-  { id: "flows", name: "流", icon: Workflow },
-  { id: "events", name: "事件列表", icon: Radio },
-  { id: "nodes", name: "节点列表", icon: Split },
+  { id: "flows", name: "编排", icon: Workflow },
+  { id: "events", name: "事件", icon: Radio },
+  { id: "nodes", name: "节点", icon: Split },
 ];
+
+function flowSectionLabel(section: FlowSection) {
+  switch (section) {
+    case "events": return "事件";
+    case "nodes": return "节点";
+    case "flows":
+    default:
+      return "编排";
+  }
+}
 
 function defaultFlowFolder(summary: FlowSummary) {
   const trigger = summary.triggers[0]?.kind ?? "manual";
@@ -1330,7 +1343,7 @@ function NodeCatalogView({
 
   const renderCurrentFlowNodes = () => {
     if (!selectedFlow) {
-      return <p className="gt-body px-4 py-3 text-muted-foreground">在“流”视图中选择一个 Flow 后,这里会展示它编译出的节点实例。</p>;
+      return <p className="gt-body px-4 py-3 text-muted-foreground">在“编排”视图中选择一个 Flow 后,这里会展示它编译出的节点实例。</p>;
     }
     if (nodes.length === 0) {
       return <p className="gt-body px-4 py-3 text-muted-foreground">当前 Flow 没有可展示的节点。</p>;
@@ -1344,7 +1357,7 @@ function NodeCatalogView({
 
   const renderSelectedFlowNodes = () => {
     if (!selectedFlow) {
-      return <p className="gt-body px-4 py-3 text-muted-foreground">在“流”视图中选择一个 Flow 后,这里会展示该动作的引用实例。</p>;
+      return <p className="gt-body px-4 py-3 text-muted-foreground">在“编排”视图中选择一个 Flow 后,这里会展示该动作的引用实例。</p>;
     }
     if (selectedDefinitionNodes.length === 0) {
       return <p className="gt-body px-4 py-3 text-muted-foreground">当前 Flow 没有引用这个节点动作。</p>;
@@ -1896,6 +1909,7 @@ export function FlowPanel() {
   const [editorYaml, setEditorYaml] = useState(SAMPLE_WORKFLOW);
   const [editorFolder, setEditorFolder] = useState(DEFAULT_FLOW_FOLDER);
   const [contextMenu, setContextMenu] = useState<FlowContextMenuState>(null);
+  const [flowMenuOpen, setFlowMenuOpen] = useState(false);
   const [folderCreateDraft, setFolderCreateDraft] = useState<FlowFolderCreateDraft>(null);
   const [editorStatus, setEditorStatus] = useState<"idle" | "valid" | "invalid">("idle");
   const [editorError, setEditorError] = useState<string | null>(null);
@@ -1907,6 +1921,7 @@ export function FlowPanel() {
   const [isSaving, setIsSaving] = useState(false);
   const [isRunningFlow, setIsRunningFlow] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const flowMenuRef = useRef<HTMLDivElement | null>(null);
 
   const canOperate = mode === "operate";
   const enabledCount = flows.filter((flow) => flow.enabled).length;
@@ -2263,6 +2278,26 @@ export function FlowPanel() {
     return () => window.removeEventListener("pointerdown", handlePointerDown, true);
   }, [contextMenu]);
 
+  useEffect(() => {
+    if (!flowMenuOpen) return;
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!flowMenuRef.current?.contains(event.target as Node)) {
+        setFlowMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFlowMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [flowMenuOpen]);
+
   const persistFolder = async (path: string) => {
     const normalizedPath = normalizeFolder(path);
     try {
@@ -2324,50 +2359,204 @@ export function FlowPanel() {
     }
   };
 
-  return (
-    <div className="flex h-full min-h-0 overflow-hidden bg-background">
-      <div className="flex w-10 shrink-0 flex-col items-center border-r border-border/50 py-2">
-        <IconNav
-          items={flowNavItems}
-          activeId={section}
-          onSelect={(id) => changeSection(id as FlowSection)}
-          size="sm"
-          moreStateKey="flow.nav.more.open"
-        />
-      </div>
+  const refreshActiveSection = () => {
+    if (section === "events") {
+      void loadEvents();
+    } else if (section === "nodes") {
+      void loadNodeDefinitions();
+      void loadFlowNodes(selectedId);
+    } else {
+      void loadFlows(selectedId);
+    }
+  };
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Workflow className="size-4 text-muted-foreground" />
-              <h3 className="gt-title-panel">Git 笔记库流系统</h3>
-            </div>
-            <p className="gt-caption mt-1 text-muted-foreground">
-              以 Git 基座下的笔记库为核心 · {flows.length} 个流 · {enabledCount} 个启用
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (section === "events") {
-                  void loadEvents();
-                } else if (section === "nodes") {
-                  void loadNodeDefinitions();
-                  void loadFlowNodes(selectedId);
-                } else {
-                  void loadFlows(selectedId);
-                }
-              }}
-              title="刷新"
+  const selectFlowFromMenu = (id: string) => {
+    setFlowMenuOpen(false);
+    changeSection("flows");
+    selectTreeItem({ type: "flow", id });
+  };
+
+  const createFlowFromMenu = () => {
+    setFlowMenuOpen(false);
+    changeSection("flows");
+    startCreate();
+  };
+
+  const activeFlowFolder = selectedRecord
+    ? normalizeFolder(selectedRecord.folder, selectedRecord.summary)
+    : selectedFolder;
+  const flowContextLabel = (() => {
+    if (section === "flows") {
+      if (isEditingYaml && !selectedRecord) return "新建 Flow";
+      if (isEditingYaml && selectedRecord) return `${selectedRecord.summary.name} 草稿`;
+      return selectedRecord?.summary.name ?? selectedFolder ?? "选择 Flow";
+    }
+    if (selectedRecord) return selectedRecord.summary.name;
+    return section === "events" ? "事件目录" : "节点目录";
+  })();
+  const flowContextTitle = selectedRecord
+    ? `${selectedRecord.summary.name} / ${activeFlowFolder ?? DEFAULT_FLOW_FOLDER}`
+    : flowContextLabel;
+  const domainTrailItems: DomainTrailItem[] = [
+    { id: "flow", label: "Flow" },
+    { id: section, label: flowSectionLabel(section) },
+  ];
+  const secondaryDomainStats = (() => {
+    switch (section) {
+      case "events": return `事件:${events.length}`;
+      case "nodes": return `动作:${nodeDefinitions.length} 节点:${flowNodes.length}`;
+      case "flows":
+      default:
+        return `文件夹:${folders.length} 步骤:${selectedRecord?.summary.step_count ?? 0}`;
+    }
+  })();
+  const primaryDomainStats = `流:${flows.length} 启用:${enabledCount}`;
+  const toolbarSummary = (() => {
+    if (section === "events") return `事件:${events.length}`;
+    if (section === "nodes") return `动作:${nodeDefinitions.length} 当前节点:${flowNodes.length}`;
+    return `模式:${canOperate ? "操作" : "预览"} Flow:${flows.length}`;
+  })();
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      <header className="border-border flex shrink-0 items-center gap-4 border-b px-5 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <DomainTrail items={domainTrailItems} />
+          <span className="shrink-0 text-muted-foreground/60 gt-body">/</span>
+          <div ref={flowMenuRef} className="relative min-w-0 shrink">
+            <button
+              type="button"
+              className="flex h-7 max-w-[16rem] min-w-0 items-center gap-1.5 rounded px-1.5 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              aria-label={`切换 Flow: ${flowContextLabel}`}
+              aria-haspopup="menu"
+              aria-expanded={flowMenuOpen}
+              onClick={() => setFlowMenuOpen((open) => !open)}
+              title={flowContextTitle}
             >
-              <RefreshCcw className="size-3.5" />
-            </Button>
-            {section === "flows" && <ModeToggle mode={mode} onChange={changeMode} />}
+              <span className="min-w-0 truncate gt-body">{flowContextLabel}</span>
+              <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", flowMenuOpen && "rotate-180")} />
+            </button>
+
+            {flowMenuOpen && (
+              <div
+                role="menu"
+                className="absolute left-0 top-[calc(100%+0.5rem)] z-30 w-72 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-lg sm:w-80"
+              >
+                <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="gt-body-strong truncate">{flowContextLabel}</div>
+                    <div className="gt-caption truncate text-muted-foreground">
+                      {activeFlowFolder ? `flows/${activeFlowFolder}` : "未选择 Flow"}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2"
+                    onClick={() => {
+                      setFlowMenuOpen(false);
+                      changeSection("flows");
+                    }}
+                  >
+                    <FolderTree className="size-3.5" />
+                    流目录
+                  </Button>
+                </div>
+
+                <div className="max-h-72 overflow-y-auto p-1">
+                  {flows.length === 0 ? (
+                    <div className="px-3 py-6 text-center">
+                      <Workflow className="mx-auto size-6 text-muted-foreground" />
+                      <div className="gt-body-strong mt-2">暂无 Flow</div>
+                      <p className="gt-caption mt-1 text-muted-foreground">新建后会出现在这里。</p>
+                    </div>
+                  ) : (
+                    flows.map((flow) => {
+                      const isCurrent = selectedId === flow.id;
+                      const folder = normalizeFolder(flow.folder, flow.summary);
+                      return (
+                        <button
+                          key={flow.id}
+                          type="button"
+                          role="menuitem"
+                          className={cn(
+                            "flex min-h-14 w-full min-w-0 items-center gap-3 rounded-md px-3 py-2 text-left transition-colors",
+                            isCurrent ? "bg-primary/8 text-foreground" : "hover:bg-accent hover:text-accent-foreground",
+                          )}
+                          onClick={() => selectFlowFromMenu(flow.id)}
+                        >
+                          <span className={cn(
+                            "flex size-6 shrink-0 items-center justify-center rounded-md border",
+                            isCurrent ? "border-primary/30 bg-primary/10 text-primary" : "bg-background text-muted-foreground",
+                          )}>
+                            {isCurrent ? <Check className="size-3.5" /> : <Workflow className="size-3.5" />}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="gt-body-strong block truncate">{flow.summary.name}</span>
+                            <span className="gt-caption block truncate text-muted-foreground">
+                              {folder} / {flowFileName(flow.id)}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 border-t bg-muted/20 px-2 py-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2"
+                    onClick={createFlowFromMenu}
+                  >
+                    <Plus className="size-3.5" />
+                    新建 Flow
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
+        <div className="ml-auto hidden shrink-0 items-center gap-2 text-right md:flex">
+          {[secondaryDomainStats, primaryDomainStats].map((stat, index) => (
+            <div key={`${index}.${stat}`} className="flex items-center gap-2">
+              {index > 0 && <span className="text-muted-foreground/40 gt-caption">/</span>}
+              <span className="text-foreground gt-caption font-medium">{stat}</span>
+            </div>
+          ))}
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex w-10 shrink-0 flex-col items-center border-r border-border/50 py-2">
+          <IconNav
+            items={flowNavItems}
+            activeId={section}
+            onSelect={(id) => changeSection(id as FlowSection)}
+            size="sm"
+            moreStateKey="flow.nav.more.open"
+          />
+        </div>
+
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2">
+            <span className="min-w-0 truncate gt-caption text-muted-foreground">{toolbarSummary}</span>
+            <div className="flex shrink-0 items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 w-8 px-0"
+                onClick={refreshActiveSection}
+                title="刷新"
+              >
+                <RefreshCcw className="size-3.5" />
+              </Button>
+              {section === "flows" && <ModeToggle mode={mode} onChange={changeMode} />}
+            </div>
+          </div>
 
         {loadError && (
           <div className="shrink-0 border-b bg-red-50 px-4 py-2 text-sm text-red-700">
@@ -2502,6 +2691,7 @@ export function FlowPanel() {
           />
         )}
       </div>
+    </div>
     </div>
   );
 }

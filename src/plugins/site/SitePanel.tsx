@@ -81,9 +81,9 @@ const SITE_MORE_STATE_KEY = "site.nav.more.open";
 const SITE_VIEW_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 
 const siteNavItems: NavItem[] = [
-  { id: "workspace", name: "发布任务", icon: Settings2 },
-  { id: "capture", name: "文档范围", icon: FolderTree },
-  { id: "result", name: "发布执行", icon: CheckCircle2 },
+  { id: "workspace", name: "任务", icon: Settings2 },
+  { id: "capture", name: "范围", icon: FolderTree },
+  { id: "result", name: "执行", icon: CheckCircle2 },
 ];
 
 const DEFAULT_CAPTURE_FILTERS: CaptureFilterState = {
@@ -1111,7 +1111,7 @@ export function SitePanel() {
   const useFullCanvas = activeViewId === "workspace" || activeViewId === "capture" || activeViewId === "result";
   const activeDomainView = siteNavItems.find((item) => item.id === activeViewId) ?? siteNavItems[0];
   const domainTrailItems: DomainTrailItem[] = [
-    { id: "site", label: "文档发布" },
+    { id: "site", label: "发布" },
     {
       id: activeDomainView.id,
       label: activeDomainView.name,

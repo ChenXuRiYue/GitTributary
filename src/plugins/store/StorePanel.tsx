@@ -3,6 +3,7 @@ import {
   AlertCircle,
   Archive,
   Braces,
+  Check,
   ChevronDown,
   ChevronRight,
   Cloud,
@@ -14,6 +15,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Settings2,
   ShieldCheck,
   Unplug,
   X,
@@ -24,6 +26,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { DomainTrail, type DomainTrailItem } from "@/components/DomainTrail";
+import { IconNav, type NavItem } from "@/components/IconNav";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { cn } from "@/lib/utils";
 
@@ -80,6 +84,7 @@ function isConfigCenterUrl(url: string): boolean {
 }
 
 type ViewMode = "compact" | "tree" | "json";
+type StoreViewId = "detail";
 
 interface StorePanelUiState {
   version: 1;
@@ -112,9 +117,14 @@ const VIEW_MODES: Array<{
   { id: "json", label: "JSON", title: "按 JSON 结构展开", icon: Braces },
 ];
 
+const storeNavItems: NavItem[] = [
+  { id: "detail", name: "配置", icon: Settings2 },
+];
+
 const DEFAULT_VIEW_MODE = VIEW_MODES[0].id;
 const STORE_VIEW_STATE_NS = "ui-state";
 const STORE_VIEW_STATE_KEY = "store.view.active";
+const STORE_MORE_STATE_KEY = "store.nav.more.open";
 const STORE_DOMAIN_WIDTH_KEY = "store.domain.width";
 const STORE_VIEW_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const STORE_DOMAIN_MIN_WIDTH = 160;
@@ -464,11 +474,13 @@ function KeyTreeItem({
 }
 
 export function StorePanel() {
+  const [activeViewId, setActiveViewId] = useState<StoreViewId>("detail");
   const [namespaces, setNamespaces] = useState<NamespaceInfo[]>([]);
   const [selectedNs, setSelectedNs] = useState<string | null>(null);
   const [entries, setEntries] = useState<KvEntry[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>(DEFAULT_VIEW_MODE);
+  const [namespaceMenuOpen, setNamespaceMenuOpen] = useState(false);
   const [environments, setEnvironments] = useState<string[]>([]);
   const [activeEnvironment, setActiveEnvironment] = useState<string | null>(null);
   const [configCredential, setConfigCredential] = useState<DataCenterConfigCredentialStatus | null>(null);
@@ -486,6 +498,11 @@ export function StorePanel() {
   const [error, setError] = useState<string | null>(null);
   const selectedNsRef = useRef<string | null>(null);
   const viewModeRef = useRef<ViewMode>(DEFAULT_VIEW_MODE);
+  const namespaceMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const selectStoreView = useCallback((id: string) => {
+    if (id === "detail") setActiveViewId(id);
+  }, []);
 
   const persistDomainWidth = useCallback((width: number) => {
     void invoke("store_set", {
@@ -630,6 +647,26 @@ export function StorePanel() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  useEffect(() => {
+    if (!namespaceMenuOpen) return;
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!namespaceMenuRef.current?.contains(event.target as Node)) {
+        setNamespaceMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNamespaceMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [namespaceMenuOpen]);
+
   const activeEnvironmentValue = activeEnvironment ?? environments[0] ?? "";
   const activeEnvironmentLabel = activeEnvironmentValue || "默认";
 
@@ -723,9 +760,131 @@ export function StorePanel() {
   const jsonGroups = useMemo(() => buildJsonGroups(filteredEntries), [filteredEntries]);
 
   const syncSummary = syncConfig ? repoNameFromUrl(syncConfig.url) : "未配置";
+  const selectedNamespaceInfo = selectedNs ? namespaces.find((ns) => ns.name === selectedNs) ?? null : null;
+  const selectedNamespaceLabel = selectedNs ? domainLabel(selectedNs) : "选择命名空间";
+  const selectedNamespaceTitle = selectedNs ?? selectedNamespaceLabel;
+  const activeStoreView = storeNavItems.find((item) => item.id === activeViewId) ?? storeNavItems[0];
+  const domainTrailItems: DomainTrailItem[] = [
+    { id: "store", label: "数据" },
+    { id: activeStoreView.id, label: activeStoreView.name },
+  ];
+  const secondaryDomainStats = `key:${filteredEntries.length} 命名空间:${namespaces.length}`;
+  const primaryDomainStats = `环境:${environments.length || 1} 当前:${activeEnvironmentLabel}`;
+  const selectNamespaceFromMenu = (namespace: string) => {
+    setNamespaceMenuOpen(false);
+    void loadEntries(namespace);
+  };
 
   return (
-    <div className="flex h-full overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <header className="border-border flex shrink-0 items-center gap-4 border-b px-5 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <DomainTrail items={domainTrailItems} />
+          <span className="shrink-0 text-muted-foreground/60 gt-body">/</span>
+          <div ref={namespaceMenuRef} className="relative min-w-0 shrink">
+            <button
+              type="button"
+              className="flex h-7 max-w-[16rem] min-w-0 items-center gap-1.5 rounded px-1.5 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              aria-label={`切换命名空间: ${selectedNamespaceLabel}`}
+              aria-haspopup="menu"
+              aria-expanded={namespaceMenuOpen}
+              onClick={() => setNamespaceMenuOpen((open) => !open)}
+              title={selectedNamespaceTitle}
+            >
+              <span className="min-w-0 truncate gt-body">{selectedNamespaceLabel}</span>
+              <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", namespaceMenuOpen && "rotate-180")} />
+            </button>
+
+            {namespaceMenuOpen && (
+              <div
+                role="menu"
+                className="absolute left-0 top-[calc(100%+0.5rem)] z-30 w-72 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-lg sm:w-80"
+              >
+                <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="gt-body-strong truncate">{selectedNamespaceLabel}</div>
+                    <div className="gt-caption truncate text-muted-foreground">
+                      {selectedNamespaceInfo ? `${selectedNamespaceInfo.count} keys / ${selectedNamespaceInfo.visibility}` : "未选择命名空间"}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2"
+                    onClick={() => {
+                      setNamespaceMenuOpen(false);
+                      void refresh();
+                    }}
+                  >
+                    <RefreshCw className="size-3.5" />
+                    刷新
+                  </Button>
+                </div>
+
+                <div className="max-h-72 overflow-y-auto p-1">
+                  {namespaces.length === 0 ? (
+                    <div className="px-3 py-6 text-center">
+                      <Database className="mx-auto size-6 text-muted-foreground" />
+                      <div className="gt-body-strong mt-2">暂无命名空间</div>
+                      <p className="gt-caption mt-1 text-muted-foreground">写入配置后会出现在这里。</p>
+                    </div>
+                  ) : (
+                    namespaces.map((ns) => {
+                      const isCurrent = selectedNs === ns.name;
+                      return (
+                        <button
+                          key={ns.name}
+                          type="button"
+                          role="menuitem"
+                          className={cn(
+                            "flex min-h-12 w-full min-w-0 items-center gap-3 rounded-md px-3 py-2 text-left transition-colors",
+                            isCurrent ? "bg-primary/8 text-foreground" : "hover:bg-accent hover:text-accent-foreground",
+                          )}
+                          onClick={() => selectNamespaceFromMenu(ns.name)}
+                        >
+                          <span className={cn(
+                            "flex size-6 shrink-0 items-center justify-center rounded-md border",
+                            isCurrent ? "border-primary/30 bg-primary/10 text-primary" : "bg-background text-muted-foreground",
+                          )}>
+                            {isCurrent ? <Check className="size-3.5" /> : <Database className="size-3.5" />}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="gt-body-strong block truncate">{domainLabel(ns.name)}</span>
+                            <span className="gt-caption block truncate text-muted-foreground" title={ns.name}>
+                              {ns.count} keys / {ns.visibility}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="ml-auto hidden shrink-0 items-center gap-2 text-right md:flex">
+          {[secondaryDomainStats, primaryDomainStats].map((stat, index) => (
+            <div key={`${index}.${stat}`} className="flex items-center gap-2">
+              {index > 0 && <span className="text-muted-foreground/40 gt-caption">/</span>}
+              <span className="text-foreground gt-caption font-medium">{stat}</span>
+            </div>
+          ))}
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className="flex w-10 shrink-0 flex-col items-center border-r border-border/50 py-2">
+          <IconNav
+            items={storeNavItems}
+            activeId={activeViewId}
+            onSelect={selectStoreView}
+            size="sm"
+            moreStateKey={STORE_MORE_STATE_KEY}
+          />
+        </div>
+
       {/* 左:命名空间列表 */}
       <div
         className="flex shrink-0 flex-col border-r border-border/50"
@@ -781,58 +940,6 @@ export function StorePanel() {
       <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
         {selectedNs ? (
           <>
-            {/* 域标题 */}
-            <div className="shrink-0 border-b border-border/30 px-4 py-3">
-              <div className="flex min-w-0 items-start gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="truncate text-sm font-semibold" title={selectedNs}>{domainLabel(selectedNs)}</span>
-                    <Badge variant="secondary" className="h-5 shrink-0 px-1.5 text-[9px]">{filteredEntries.length} 条</Badge>
-                    {namespaces.find((ns) => ns.name === selectedNs)?.visibility === "private" && (
-                      <Badge variant="outline" className="h-5 shrink-0 px-1.5 text-[9px] text-destructive/70">本地</Badge>
-                    )}
-                  </div>
-                  <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <Layers className="size-3 shrink-0" />
-                    <span className="shrink-0">环境</span>
-                    {environments.length > 0 ? (
-                      <select
-                        value={activeEnvironmentValue}
-                        onChange={(e) => e.target.value && handleSwitchEnvironment(e.target.value)}
-                        className="h-5 max-w-36 rounded border border-border/60 bg-background px-1.5 text-[11px] text-foreground outline-none"
-                        title="切换环境配置"
-                      >
-                        {environments.map((p) => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="truncate text-foreground">{activeEnvironmentLabel}</span>
-                    )}
-                  </div>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 w-7 px-0"
-                    onClick={() => setSyncPanelOpen((open) => !open)}
-                    title={`配置远程 Git 数据配置中心仓库: ${syncSummary}`}
-                  >
-                    {syncConfig ? (
-                      <ShieldCheck className="size-3.5 text-emerald-600" />
-                    ) : (
-                      <Cloud className="size-3.5 text-muted-foreground" />
-                    )}
-                  </Button>
-                  <Button variant="ghost" size="sm" className="h-7 w-7 px-0" onClick={() => handleCompact(selectedNs)} title="压缩">
-                    <Archive className="size-3.5" />
-                  </Button>
-                </div>
-              </div>
-              {syncStatus && <div className="mt-1 h-4 text-[10px] text-primary">{syncStatus}</div>}
-            </div>
-
             {/* 工具栏 */}
             <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-4 py-2">
               <div className="flex shrink-0 overflow-hidden rounded-md border border-border/70 bg-muted/30 p-0.5">
@@ -864,7 +971,43 @@ export function StorePanel() {
                 placeholder="搜索 key…"
                 className="h-7 max-w-72 flex-1 text-xs"
               />
+              <div className="ml-auto flex shrink-0 items-center gap-2">
+                <div className="hidden items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
+                  <Layers className="size-3 shrink-0" />
+                  {environments.length > 0 ? (
+                    <select
+                      value={activeEnvironmentValue}
+                      onChange={(e) => e.target.value && handleSwitchEnvironment(e.target.value)}
+                      className="h-7 max-w-36 rounded-md border border-border/60 bg-background px-2 text-[11px] text-foreground outline-none"
+                      title="切换环境配置"
+                    >
+                      {environments.map((p) => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="rounded-md border bg-background px-2 py-1 text-foreground">{activeEnvironmentLabel}</span>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 w-7 px-0"
+                  onClick={() => setSyncPanelOpen((open) => !open)}
+                  title={`配置远程 Git 数据配置中心仓库: ${syncSummary}`}
+                >
+                  {syncConfig ? (
+                    <ShieldCheck className="size-3.5 text-emerald-600" />
+                  ) : (
+                    <Cloud className="size-3.5 text-muted-foreground" />
+                  )}
+                </Button>
+                <Button variant="ghost" size="sm" className="h-7 w-7 px-0" onClick={() => handleCompact(selectedNs)} title="压缩">
+                  <Archive className="size-3.5" />
+                </Button>
+              </div>
             </div>
+            {syncStatus && <div className="shrink-0 border-b border-primary/15 bg-primary/5 px-4 py-1.5 text-[10px] text-primary">{syncStatus}</div>}
 
             {syncPanelOpen && (
               <div className="absolute right-4 top-12 z-20 w-[480px] max-w-[calc(100%-32px)] rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg">
@@ -1066,6 +1209,7 @@ export function StorePanel() {
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 }

@@ -1,8 +1,13 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Check, ChevronDown, FolderOpen, GitBranch, RefreshCw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 
 import { gitViews } from "./registry";
 import { IconNav, type NavItem } from "@/components/IconNav";
+import { Button } from "@/components/ui/button";
+import { DomainTrail, type DomainTrailItem } from "@/components/DomainTrail";
+import { cn } from "@/lib/utils";
 
 /** 将 GitViewDescriptor 转换为通用 NavItem */
 const navItems: NavItem[] = gitViews.map((v) => ({
@@ -16,6 +21,48 @@ interface GitViewUiState {
   version: 1;
   activeViewId: string;
   updatedAt: number;
+}
+
+interface RepoOverview {
+  path: string;
+  current_branch: string;
+  is_dirty: boolean;
+  changed_count: number;
+  remote_url: string | null;
+}
+
+interface FileStatus {
+  path: string;
+  kind: string;
+  staged: boolean;
+}
+
+interface BranchInfo {
+  name: string;
+  is_head: boolean;
+  is_remote: boolean;
+}
+
+interface LogEntry {
+  id: string;
+  short_id: string;
+  message: string;
+  author: string;
+  email: string;
+  time: string;
+}
+
+interface WorkspaceInfo {
+  active_repo: string | null;
+  recent_repos: string[];
+  device_id: string | null;
+  device_name: string | null;
+}
+
+interface GitShellStats {
+  changed: number;
+  branches: number;
+  commits: number;
 }
 
 const GIT_VIEW_STATE_NS = "ui-state";
@@ -36,14 +83,80 @@ function parseGitViewUiState(value: unknown): GitViewUiState | null {
   };
 }
 
+function shortPath(path: string): string {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts.length > 2 ? `.../${parts.slice(-2).join("/")}` : path;
+}
+
+function repoNameFromPath(path: string): string {
+  return path.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? path;
+}
+
 /**
  * Git 面板 Shell:
- * 左侧二级侧边栏(IconNav 复用) + 右侧内容展示区
+ * 顶栏资源坐标 + 左侧二级侧边栏(IconNav 复用) + 右侧内容展示区
  */
 export function GitPanel() {
   const [activeId, setActiveId] = useState(gitViews[0]?.id ?? "");
+  const [overview, setOverview] = useState<RepoOverview | null>(null);
+  const [recentRepos, setRecentRepos] = useState<string[]>([]);
+  const [repoMenuOpen, setRepoMenuOpen] = useState(false);
+  const [shellStats, setShellStats] = useState<GitShellStats>({
+    changed: 0,
+    branches: 0,
+    commits: 0,
+  });
+  const repoMenuRef = useRef<HTMLDivElement | null>(null);
   const active = gitViews.find((v) => v.id === activeId) ?? gitViews[0];
   const ActiveView = active?.panel;
+
+  const loadShellStats = useCallback(async (nextOverview: RepoOverview | null) => {
+    if (!nextOverview) {
+      setShellStats({ changed: 0, branches: 0, commits: 0 });
+      return;
+    }
+
+    const [statusResult, branchResult, logResult] = await Promise.allSettled([
+      invoke<FileStatus[]>("get_status"),
+      invoke<BranchInfo[]>("get_branches"),
+      invoke<LogEntry[]>("get_log", { limit: 200 }),
+    ]);
+
+    setShellStats({
+      changed: statusResult.status === "fulfilled" ? statusResult.value.length : nextOverview.changed_count,
+      branches: branchResult.status === "fulfilled" ? branchResult.value.length : 0,
+      commits: logResult.status === "fulfilled" ? logResult.value.length : 0,
+    });
+  }, []);
+
+  const refreshGitContext = useCallback(async (repoPath?: string | null) => {
+    let nextRecentRepos: string[] = [];
+    let pathToOpen = repoPath?.trim() || "";
+
+    try {
+      const workspace = await invoke<WorkspaceInfo>("get_workspace_info");
+      nextRecentRepos = workspace.recent_repos ?? [];
+      if (!pathToOpen) pathToOpen = workspace.active_repo ?? "";
+      setRecentRepos(nextRecentRepos);
+    } catch {
+      // Browser preview or first-run shells may not have workspace state yet.
+    }
+
+    try {
+      const nextOverview = pathToOpen
+        ? await invoke<RepoOverview>("open_repo", { path: pathToOpen })
+        : await invoke<RepoOverview>("get_overview");
+      setOverview(nextOverview);
+      setRecentRepos((current) => {
+        const merged = [nextOverview.path, ...nextRecentRepos, ...current];
+        return Array.from(new Set(merged.filter(Boolean))).slice(0, 10);
+      });
+      await loadShellStats(nextOverview);
+    } catch {
+      setOverview(null);
+      await loadShellStats(null);
+    }
+  }, [loadShellStats]);
 
   const selectView = useCallback((id: string) => {
     setActiveId(id);
@@ -58,7 +171,43 @@ export function GitPanel() {
     }).catch(() => {
       // The Git panel remains usable even when the store is unavailable.
     });
-  }, []);
+    void refreshGitContext();
+  }, [refreshGitContext]);
+
+  const openRepoFromShell = useCallback(async (path: string) => {
+    setRepoMenuOpen(false);
+    await refreshGitContext(path);
+  }, [refreshGitContext]);
+
+  const openRepoFromDialog = useCallback(async () => {
+    const selected = await open({ directory: true, multiple: false });
+    if (!selected) return;
+    await openRepoFromShell(selected as string);
+  }, [openRepoFromShell]);
+
+  useEffect(() => {
+    void refreshGitContext();
+  }, [refreshGitContext]);
+
+  useEffect(() => {
+    if (!repoMenuOpen) return;
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!repoMenuRef.current?.contains(event.target as Node)) {
+        setRepoMenuOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setRepoMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [repoMenuOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -89,22 +238,159 @@ export function GitPanel() {
     return () => { cancelled = true; };
   }, []);
 
-  return (
-    <div className="flex h-full min-h-0 overflow-hidden">
-      {/* 二级侧边栏 */}
-      <div className="flex w-10 shrink-0 flex-col items-center border-r border-border/50 py-2">
-        <IconNav
-          items={navItems}
-          activeId={activeId}
-          onSelect={selectView}
-          size="sm"
-          moreStateKey={GIT_MORE_STATE_KEY}
-        />
-      </div>
+  const domainTrailItems: DomainTrailItem[] = useMemo(() => [
+    { id: "git", label: "Git" },
+    { id: active?.id ?? "unknown", label: active?.name ?? "变更" },
+  ], [active?.id, active?.name]);
 
-      {/* 内容展示区 */}
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-        {ActiveView && <ActiveView />}
+  const repoLabel = overview?.path ? repoNameFromPath(overview.path) : "选择仓库";
+  const repoSubLabel = overview?.path
+    ? `${overview.current_branch} / ${shortPath(overview.path)}`
+    : "未打开仓库";
+  const secondaryDomainStats = (() => {
+    switch (activeId) {
+      case "branches": return `分支:${shellStats.branches}`;
+      case "history": return `提交:${shellStats.commits}`;
+      case "remote": return `远程:${overview?.remote_url ? 1 : 0}`;
+      case "safety": return `仓库:${overview ? 1 : 0}`;
+      case "changes":
+      default:
+        return `变更:${shellStats.changed}`;
+    }
+  })();
+  const primaryDomainStats = `仓库:${recentRepos.length} 变更:${shellStats.changed}`;
+  const headerStats = [secondaryDomainStats, primaryDomainStats];
+
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <header className="border-border flex shrink-0 items-center gap-4 border-b px-5 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5">
+          <DomainTrail items={domainTrailItems} />
+          <span className="shrink-0 text-muted-foreground/60 gt-body">/</span>
+          <div ref={repoMenuRef} className="relative min-w-0 shrink">
+            <button
+              type="button"
+              className="flex h-7 max-w-[16rem] min-w-0 items-center gap-1.5 rounded px-1.5 text-left text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              aria-label={`切换 Git 仓库: ${repoLabel}`}
+              aria-haspopup="menu"
+              aria-expanded={repoMenuOpen}
+              onClick={() => setRepoMenuOpen((open) => !open)}
+              title={overview?.path ?? repoLabel}
+            >
+              <span className="min-w-0 truncate gt-body">{repoLabel}</span>
+              <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", repoMenuOpen && "rotate-180")} />
+            </button>
+
+            {repoMenuOpen && (
+              <div
+                role="menu"
+                className="absolute left-0 top-[calc(100%+0.5rem)] z-30 w-72 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-lg sm:w-80"
+              >
+                <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
+                  <div className="min-w-0">
+                    <div className="gt-body-strong truncate">{repoLabel}</div>
+                    <div className="gt-caption truncate text-muted-foreground" title={overview?.path ?? undefined}>
+                      {repoSubLabel}
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2"
+                    onClick={() => {
+                      setRepoMenuOpen(false);
+                      void refreshGitContext();
+                    }}
+                  >
+                    <RefreshCw className="size-3.5" />
+                    刷新
+                  </Button>
+                </div>
+
+                <div className="max-h-72 overflow-y-auto p-1">
+                  {recentRepos.length === 0 ? (
+                    <div className="px-3 py-6 text-center">
+                      <GitBranch className="mx-auto size-6 text-muted-foreground" />
+                      <div className="gt-body-strong mt-2">暂无最近仓库</div>
+                      <p className="gt-caption mt-1 text-muted-foreground">打开一个仓库后会出现在这里。</p>
+                    </div>
+                  ) : (
+                    recentRepos.map((repo) => {
+                      const isCurrent = overview?.path === repo;
+                      return (
+                        <button
+                          key={repo}
+                          type="button"
+                          role="menuitem"
+                          className={cn(
+                            "flex min-h-12 w-full min-w-0 items-center gap-3 rounded-md px-3 py-2 text-left transition-colors",
+                            isCurrent ? "bg-primary/8 text-foreground" : "hover:bg-accent hover:text-accent-foreground",
+                          )}
+                          onClick={() => openRepoFromShell(repo)}
+                        >
+                          <span className={cn(
+                            "flex size-6 shrink-0 items-center justify-center rounded-md border",
+                            isCurrent ? "border-primary/30 bg-primary/10 text-primary" : "bg-background text-muted-foreground",
+                          )}>
+                            {isCurrent ? <Check className="size-3.5" /> : <GitBranch className="size-3.5" />}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="gt-body-strong block truncate">{repoNameFromPath(repo)}</span>
+                            <span className="gt-caption block truncate text-muted-foreground" title={repo}>
+                              {shortPath(repo)}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="flex items-center justify-end gap-2 border-t bg-muted/20 px-2 py-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className="h-8 px-2"
+                    onClick={() => {
+                      void openRepoFromDialog();
+                    }}
+                  >
+                    <FolderOpen className="size-3.5" />
+                    打开仓库
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="ml-auto hidden shrink-0 items-center gap-2 text-right md:flex">
+          {headerStats.map((stat, index) => (
+            <div key={`${index}.${stat}`} className="flex items-center gap-2">
+              {index > 0 && <span className="text-muted-foreground/40 gt-caption">/</span>}
+              <span className="text-foreground gt-caption font-medium">{stat}</span>
+            </div>
+          ))}
+        </div>
+      </header>
+
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* 二级侧边栏 */}
+        <div className="flex w-10 shrink-0 flex-col items-center border-r border-border/50 py-2">
+          <IconNav
+            items={navItems}
+            activeId={activeId}
+            onSelect={selectView}
+            size="sm"
+            moreStateKey={GIT_MORE_STATE_KEY}
+          />
+        </div>
+
+        {/* 内容展示区 */}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+          {ActiveView && <ActiveView key={`${activeId}.${overview?.path ?? "no-repo"}`} />}
+        </div>
       </div>
     </div>
   );

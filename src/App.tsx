@@ -209,7 +209,7 @@ function App() {
                 type="button"
                 onClick={openProjectRepo}
                 className="text-sidebar-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground flex min-w-0 flex-1 items-center justify-between gap-2 overflow-hidden rounded-md px-2 py-1 text-left transition-colors"
-                title="Open GitHub repository"
+                title="打开项目仓库"
               >
                 <span className="block min-w-0 truncate text-sm font-semibold leading-4">Git Tributary</span>
                 <ExternalLink className="text-muted-foreground size-4 shrink-0" />

@@ -42,14 +42,14 @@ export const gitViews: GitViewDescriptor[] = [
   },
   {
     id: "remote",
-    name: "远程",
+    name: "远端",
     icon: Upload,
     panel: RemoteView,
     pinned: false,
   },
   {
     id: "safety",
-    name: "安全",
+    name: "凭据",
     icon: Shield,
     panel: SafetyView,
     pinned: false,
