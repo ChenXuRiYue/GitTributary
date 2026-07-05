@@ -3,7 +3,7 @@ members = ["crates/gt-git", "crates/gt-store", "crates/gt-flow", "crates/gt-site
 
 [package]
 name = "gittributary"
-version = "0.1.1"
+version = "0.1.2"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
