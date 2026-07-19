@@ -10,10 +10,10 @@
 //! `use crate::...` 引用。
 
 pub mod credentials;
+pub mod files;
 pub mod flow;
 pub mod git;
 pub mod remote;
-pub mod site;
 pub mod store;
 pub mod sync;
 pub mod workspace;

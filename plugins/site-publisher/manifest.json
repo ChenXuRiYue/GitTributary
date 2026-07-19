@@ -1,0 +1,44 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": "1",
+  "id": "dev.gittributary.site-publisher",
+  "name": "发布",
+  "description": "从仓库文档构建静态站点并发布到 GitHub Pages。",
+  "version": "0.1.0",
+  "publisher": "GitTributary",
+  "engines": {
+    "gittributary": ">=0.1.3"
+  },
+  "contributes": {
+    "views": [
+      {
+        "id": "site-publisher.main",
+        "title": "发布",
+        "description": "文档范围、构建结果与静态发布。",
+        "location": "activitybar",
+        "entry": "frontend/dist/index.html"
+      }
+    ]
+  },
+  "backend": {
+    "runtime": "rust-cdylib",
+    "entry": "backend/target/release",
+    "library": "site_publisher_plugin",
+    "methods": {
+      "site.scan": ["files:read"],
+      "site.build": ["files:read"],
+      "site.publish": ["files:read", "git:write"]
+    }
+  },
+  "activationEvents": [
+    "onView:site-publisher.main"
+  ],
+  "permissions": [
+    "repository:read",
+    "files:read",
+    "git:write",
+    "store:read",
+    "store:write",
+    "shell:open"
+  ]
+}

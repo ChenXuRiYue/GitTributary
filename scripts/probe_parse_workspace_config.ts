@@ -5,7 +5,7 @@
 //
 // 运行: npx tsx scripts/probe_parse_workspace_config.ts
 import { readFileSync } from "node:fs";
-import { parseSiteWorkspaceConfigState } from "../src/core/site/state";
+import { parseSiteWorkspaceConfigState } from "../plugins/site-publisher/frontend/src/site/state";
 
 const raw = JSON.parse(readFileSync("/tmp/real_workspace_config_value.json", "utf8"));
 

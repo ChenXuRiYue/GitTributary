@@ -1,9 +1,8 @@
-import { Blocks, BookOpenCheck, GitBranch, Database, Workflow } from "lucide-react";
+import { Blocks, GitBranch, Database, Workflow } from "lucide-react";
 
 import type { CoreModuleDescriptor } from "./types";
 import { FlowPanel } from "./flow/FlowPanel";
 import { GitPanel } from "./git/GitPanel";
-import { SitePanel } from "./site/SitePanel";
 import { StorePanel } from "./store/StorePanel";
 import { PluginManagerPanel } from "./plugin-manager/PluginManagerPanel";
 
@@ -15,14 +14,6 @@ export const coreModules: CoreModuleDescriptor[] = [
     description: "状态、差异、提交、分支与远端。",
     icon: GitBranch,
     panel: GitPanel,
-    fullHeight: true,
-  },
-  {
-    id: "site",
-    name: "发布",
-    description: "文档范围、构建结果与静态发布。",
-    icon: BookOpenCheck,
-    panel: SitePanel,
     fullHeight: true,
   },
   {

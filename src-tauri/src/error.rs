@@ -81,22 +81,6 @@ pub(crate) fn classify_config_repo_check_error(error: &str) -> (String, String) 
     ("invalid".to_string(), error.to_string())
 }
 
-/// 分类 Pages 发布过程中的错误,补充可行动的中文提示。
-pub(crate) fn classify_pages_publish_error(error: &str) -> String {
-    let lower = error.to_ascii_lowercase();
-    if lower.contains("too many redirects")
-        || lower.contains("authentication replays")
-        || lower.contains("authentication failed")
-        || lower.contains("401")
-        || lower.contains("403")
-    {
-        return format!(
-            "{error}\n请检查 Pages 发布仓库远程 URL 与认证方式是否匹配: HTTPS 远程需要目标仓库可用的 GitHub Token, fine-grained token 至少需要 Contents: Read and write; SSH 远程请配置 SSH Key 或 Agent。"
-        );
-    }
-    error.to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

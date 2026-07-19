@@ -595,7 +595,7 @@ mod tests {
             event_pool: std::sync::Mutex::new(EventPool::new()),
             node_registry: std::sync::Mutex::new(FlowNodeRegistry::new()),
             extensions: crate::extensions::ExtensionRegistry::default(),
-            plugin_host: crate::plugin_host::PluginHostSupervisor::default(),
+            plugin_host: std::sync::Arc::new(crate::plugin_host::PluginHostSupervisor::default()),
         };
         (dir, state)
     }

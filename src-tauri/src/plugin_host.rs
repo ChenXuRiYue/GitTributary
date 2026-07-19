@@ -9,7 +9,8 @@ use gt_plugin_protocol::{event, method, Message, Request, Response};
 use serde::Serialize;
 use serde_json::{json, Value};
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
+const CONTROL_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
+const PLUGIN_REQUEST_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 pub struct PluginHostSupervisor {
     inner: Mutex<SupervisorState>,
@@ -89,7 +90,7 @@ impl PluginHostSupervisor {
     pub fn call(&self, method_name: &str, params: Value) -> Result<Value, String> {
         self.ensure_started()?;
         let mut state = self.inner.lock().unwrap();
-        let result = self.call_locked(&mut state, method_name, params);
+        let result = self.call_locked(&mut state, method_name, params, CONTROL_REQUEST_TIMEOUT);
         if matches!(result, Err(HostCallError::Transport(_))) {
             terminate_process(&mut state);
         }
@@ -105,12 +106,18 @@ impl PluginHostSupervisor {
         self.ensure_started()?;
         let mut state = self.inner.lock().unwrap();
         let result = self
-            .call_locked(&mut state, method::LOAD_PLUGIN, json!({ "path": path }))
+            .call_locked(
+                &mut state,
+                method::LOAD_PLUGIN,
+                json!({ "path": path }),
+                CONTROL_REQUEST_TIMEOUT,
+            )
             .and_then(|_| {
                 self.call_locked(
                     &mut state,
                     method::INVOKE,
                     json!({ "method": method_name, "payload": payload }),
+                    PLUGIN_REQUEST_TIMEOUT,
                 )
             });
         if matches!(result, Err(HostCallError::Transport(_))) {
@@ -146,6 +153,7 @@ impl PluginHostSupervisor {
         state: &mut SupervisorState,
         method_name: &str,
         params: Value,
+        timeout: Duration,
     ) -> Result<Value, HostCallError> {
         let request_id = format!(
             "app-{}",
@@ -166,7 +174,7 @@ impl PluginHostSupervisor {
             .map_err(|error| HostCallError::Transport(error.to_string()))?;
 
         loop {
-            match process.messages.recv_timeout(REQUEST_TIMEOUT) {
+            match process.messages.recv_timeout(timeout) {
                 Ok(Message::Response(response)) if response.id == request_id => {
                     return response_result(response).map_err(HostCallError::Rpc)
                 }
@@ -266,7 +274,7 @@ fn spawn_host() -> Result<HostProcess, String> {
         }
     });
 
-    match receiver.recv_timeout(REQUEST_TIMEOUT) {
+    match receiver.recv_timeout(CONTROL_REQUEST_TIMEOUT) {
         Ok(Message::Event(message)) if message.event == event::HELLO => Ok(HostProcess {
             child,
             stdin,

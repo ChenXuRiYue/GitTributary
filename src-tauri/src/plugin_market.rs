@@ -445,13 +445,13 @@ mod tests {
     }
 
     #[test]
-    fn discovers_repository_insights_from_project_plugins() {
+    fn discovers_site_publisher_from_project_plugins() {
         let root = plugin_catalog_root_for_mode(true, Path::new(env!("CARGO_MANIFEST_DIR")), None)
             .unwrap();
         let plugins = plugin_sources(&root);
         assert!(plugins.iter().any(|source| {
             read_manifest(source)
-                .is_ok_and(|manifest| manifest.id == "dev.gittributary.repository-insights")
+                .is_ok_and(|manifest| manifest.id == "dev.gittributary.site-publisher")
         }));
     }
 }

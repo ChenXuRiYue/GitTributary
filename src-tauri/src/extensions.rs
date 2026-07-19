@@ -3,12 +3,21 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::http::{header, Request, Response, StatusCode};
 use tauri::State;
 
+use gt_git::{resolve_repo_root, AuthMethod, GitRepo};
+
+use crate::auth::resolve_auth_for_publish_target;
+use crate::commands::files::{files_list, files_read_text, files_scan, files_search};
 use crate::commands::flow::flow_records_from_store;
+use crate::commands::remote::{get_remote_configs, remote_url_for};
+use crate::commands::store::{store_delete, store_get, store_set};
+use crate::commands::workspace::get_workspace_info;
+use crate::identity::commit_identity_for_repo_remote;
 use crate::AppState;
 
 const DEFAULT_API_VERSION: &str = "1";
@@ -60,12 +69,21 @@ pub struct ExtensionBackend {
     pub runtime: String,
     pub entry: String,
     pub library: String,
+    #[serde(default)]
+    pub methods: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
 struct InstalledExtension {
     manifest: ExtensionManifest,
     root: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BackendMethodSnapshot {
+    version: String,
+    path: PathBuf,
+    permissions: Vec<String>,
 }
 
 #[derive(Clone, Default)]
@@ -198,30 +216,38 @@ impl ExtensionRegistry {
         safe_join(&extension.root, relative)
     }
 
-    fn backend_path(&self, plugin_id: &str) -> Result<PathBuf, String> {
+    fn backend_method_snapshot(
+        &self,
+        plugin_id: &str,
+        method: &str,
+    ) -> Result<BackendMethodSnapshot, String> {
         let installed = self.installed.read().unwrap();
         let extension = installed
             .get(plugin_id)
-            .ok_or_else(|| "插件不存在".to_string())?;
+            .ok_or_else(|| "extension_not_found".to_string())?;
         let backend = extension
             .manifest
             .backend
             .as_ref()
             .ok_or_else(|| "plugin_backend_missing".to_string())?;
-        if backend.runtime != "rust-cdylib" {
-            return Err("unsupported_backend_runtime".to_string());
-        }
-        if !valid_library_name(&backend.library) {
-            return Err("invalid_backend_library".to_string());
-        }
-        safe_join(
+        let permissions = backend
+            .methods
+            .get(method)
+            .cloned()
+            .ok_or_else(|| "backend_method_not_declared".to_string())?;
+        let path = safe_join(
             &extension.root,
             &format!(
                 "{}/{}",
                 backend.entry.trim_end_matches('/'),
                 native_library_name(&backend.library)
             ),
-        )
+        )?;
+        Ok(BackendMethodSnapshot {
+            version: extension.manifest.version.clone(),
+            path,
+            permissions,
+        })
     }
 }
 
@@ -263,7 +289,7 @@ pub fn extension_list(state: State<'_, AppState>) -> Vec<ExtensionListItem> {
 }
 
 #[tauri::command]
-pub fn extension_call(
+pub async fn extension_call(
     plugin_id: String,
     method: String,
     payload: Option<Value>,
@@ -272,20 +298,28 @@ pub fn extension_call(
     if !state.extensions.contains(&plugin_id) {
         return Err("extension_not_found".to_string());
     }
-    if method == "backend.invoke" {
-        for permission in ["repository:read", "git:read", "flow:read"] {
-            if !state.extensions.has_permission(&plugin_id, permission) {
+    let payload = payload.unwrap_or(Value::Null);
+    let backend_snapshot = if method == "backend.invoke" {
+        let backend_method = payload
+            .get("method")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "invalid_backend_method".to_string())?;
+        let snapshot = state
+            .extensions
+            .backend_method_snapshot(&plugin_id, backend_method)?;
+        for permission in &snapshot.permissions {
+            if !state.extensions.has_permission(&plugin_id, &permission) {
                 return Err("permission_denied".to_string());
             }
         }
+        Some(snapshot)
     } else {
         let required = required_permission(&method).ok_or_else(|| "unknown_method".to_string())?;
         if !state.extensions.has_permission(&plugin_id, required) {
             return Err("permission_denied".to_string());
         }
-    }
-    let payload = payload.unwrap_or(Value::Null);
-
+        None
+    };
     match method.as_str() {
         "repositories.active" | "git.overview" => {
             let lock = state.repo.lock().unwrap();
@@ -336,53 +370,109 @@ pub fn extension_call(
                 .collect::<Vec<_>>();
             Ok(Value::Array(flows))
         }
+        "store.get" => {
+            let namespace = extension_store_namespace(&plugin_id, &payload)?;
+            let key = payload_field::<String>(&payload, "key")?;
+            Ok(store_get(namespace, key, state).unwrap_or(Value::Null))
+        }
+        "store.set" => {
+            let namespace = extension_store_namespace(&plugin_id, &payload)?;
+            let key = payload_field::<String>(&payload, "key")?;
+            let value = payload
+                .get("value")
+                .cloned()
+                .ok_or_else(|| "missing_payload_field:value".to_string())?;
+            store_set(namespace, key, value, state)?;
+            Ok(Value::Null)
+        }
+        "store.delete" => {
+            let namespace = extension_store_namespace(&plugin_id, &payload)?;
+            let key = payload_field::<String>(&payload, "key")?;
+            store_delete(namespace, key, state)?;
+            Ok(Value::Null)
+        }
+        "files.list" => {
+            let root = extension_file_root(&state, &payload)?;
+            let relative_dir = payload_optional_field(&payload, "relativeDir")?;
+            let options = payload_optional_field(&payload, "options")?;
+            serialize_value(files_list(root, relative_dir, options)?)
+        }
+        "files.scan" => {
+            let root = extension_file_root(&state, &payload)?;
+            let relative_dir = payload_optional_field(&payload, "relativeDir")?;
+            let options = payload_optional_field(&payload, "options")?;
+            serialize_value(files_scan(root, relative_dir, options)?)
+        }
+        "files.search" => {
+            let root = extension_file_root(&state, &payload)?;
+            let relative_dir = payload_optional_field(&payload, "relativeDir")?;
+            let query = payload_field::<String>(&payload, "query")?;
+            let options = payload_optional_field(&payload, "options")?;
+            serialize_value(files_search(root, relative_dir, query, options)?)
+        }
+        "files.readText" => {
+            let root = extension_file_root(&state, &payload)?;
+            let path = payload_field::<String>(&payload, "path")?;
+            let max_bytes = payload_optional_field(&payload, "maxBytes")?;
+            serialize_value(files_read_text(root, path, max_bytes)?)
+        }
+        "repositories.configs" => serialize_value(get_remote_configs(state)?),
+        "workspace.info" => serialize_value(get_workspace_info(state)),
+        "shell.openPath" => {
+            let path = payload_field::<String>(&payload, "path")?;
+            tauri_plugin_opener::open_path(path, None::<&str>)
+                .map_err(|error| error.to_string())?;
+            Ok(Value::Null)
+        }
+        "shell.revealPath" => {
+            let path = payload_field::<String>(&payload, "path")?;
+            tauri_plugin_opener::reveal_item_in_dir(path).map_err(|error| error.to_string())?;
+            Ok(Value::Null)
+        }
+        "shell.openUrl" => {
+            let url = payload_field::<String>(&payload, "url")?;
+            tauri_plugin_opener::open_url(url, None::<&str>).map_err(|error| error.to_string())?;
+            Ok(Value::Null)
+        }
         "backend.invoke" => {
-            let _lifecycle = state.extensions.lifecycle_lock();
+            let expected_snapshot =
+                backend_snapshot.ok_or_else(|| "backend_method_snapshot_missing".to_string())?;
             let backend_method = payload
                 .get("method")
                 .and_then(Value::as_str)
-                .ok_or_else(|| "invalid_backend_method".to_string())?;
-            let backend_path = state.extensions.backend_path(&plugin_id)?;
-            let (repository, branch, changed_files, commits) = {
-                let lock = state.repo.lock().unwrap();
-                let repo = lock
-                    .as_ref()
-                    .ok_or_else(|| "repository_not_open".to_string())?;
-                let overview = repo
-                    .overview()
-                    .map_err(|_| "git_overview_failed".to_string())?;
-                let display_name = overview
-                    .path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("repository")
-                    .to_string();
-                let commits = repo.log(100).map_err(|_| "git_log_failed".to_string())?;
-                (
-                    display_name,
-                    overview.current_branch,
-                    overview.changed_count,
-                    commits,
-                )
-            };
-            let flow_count = {
-                let store = state.store.lock().unwrap();
-                flow_records_from_store(&store).len()
-            };
-            state.plugin_host.invoke_plugin(
-                &backend_path,
-                backend_method,
-                json!({
-                    "input": payload.get("payload").cloned().unwrap_or(Value::Null),
-                    "hostContext": {
-                        "repository": { "id": "active", "name": repository },
-                        "branch": branch,
-                        "changedFiles": changed_files,
-                        "commits": commits,
-                        "flowCount": flow_count,
-                    }
-                }),
-            )
+                .ok_or_else(|| "invalid_backend_method".to_string())?
+                .to_string();
+            let mut backend_payload = payload.get("payload").cloned().unwrap_or(Value::Null);
+            if let Some(request) = payload
+                .get("hostServices")
+                .and_then(|services| services.get("gitPublishContext"))
+            {
+                if !expected_snapshot
+                    .permissions
+                    .iter()
+                    .any(|permission| permission == "git:write")
+                {
+                    return Err("permission_denied".to_string());
+                }
+                let context = extension_git_publish_context(&state, request)?;
+                backend_payload
+                    .as_object_mut()
+                    .ok_or_else(|| "backend_payload_must_be_object".to_string())?
+                    .insert("gitContext".to_string(), context);
+            }
+            let extensions = state.extensions.clone();
+            let plugin_host = Arc::clone(&state.plugin_host);
+            tauri::async_runtime::spawn_blocking(move || {
+                let _lifecycle = extensions.lifecycle_lock();
+                let current_snapshot =
+                    extensions.backend_method_snapshot(&plugin_id, &backend_method)?;
+                if current_snapshot != expected_snapshot {
+                    return Err("extension_changed_during_request".to_string());
+                }
+                plugin_host.invoke_plugin(&current_snapshot.path, &backend_method, backend_payload)
+            })
+            .await
+            .map_err(|error| error.to_string())?
         }
         _ => Err("unknown_method".to_string()),
     }
@@ -439,7 +529,16 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
     if manifest.contributes.views.is_empty() {
         return Err("MVP 插件至少需要贡献一个 view".to_string());
     }
-    let allowed_permissions = ["repository:read", "git:read", "flow:read"];
+    let allowed_permissions = [
+        "repository:read",
+        "git:read",
+        "flow:read",
+        "files:read",
+        "git:write",
+        "store:read",
+        "store:write",
+        "shell:open",
+    ];
     if manifest
         .permissions
         .iter()
@@ -461,6 +560,16 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
         validate_relative_path(&backend.entry)?;
         if !valid_library_name(&backend.library) {
             return Err("插件后台 library 格式无效".to_string());
+        }
+        for (method, permissions) in &backend.methods {
+            if method.trim().is_empty()
+                || permissions.iter().any(|permission| {
+                    !manifest.permissions.contains(permission)
+                        || !allowed_permissions.contains(&permission.as_str())
+                })
+            {
+                return Err("插件后台方法权限声明无效".to_string());
+            }
         }
     }
     Ok(())
@@ -552,11 +661,138 @@ fn installed_extension_paths(plugins_root: &Path) -> Vec<PathBuf> {
 
 fn required_permission(method: &str) -> Option<&'static str> {
     match method {
-        "repositories.active" => Some("repository:read"),
+        "repositories.active" | "repositories.configs" | "workspace.info" => {
+            Some("repository:read")
+        }
         "git.overview" | "git.log" => Some("git:read"),
         "flow.list" => Some("flow:read"),
+        "files.list" | "files.scan" | "files.search" | "files.readText" => Some("files:read"),
+        "store.get" => Some("store:read"),
+        "store.set" | "store.delete" => Some("store:write"),
+        "shell.openPath" | "shell.revealPath" | "shell.openUrl" => Some("shell:open"),
         _ => None,
     }
+}
+
+fn payload_field<T: DeserializeOwned>(payload: &Value, field: &str) -> Result<T, String> {
+    let value = payload
+        .get(field)
+        .cloned()
+        .ok_or_else(|| format!("missing_payload_field:{field}"))?;
+    serde_json::from_value(value).map_err(|error| format!("invalid_payload_field:{field}:{error}"))
+}
+
+fn payload_optional_field<T: DeserializeOwned>(
+    payload: &Value,
+    field: &str,
+) -> Result<Option<T>, String> {
+    payload
+        .get(field)
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()
+        .map_err(|error| format!("invalid_payload_field:{field}:{error}"))
+}
+
+fn serialize_value<T: Serialize>(value: T) -> Result<Value, String> {
+    serde_json::to_value(value).map_err(|error| format!("serialization_failed:{error}"))
+}
+
+fn extension_auth_context(auth: AuthMethod) -> Value {
+    match auth {
+        AuthMethod::Token(token) => json!({ "kind": "token", "token": token }),
+        AuthMethod::SshKey {
+            private_key,
+            passphrase,
+        } => json!({
+            "kind": "ssh_key",
+            "privateKey": private_key,
+            "passphrase": passphrase,
+        }),
+        AuthMethod::Agent => json!({ "kind": "agent" }),
+        AuthMethod::None => json!({ "kind": "none" }),
+    }
+}
+
+fn extension_git_publish_context(state: &AppState, request: &Value) -> Result<Value, String> {
+    let target_local_path = payload_field::<String>(request, "targetLocalPath")?;
+    let remote_name = payload_field::<String>(request, "remoteName")?;
+    let credential_ref = payload_optional_field::<String>(request, "credentialRef")?;
+    let target_root = resolve_repo_root(&target_local_path).map_err(|error| error.to_string())?;
+    let target_repo = GitRepo::open(&target_root).map_err(|error| error.to_string())?;
+    let remote_url = remote_url_for(&target_repo, &remote_name)?;
+    let auth = resolve_auth_for_publish_target(
+        state,
+        &target_root,
+        Some(&remote_url),
+        credential_ref.as_deref(),
+    );
+    let commit_identity =
+        commit_identity_for_repo_remote(state, &target_root.to_string_lossy(), Some(&remote_name));
+    Ok(json!({
+        "targetRoot": target_root,
+        "remoteName": remote_name,
+        "remoteUrl": remote_url,
+        "auth": extension_auth_context(auth.method),
+        "mode": auth.mode,
+        "credentialRef": auth.credential_ref,
+        "commitIdentity": {
+            "name": commit_identity.name,
+            "email": commit_identity.email,
+        }
+    }))
+}
+
+fn extension_store_namespace(plugin_id: &str, payload: &Value) -> Result<String, String> {
+    let requested = payload_field::<String>(payload, "namespace")?;
+    if plugin_id == "dev.gittributary.site-publisher"
+        && matches!(requested.as_str(), "sites" | "ui-state")
+    {
+        return Ok(requested);
+    }
+    let scoped = format!("plugin.{plugin_id}");
+    if requested == scoped || requested.starts_with(&format!("{scoped}.")) {
+        return Ok(requested);
+    }
+    Err("store_namespace_denied".to_string())
+}
+
+fn extension_file_root(state: &AppState, payload: &Value) -> Result<String, String> {
+    let requested = payload_field::<String>(payload, "root")?;
+    let requested = PathBuf::from(&requested)
+        .canonicalize()
+        .map_err(|_| "file_root_missing".to_string())?;
+    if !requested.is_dir() {
+        return Err("file_root_not_directory".to_string());
+    }
+
+    let mut known_roots = {
+        let store = state.store.lock().unwrap();
+        let mut roots = store.recent_repos();
+        if let Some(active) = store.active_repo() {
+            roots.push(active);
+        }
+        roots
+    };
+    if let Some(workdir) = state
+        .repo
+        .lock()
+        .unwrap()
+        .as_ref()
+        .and_then(|repo| repo.workdir())
+    {
+        known_roots.push(workdir.to_string_lossy().to_string());
+    }
+
+    let allowed = known_roots.into_iter().any(|root| {
+        PathBuf::from(root)
+            .canonicalize()
+            .is_ok_and(|root| root == requested)
+    });
+    if !allowed {
+        return Err("file_root_not_authorized".to_string());
+    }
+    Ok(requested.to_string_lossy().to_string())
 }
 
 fn valid_extension_id(value: &str) -> bool {
@@ -655,7 +891,79 @@ mod tests {
     #[test]
     fn maps_permissions_to_methods() {
         assert_eq!(required_permission("git.log"), Some("git:read"));
+        assert_eq!(required_permission("store.set"), Some("store:write"));
+        assert_eq!(required_permission("files.search"), Some("files:read"));
+        assert_eq!(required_permission("shell.openPath"), Some("shell:open"));
         assert_eq!(required_permission("flow.run"), None);
+    }
+
+    #[test]
+    fn scopes_extension_store_namespaces() {
+        let site_payload = json!({ "namespace": "sites" });
+        assert_eq!(
+            extension_store_namespace("dev.gittributary.site-publisher", &site_payload).unwrap(),
+            "sites"
+        );
+
+        let scoped_payload = json!({ "namespace": "plugin.com.example.demo.settings" });
+        assert_eq!(
+            extension_store_namespace("com.example.demo", &scoped_payload).unwrap(),
+            "plugin.com.example.demo.settings"
+        );
+        assert!(
+            extension_store_namespace("com.example.demo", &json!({ "namespace": "sites" }))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn authorizes_only_known_file_roots() {
+        let store_directory = tempfile::tempdir().unwrap();
+        let repository = tempfile::tempdir().unwrap();
+        let unknown = tempfile::tempdir().unwrap();
+        let mut store = gt_store::Store::open(store_directory.path()).unwrap();
+        store.init_workspace().unwrap();
+        let repository_path = repository.path().to_string_lossy().to_string();
+        store
+            .sync_workspace(Some(&repository_path), Some("main"))
+            .unwrap();
+        let state = AppState {
+            repo: std::sync::Mutex::new(None),
+            store: std::sync::Mutex::new(store),
+            event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
+            node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
+            extensions: ExtensionRegistry::default(),
+            plugin_host: std::sync::Arc::new(crate::plugin_host::PluginHostSupervisor::default()),
+        };
+
+        let authorized = extension_file_root(&state, &json!({ "root": repository_path })).unwrap();
+        assert_eq!(
+            PathBuf::from(authorized),
+            repository.path().canonicalize().unwrap()
+        );
+        assert!(
+            extension_file_root(&state, &json!({ "root": unknown.path().to_string_lossy() }))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn serializes_git_auth_for_plugin_backends() {
+        assert_eq!(
+            extension_auth_context(AuthMethod::Token("secret".to_string())),
+            json!({ "kind": "token", "token": "secret" })
+        );
+        assert_eq!(
+            extension_auth_context(AuthMethod::SshKey {
+                private_key: "/tmp/id_ed25519".to_string(),
+                passphrase: None,
+            }),
+            json!({
+                "kind": "ssh_key",
+                "privateKey": "/tmp/id_ed25519",
+                "passphrase": null,
+            })
+        );
     }
 
     #[test]

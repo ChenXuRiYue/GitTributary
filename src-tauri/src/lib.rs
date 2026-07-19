@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use gt_flow::{EventDraft, EventPool, EventReceipt, FlowNodeRegistry};
 use gt_git::{GitRepo, RepoOverview};
@@ -20,6 +20,7 @@ use commands::credentials::{
     get_git_credentials, set_data_center_config_token, set_git_email, set_git_remote_url,
     set_git_ssh_key, set_git_token, set_git_username,
 };
+use commands::files::{files_list, files_read_text, files_scan, files_search};
 use commands::flow::{
     flow_build_draft, flow_create_folder, flow_delete, flow_delete_folder, flow_emit_event,
     flow_event_catalog, flow_get, flow_list, flow_list_folders, flow_match_event,
@@ -35,7 +36,6 @@ use commands::remote::{
     add_remote, clone_remote_repo, get_remote_configs, get_remotes, git_fetch, git_pull, git_push,
     remove_remote, set_project_token, set_remote_url,
 };
-use commands::site::{site_build, site_open_output, site_publish_pages, site_scan};
 use commands::store::{
     store_active_environment, store_active_profile, store_compact, store_create_environment,
     store_create_profile, store_delete, store_delete_environment, store_delete_profile,
@@ -58,7 +58,7 @@ pub struct AppState {
     pub event_pool: Mutex<EventPool>,
     pub node_registry: Mutex<FlowNodeRegistry>,
     pub extensions: ExtensionRegistry,
-    pub plugin_host: PluginHostSupervisor,
+    pub plugin_host: Arc<PluginHostSupervisor>,
 }
 
 pub(crate) fn set_active_repo_state(
@@ -152,7 +152,7 @@ pub fn run() {
             event_pool: Mutex::new(EventPool::new()),
             node_registry: Mutex::new(FlowNodeRegistry::new()),
             extensions,
-            plugin_host: PluginHostSupervisor::default(),
+            plugin_host: Arc::new(PluginHostSupervisor::default()),
         })
         .setup(|app| {
             let state = app.state::<AppState>();
@@ -197,6 +197,10 @@ pub fn run() {
             git_push,
             git_pull,
             set_project_token,
+            files_list,
+            files_scan,
+            files_search,
+            files_read_text,
             flow_validate,
             flow_build_draft,
             flow_save,
@@ -234,10 +238,6 @@ pub fn run() {
             store_delete_environment,
             get_workspace_info,
             get_recent_repos,
-            site_scan,
-            site_build,
-            site_publish_pages,
-            site_open_output,
             sync_get_config,
             sync_set_config,
             update_data_center_config_remote,

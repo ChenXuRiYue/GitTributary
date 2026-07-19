@@ -16,9 +16,9 @@
 当前 `SitePanel` 已经具备:
 
 - 读取当前工作区仓库。
-- 调用 `site_scan` 扫描文档。
-- 调用 `site_build` 生成静态 HTML。
-- 通过 `store_get` / `store_set` 持久化站点构建配置。
+- 通过插件 backend 的 `site.scan` 扫描文档。
+- 通过插件 backend 的 `site.build` 生成静态 HTML。
+- 通过宿主 Store Extension API 持久化站点构建配置。
 - 构建成功后展示输出目录、`index.html`、warning、broken links。
 
 ### 2.2 Git 远程配置已有能力
@@ -56,7 +56,7 @@
 
 ### Phase 3: Site 内手动发布闭环
 
-目标:新增后端 `site_publish_pages`,实现构建产物同步到目标仓库、提交和推送。
+目标:在插件 backend 实现 `site.publish`,完成构建产物同步、提交和推送。
 
 ### Phase 4: Flow 节点化
 
@@ -66,7 +66,7 @@
 
 ### 4.1 新增前端类型
 
-在 `src/core/site/SitePanel.tsx` 中新增类型:
+在 `plugins/site-publisher/frontend/src/site/SitePanel.tsx` 中新增类型:
 
 ```ts
 interface RemoteConfigEntry {
@@ -275,7 +275,7 @@ publish.<repo_hash> -> 发布目标配置
 ### 必改
 
 ```text
-src/core/site/SitePanel.tsx
+plugins/site-publisher/frontend/src/site/SitePanel.tsx
 ```
 
 新增内容:
@@ -298,7 +298,7 @@ doc/站点/Pages发布目标设计.md
 ### 暂不改
 
 ```text
-src-tauri/crates/gt-site/src/lib.rs
+plugins/site-publisher/backend/crates/gt-site/src/lib.rs
 src-tauri/crates/gt-git/src/*
 src-tauri/crates/gt-flow/src/*
 ```
@@ -309,13 +309,10 @@ Phase 1 不需要后端新能力。
 
 Phase 2 在 Site 插件中新增"发布前检查"按钮。
 
-### 7.1 新增后端命令
+### 7.1 新增插件后端方法
 
-建议新增:
-
-```rust
-#[tauri::command]
-fn site_check_publish_target(target: SitePublishTarget) -> Result<SitePublishCheckReport, String>
+```text
+site.checkPublishTarget
 ```
 
 检查内容:
@@ -344,14 +341,10 @@ Phase 2 仍不执行同步和推送。
 
 Phase 3 实现手动发布。
 
-### 8.1 新增后端命令
+### 8.1 新增插件后端方法
 
-```rust
-#[tauri::command]
-fn site_publish_pages(
-    target: SitePublishTarget,
-    build_config: SiteBuildConfig,
-) -> Result<SitePublishReport, String>
+```text
+site.publish
 ```
 
 ### 8.2 执行顺序
