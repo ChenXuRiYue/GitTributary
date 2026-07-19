@@ -1,16 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, PanelLeftClose, PanelLeft, MoreHorizontal, Puzzle } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLink, PanelLeftClose, PanelLeft, MoreHorizontal, Puzzle, type LucideIcon } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 
 import { IconNav, type NavItem } from "@/components/IconNav";
 
-import { modules } from "./plugins/registry";
-import type { ModuleDescriptor } from "./plugins/types";
+import { coreModules } from "./core/registry";
 import {
   ExtensionFrame,
   useExtensionContributions,
-  type ExtensionViewContribution,
 } from "./extensions";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -49,52 +47,49 @@ function parseNavMoreUiState(value: unknown): NavMoreUiState | null {
   };
 }
 
-type BuiltinWorkbenchModule = ModuleDescriptor & { kind: "builtin" };
-
-interface ExtensionWorkbenchModule {
-  kind: "extension";
+interface WorkbenchItem {
   id: string;
   name: string;
   description: string;
-  icon: typeof Puzzle;
-  group: "main";
-  fullHeight: true;
+  icon: LucideIcon;
+  group: "main" | "system";
+  fullHeight: boolean;
   pinned: boolean;
-  contribution: ExtensionViewContribution;
+  content: ReactNode;
 }
 
-type WorkbenchModule = BuiltinWorkbenchModule | ExtensionWorkbenchModule;
-
-const builtinModules: BuiltinWorkbenchModule[] = modules.map((module) => ({
+const registeredCoreItems: WorkbenchItem[] = coreModules.map(({ panel: Panel, ...module }) => ({
   ...module,
-  kind: "builtin",
+  group: module.group ?? "main",
+  fullHeight: module.fullHeight ?? false,
+  pinned: module.pinned ?? true,
+  content: <Panel />,
 }));
 
 function App() {
   const { contributions } = useExtensionContributions();
-  const workbenchModules = useMemo<WorkbenchModule[]>(() => [
-    ...builtinModules,
+  const workbenchItems = useMemo<WorkbenchItem[]>(() => [
+    ...registeredCoreItems,
     ...contributions.map((contribution) => ({
-      kind: "extension" as const,
-      id: `extension:${contribution.pluginId}:${contribution.viewId}`,
+      id: `plugin:${contribution.pluginId}:${contribution.viewId}`,
       name: contribution.title,
       description: contribution.description,
       icon: Puzzle,
       group: "main" as const,
-      fullHeight: true as const,
+      fullHeight: true,
       pinned: true,
-      contribution,
+      content: <ExtensionFrame contribution={contribution} />,
     })),
   ], [contributions]);
-  const navItems = useMemo<NavItem[]>(() => workbenchModules.map((module) => ({
-    id: module.id,
-    name: module.name,
-    icon: module.icon,
-    pinned: module.pinned,
-    group: module.group === "system" ? "system" : "main",
-  })), [workbenchModules]);
+  const navItems = useMemo<NavItem[]>(() => workbenchItems.map((item) => ({
+    id: item.id,
+    name: item.name,
+    icon: item.icon,
+    pinned: item.pinned,
+    group: item.group,
+  })), [workbenchItems]);
 
-  const [activeId, setActiveId] = useState(builtinModules[0]?.id ?? "");
+  const [activeId, setActiveId] = useState(registeredCoreItems[0]?.id ?? "");
   const [collapsed, setCollapsed] = useState(true);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [dragging, setDragging] = useState(false);
@@ -102,21 +97,20 @@ function App() {
   const [moreOpen, setMoreOpen] = useState(false);
   const asideRef = useRef<HTMLElement>(null);
 
-  const active = workbenchModules.find((module) => module.id === activeId) ?? workbenchModules[0];
-  const ActivePanel = active?.kind === "builtin" ? active.panel : null;
+  const active = workbenchItems.find((item) => item.id === activeId) ?? workbenchItems[0];
   const isFullHeightPanel = active?.fullHeight === true;
 
   // 分组(展开态用)
-  const mainModules = workbenchModules.filter((module) => (module.group ?? "main") === "main");
-  const systemModules = workbenchModules.filter((module) => module.group === "system");
-  const pinnedModules = mainModules.filter((module) => module.pinned !== false);
-  const overflowModules = mainModules.filter((module) => module.pinned === false);
+  const mainItems = workbenchItems.filter((item) => item.group === "main");
+  const systemItems = workbenchItems.filter((item) => item.group === "system");
+  const pinnedItems = mainItems.filter((item) => item.pinned);
+  const overflowItems = mainItems.filter((item) => !item.pinned);
 
   useEffect(() => {
-    if (!workbenchModules.some((module) => module.id === activeId)) {
-      setActiveId(workbenchModules[0]?.id ?? "");
+    if (!workbenchItems.some((item) => item.id === activeId)) {
+      setActiveId(workbenchItems[0]?.id ?? "");
     }
-  }, [activeId, workbenchModules]);
+  }, [activeId, workbenchItems]);
 
   const openProjectRepo = useCallback(() => {
     void openUrl(PROJECT_REPO_URL);
@@ -138,7 +132,7 @@ function App() {
   }, []);
 
   // App 外壳的一级侧边栏展开为“图标 + 文字”时，点击其“更多”按钮会切换并保存状态。
-  // 当前一级 modules 没有 pinned: false 的模块，因此这个按钮暂时不会渲染出来。
+  // 当前没有 pinned: false 的工作台项，因此这个按钮暂时不会渲染出来。
   const toggleMoreOpen = useCallback(() => {
     setMoreOpen((open) => {
       const next = !open;
@@ -209,14 +203,14 @@ function App() {
   }, []);
 
   /** 展开态按钮(带文字) */
-  function ExpandedButton({ module }: { module: WorkbenchModule }) {
-    const Icon = module.icon;
-    const isActive = module.id === active?.id;
+  function ExpandedButton({ item }: { item: WorkbenchItem }) {
+    const Icon = item.icon;
+    const isActive = item.id === active?.id;
     return (
       <button
         type="button"
-        onClick={() => setActiveId(module.id)}
-        aria-label={module.name}
+        onClick={() => setActiveId(item.id)}
+        aria-label={item.name}
         className={cn(
           "flex h-9 w-full items-center gap-3 rounded-md px-3 text-sm transition-colors",
           isActive
@@ -225,7 +219,7 @@ function App() {
         )}
       >
         <Icon className="size-[18px] shrink-0" />
-        <span className="truncate">{module.name}</span>
+        <span className="truncate">{item.name}</span>
       </button>
     );
   }
@@ -289,11 +283,11 @@ function App() {
             <>
               <ScrollArea className="flex-1">
                 <nav className="flex flex-col gap-1">
-                  {pinnedModules.map((module) => (
-                    <ExpandedButton key={module.id} module={module} />
+                  {pinnedItems.map((item) => (
+                    <ExpandedButton key={item.id} item={item} />
                   ))}
                   {/* 溢出折叠 */}
-                  {overflowModules.length > 0 && (
+                  {overflowItems.length > 0 && (
                     <>
                       <Separator className="bg-sidebar-border my-1" />
                       <button
@@ -309,8 +303,8 @@ function App() {
                         <MoreHorizontal className="size-[16px] shrink-0" />
                         <span>更多</span>
                       </button>
-                      {moreOpen && overflowModules.map((module) => (
-                        <ExpandedButton key={module.id} module={module} />
+                      {moreOpen && overflowItems.map((item) => (
+                        <ExpandedButton key={item.id} item={item} />
                       ))}
                     </>
                   )}
@@ -318,11 +312,11 @@ function App() {
               </ScrollArea>
 
               {/* 系统区(底部固定) */}
-              {systemModules.length > 0 && (
+              {systemItems.length > 0 && (
                 <div className="mt-2 flex flex-col gap-1">
                   <Separator className="bg-sidebar-border mb-1" />
-                  {systemModules.map((module) => (
-                    <ExpandedButton key={module.id} module={module} />
+                  {systemItems.map((item) => (
+                    <ExpandedButton key={item.id} item={item} />
                   ))}
                 </div>
               )}
@@ -350,14 +344,12 @@ function App() {
           )}
           {isFullHeightPanel ? (
             <div className="min-h-0 flex-1 overflow-hidden">
-              {active?.kind === "extension"
-                ? <ExtensionFrame contribution={active.contribution} />
-                : ActivePanel && <ActivePanel />}
+              {active?.content}
             </div>
           ) : (
             <ScrollArea className="flex-1">
               <div className="mx-auto flex max-w-3xl flex-col gap-4 px-7 py-6">
-                {ActivePanel && <ActivePanel />}
+                {active?.content}
               </div>
             </ScrollArea>
           )}

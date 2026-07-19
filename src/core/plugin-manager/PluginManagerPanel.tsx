@@ -95,7 +95,7 @@ function isUpdateAvailable(plugin: MarketPlugin): boolean {
   return compareSemver(plugin.version, plugin.installedVersion) === 1;
 }
 
-export function ExtensionMarketplacePanel() {
+export function PluginManagerPanel() {
   const [plugins, setPlugins] = useState<MarketPlugin[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [query, setQuery] = useState("");

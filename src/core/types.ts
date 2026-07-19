@@ -1,11 +1,11 @@
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 
-/** 模块分组：main = 主导航；system = 底部固定系统入口 */
-export type ModuleGroup = "main" | "system";
+/** Core 模块分组：main = 主导航；system = 底部固定系统入口。 */
+export type CoreModuleGroup = "main" | "system";
 
-/** 侧边栏模块描述，负责驱动导航按钮与内容面板渲染。 */
-export interface ModuleDescriptor {
+/** 随主应用编译的 Core 模块，区别于运行时安装的插件。 */
+export interface CoreModuleDescriptor {
   /** 唯一标识 */
   id: string;
   /** 侧边栏与面板标题展示的名称 */
@@ -17,7 +17,7 @@ export interface ModuleDescriptor {
   /** 右侧操作面板组件 */
   panel: ComponentType;
   /** 分区归属，缺省视为主导航模块。 */
-  group?: ModuleGroup;
+  group?: CoreModuleGroup;
   /** 是否使用完整高度渲染，跳过通用标题和内容滚动容器。 */
   fullHeight?: boolean;
   /**

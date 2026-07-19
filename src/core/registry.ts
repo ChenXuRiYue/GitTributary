@@ -1,14 +1,14 @@
 import { Blocks, BookOpenCheck, GitBranch, Database, Workflow } from "lucide-react";
 
-import type { ModuleDescriptor } from "./types";
+import type { CoreModuleDescriptor } from "./types";
 import { FlowPanel } from "./flow/FlowPanel";
 import { GitPanel } from "./git/GitPanel";
 import { SitePanel } from "./site/SitePanel";
 import { StorePanel } from "./store/StorePanel";
-import { ExtensionMarketplacePanel } from "./extensions/ExtensionMarketplacePanel";
+import { PluginManagerPanel } from "./plugin-manager/PluginManagerPanel";
 
-/** 模块注册表。侧边栏与内容区会按这里的描述自动渲染。 */
-export const modules: ModuleDescriptor[] = [
+/** Core 模块注册表。这里的功能随主应用编译，不属于可安装插件。 */
+export const coreModules: CoreModuleDescriptor[] = [
   {
     id: "git",
     name: "Git",
@@ -42,11 +42,11 @@ export const modules: ModuleDescriptor[] = [
     fullHeight: true,
   },
   {
-    id: "extensions",
+    id: "plugins",
     name: "插件",
     description: "安装、更新和管理随应用提供的插件。",
     icon: Blocks,
-    panel: ExtensionMarketplacePanel,
+    panel: PluginManagerPanel,
     group: "system",
     fullHeight: true,
   },

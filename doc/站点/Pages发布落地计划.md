@@ -66,7 +66,7 @@
 
 ### 4.1 新增前端类型
 
-在 `src/plugins/site/SitePanel.tsx` 中新增类型:
+在 `src/core/site/SitePanel.tsx` 中新增类型:
 
 ```ts
 interface RemoteConfigEntry {
@@ -275,7 +275,7 @@ publish.<repo_hash> -> 发布目标配置
 ### 必改
 
 ```text
-src/plugins/site/SitePanel.tsx
+src/core/site/SitePanel.tsx
 ```
 
 新增内容:

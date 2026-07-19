@@ -64,7 +64,7 @@ export function ExtensionFrame({ contribution, className }: ExtensionFrameProps)
       bridgeRef.current?.dispose();
       bridgeRef.current = null;
       setLoading(false);
-      setError("扩展页面发生了不允许的导航");
+        setError("插件页面发生了不允许的导航");
       return;
     }
     const frame = frameRef.current;
@@ -78,7 +78,7 @@ export function ExtensionFrame({ contribution, className }: ExtensionFrameProps)
         bridgeRef.current = null;
         startupTimerRef.current = null;
         setLoading(false);
-        setError("扩展前端启动超时");
+        setError("插件前端启动超时");
       }, EXTENSION_STARTUP_TIMEOUT_MS);
     }
   }, [clearStartupTimer, contribution]);
@@ -88,7 +88,7 @@ export function ExtensionFrame({ contribution, className }: ExtensionFrameProps)
     bridgeRef.current?.dispose();
     bridgeRef.current = null;
     setLoading(false);
-    setError("扩展页面加载失败");
+    setError("插件页面加载失败");
   }, [clearStartupTimer]);
 
   return (
@@ -118,7 +118,7 @@ export function ExtensionFrame({ contribution, className }: ExtensionFrameProps)
         <div className="absolute inset-0 flex items-center justify-center bg-background p-6">
           <div className="flex max-w-sm flex-col items-center text-center">
             <AlertTriangle className="text-destructive mb-3 size-6" />
-            <h2 className="gt-title-panel">扩展暂时无法运行</h2>
+            <h2 className="gt-title-panel">插件暂时无法运行</h2>
             <p className="text-muted-foreground gt-body mt-2 break-words">{error}</p>
             <Button className="mt-4" variant="outline" size="sm" onClick={retry}>
               <RefreshCw />

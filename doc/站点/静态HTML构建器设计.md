@@ -1,8 +1,8 @@
 # 静态 HTML 构建器设计
 
 > 更新时间: 2026-06-29
-> 范围: Git Tributary MVP 插件,从本地 Git 仓库捕捉 Markdown 文档目录并构建离线静态 HTML 站点。
-> **实现状态**: 已实现为 `gt-site` crate + `src/plugins/site/` 前端插件。实际代码结构已超越本设计稿,详见 `doc/架构/项目模块现状.md` 站点模块章节。Pages 发布部分另见同目录 `Pages发布目标设计.md` 与 `Pages发布落地计划.md`。
+> 范围: 从本地 Git 仓库捕捉 Markdown 文档目录并构建离线静态 HTML 站点。
+> **实现状态**: 已实现为 `gt-site` 核心包 + `src/core/site/` Core 模块。本文保留早期方案背景，当前边界以 `doc/架构/项目模块现状.md` 为准。
 
 ## 一、目标
 
@@ -19,11 +19,11 @@
   → 本地打开 index.html 浏览
 ```
 
-这个功能不依赖云服务,也不要求用户安装 Node.js、Python 或额外命令行工具。MVP 作为当前静态注册表中的一级插件实现:前端插件负责配置、预览、触发和展示构建结果;构建过程由 Git Tributary 的 Tauri/Rust 端完成。
+这个功能不依赖云服务,也不要求用户安装 Node.js、Python 或额外命令行工具。它作为 Core 模块随主应用编译，由前端负责配置和展示，`gt-site` 核心包负责构建。
 
 ## 二、产品定位
 
-静态 HTML 构建器不是博客发布系统,也不是外部插件市场能力。它是一个面向本地仓库的文档阅读与导出插件。
+静态 HTML 构建器不是博客发布系统，也不是插件市场能力。它是面向本地仓库的 Core 功能。
 
 核心定位:
 
@@ -58,10 +58,10 @@
 
 第一版只做静态构建闭环。
 
-MVP 插件形态:
+MVP Core 模块形态:
 
 ```text
-src/plugins/site/
+src/core/site/
   SitePanel.tsx
   types.ts
   components/
@@ -70,7 +70,7 @@ src/plugins/site/
     SiteBuildLog.tsx
 ```
 
-注册方式沿用当前 `src/plugins/registry.ts` 静态注册表:
+注册方式沿用 `src/core/registry.ts` Core 注册表:
 
 ```ts
 {
@@ -82,7 +82,7 @@ src/plugins/site/
 }
 ```
 
-这仍是“插件式模块”,但不是外部动态加载插件。它随应用一起编译发布,用于先验证产品闭环和构建能力。
+它随应用一起编译发布，不参与插件安装和卸载生命周期。
 
 ### 4.1 输入
 
@@ -203,7 +203,7 @@ src-tauri/target/
 
 ## 六、插件前端交互设计
 
-MVP 新增一级插件「站点」。该插件出现在左侧一级导航中,和 Git、流、数据、拓展等模块并列。
+MVP 新增发布 Core 模块，出现在左侧一级导航中，与 Git、Flow、数据并列。
 
 ### 6.1 主视图结构
 
@@ -298,7 +298,7 @@ fn site_build(config: SiteBuildConfig) -> Result<SiteBuildReport, String>
 fn site_open_output(path: String) -> Result<(), String>
 ```
 
-MVP 插件调用链:
+MVP Core 调用链:
 
 ```text
 SitePanel.tsx
@@ -307,7 +307,7 @@ SitePanel.tsx
   → invoke("site_open_output")
 ```
 
-Rust command 仍由宿主应用统一注册。MVP 插件不能自己新增 Tauri command,因此相关 command 必须随本次功能一起写入 `src-tauri/src/lib.rs` 的 `generate_handler!`。
+Rust command 由主应用统一注册，相关 command 随 Core 功能写入 `src-tauri/src/lib.rs` 的 `generate_handler!`。
 
 后续如果需要构建进度,再增加事件:
 
@@ -633,26 +633,26 @@ Markdown HTML 策略:
 | Git | 复用当前打开仓库路径,后续可读取分支、提交信息作为站点元数据 |
 | 数据中心 | 保存构建配置、最近输出目录、主题偏好 |
 | Flow | 后续支持自动构建、构建完成事件 |
-| 拓展 | 不进入外部插件市场;仅作为当前静态注册表插件存在 |
+| 插件 | 发布能力由 Core 提供，不进入插件市场 |
 | 设置 | 可放全局默认输出目录、主题、安全策略 |
 
-## 十八、MVP 插件落地方式
+## 十八、MVP Core 模块落地方式
 
-第一版作为一级插件注册:
+第一版作为 Core 模块注册:
 
 ```text
 id: "site"
 name: "站点"
 description: "从本地仓库文档构建离线静态 HTML。"
-category: "extension"
+registry: "core"
 ```
 
 需要修改:
 
 ```text
-src/plugins/types.ts              可不改,复用现有 PluginDescriptor
-src/plugins/registry.ts           增加 site 插件注册
-src/plugins/site/SitePanel.tsx    新增插件主面板
+src/core/types.ts                 CoreModuleDescriptor
+src/core/registry.ts              注册发布 Core 模块
+src/core/site/SitePanel.tsx       发布主面板
 src-tauri/Cargo.toml              增加 gt-site workspace crate
 src-tauri/src/lib.rs              注册 site_scan/site_build/site_open_output
 src-tauri/crates/gt-site/         新增构建核心
@@ -666,7 +666,7 @@ MVP 不做:
 - 插件权限隔离。
 - 插件市场安装流程。
 
-当前目标是用“插件式模块”的工程结构交付静态站点功能,为后续真正插件系统保留接口经验。
+当前目标是以 Core 模块交付静态站点功能。
 
 ## 十九、待决问题
 
@@ -678,7 +678,7 @@ MVP 不做:
 
 ## 二十、结论
 
-静态 HTML 构建器适合作为 Git Tributary 的近期 MVP 插件。它能复用现有的静态插件注册表、本地仓库、数据中心和 Tauri 文件能力,同时不需要云服务和外部动态插件系统。
+静态 HTML 构建器是 Git Tributary 的 Core 功能，可直接复用仓库、数据和 Tauri 文件能力。
 
 第一版应优先完成:
 
