@@ -5,6 +5,22 @@ import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pluginsRoot = resolve(root, "plugins");
+const supportedPluginIcons = new Set([
+  "lucide:bot",
+  "lucide:chart",
+  "lucide:code",
+  "lucide:database",
+  "lucide:globe",
+  "lucide:paperclip",
+  "lucide:search",
+  "lucide:send",
+  "lucide:settings",
+  "lucide:shield",
+  "lucide:terminal",
+  "lucide:wand",
+  "lucide:workflow",
+]);
+const claimedPluginIcons = new Map();
 
 function fail(message) {
   throw new Error(`[plugin:build] ${message}`);
@@ -53,6 +69,14 @@ function buildPlugin(directory) {
   if (typeof manifest.id !== "string" || manifest.id.length === 0) {
     fail(`${directory}/manifest.json is missing id`);
   }
+  if (!supportedPluginIcons.has(manifest.icon)) {
+    fail(`${manifest.id} must declare a supported manifest.icon`);
+  }
+  const iconOwner = claimedPluginIcons.get(manifest.icon);
+  if (iconOwner) {
+    fail(`${manifest.id} reuses manifest.icon ${manifest.icon} from ${iconOwner}`);
+  }
+  claimedPluginIcons.set(manifest.icon, manifest.id);
 
   const views = manifest.contributes?.views;
   if (!Array.isArray(views) || views.length === 0) {

@@ -97,6 +97,11 @@ function preparePlugin(directory) {
   mkdirSync(outputRoot, { recursive: true });
   cpSync(manifestPath, resolve(outputRoot, "manifest.json"));
 
+  if (manifest.icon !== undefined && !manifest.icon.startsWith("lucide:")) {
+    const icon = sourcePath(pluginRoot, manifest.icon, `${directory} manifest.icon`, "file");
+    copyPath(icon.path, pluginRoot, outputRoot);
+  }
+
   const buildDirectories = new Set();
   for (const [index, view] of views.entries()) {
     const entry = sourcePath(
@@ -111,7 +116,7 @@ function preparePlugin(directory) {
     }
     buildDirectories.add(buildDirectory);
 
-    if (view.icon !== undefined) {
+    if (view.icon !== undefined && !view.icon.startsWith("lucide:")) {
       const icon = sourcePath(
         pluginRoot,
         view.icon,

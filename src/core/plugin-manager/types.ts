@@ -6,6 +6,7 @@ export interface MarketPluginView {
 export interface MarketPlugin {
   id: string;
   name: string;
+  icon: string | null;
   description: string;
   version: string;
   publisher: string;

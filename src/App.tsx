@@ -1,5 +1,5 @@
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ExternalLink, PanelLeftClose, PanelLeft, MoreHorizontal, Puzzle, type LucideIcon } from "lucide-react";
+import { ExternalLink, PanelLeftClose, PanelLeft, MoreHorizontal, type LucideIcon } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -10,6 +10,7 @@ import {
   ExtensionFrame,
   useExtensionContributions,
 } from "./extensions";
+import { resolveExtensionIcon } from "./extensions/icons";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -74,7 +75,7 @@ function App() {
       id: `plugin:${contribution.pluginId}:${contribution.viewId}`,
       name: contribution.title,
       description: contribution.description,
-      icon: Puzzle,
+      icon: resolveExtensionIcon(contribution.iconUrl, contribution.pluginId),
       group: "main" as const,
       fullHeight: true,
       pinned: true,

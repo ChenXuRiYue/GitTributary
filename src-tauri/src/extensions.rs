@@ -29,6 +29,8 @@ pub struct ExtensionManifest {
     pub id: String,
     pub name: String,
     pub version: String,
+    #[serde(default)]
+    pub icon: Option<String>,
     #[serde(default = "default_publisher")]
     pub publisher: String,
     #[serde(default = "default_api_version")]
@@ -274,7 +276,7 @@ pub fn asset_response(
             .header(header::CONTENT_TYPE, content_type(&path))
             .header(
                 "Content-Security-Policy",
-                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; frame-ancestors *",
+                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; object-src 'self' data:; connect-src 'none'; frame-ancestors *",
             )
             .header("Access-Control-Allow-Origin", "*")
             .body(body)
@@ -501,13 +503,16 @@ fn extension_to_list_item(extension: &InstalledExtension) -> ExtensionListItem {
             .contributes
             .views
             .iter()
-            .map(|view| ExtensionViewContribution {
-                id: view.id.clone(),
-                title: view.title.clone(),
-                description: view.description.clone(),
-                location: view.location.clone(),
-                entry_url: format!("{base}{}", view.entry),
-                icon_url: view.icon.as_ref().map(|icon| format!("{base}{icon}")),
+            .map(|view| {
+                let icon = view.icon.as_ref().or(extension.manifest.icon.as_ref());
+                ExtensionViewContribution {
+                    id: view.id.clone(),
+                    title: view.title.clone(),
+                    description: view.description.clone(),
+                    location: view.location.clone(),
+                    entry_url: format!("{base}{}", view.entry),
+                    icon_url: icon.map(|icon| extension_icon_value(&base, icon)),
+                }
             })
             .collect(),
     }
@@ -528,6 +533,9 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
     }
     if manifest.contributes.views.is_empty() {
         return Err("MVP 插件至少需要贡献一个 view".to_string());
+    }
+    if let Some(icon) = &manifest.icon {
+        validate_lucide_icon(icon)?;
     }
     let allowed_permissions = [
         "repository:read",
@@ -553,7 +561,11 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
         }
         safe_join(root, &view.entry)?;
         if let Some(icon) = &view.icon {
-            safe_join(root, icon)?;
+            if icon.starts_with("lucide:") {
+                validate_lucide_icon(icon)?;
+            } else {
+                safe_join(root, icon)?;
+            }
         }
     }
     if let Some(backend) = &manifest.backend {
@@ -803,6 +815,31 @@ fn valid_extension_id(value: &str) -> bool {
         })
 }
 
+fn validate_lucide_icon(value: &str) -> Result<(), String> {
+    let Some(name) = value.strip_prefix("lucide:") else {
+        return Err("插件 icon 必须使用 lucide:<name>".to_string());
+    };
+    if name.is_empty()
+        || name.len() > 64
+        || name.starts_with('-')
+        || name.ends_with('-')
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    {
+        return Err("插件 Lucide icon 格式无效".to_string());
+    }
+    Ok(())
+}
+
+fn extension_icon_value(base: &str, icon: &str) -> String {
+    if icon.starts_with("lucide:") {
+        icon.to_string()
+    } else {
+        format!("{base}{icon}")
+    }
+}
+
 fn valid_version_segment(value: &str) -> bool {
     !value.is_empty()
         && value != "."
@@ -982,6 +1019,7 @@ mod tests {
               "id": "com.example.demo",
               "name": "Demo",
               "version": "0.1.0",
+              "icon": "lucide:paperclip",
               "contributes": {"views": [{
                 "id": "main", "title": "Demo", "entry": "web/index.html"
               }]},
@@ -992,7 +1030,12 @@ mod tests {
 
         let registry = ExtensionRegistry::default();
         registry.register_path(directory.path()).unwrap();
-        assert_eq!(registry.list().len(), 1);
+        let extensions = registry.list();
+        assert_eq!(extensions.len(), 1);
+        assert_eq!(
+            extensions[0].views[0].icon_url.as_deref(),
+            Some("lucide:paperclip")
+        );
 
         let request = Request::builder()
             .uri("gt-plugin://localhost/com.example.demo/web/index.html")
@@ -1010,5 +1053,14 @@ mod tests {
         assert!(csp.contains("script-src 'self'"));
         assert!(csp.contains("connect-src 'none'"));
         assert!(!csp.contains("unsafe-eval"));
+    }
+
+    #[test]
+    fn validates_lucide_icon_tokens() {
+        assert!(validate_lucide_icon("lucide:paperclip").is_ok());
+        assert!(validate_lucide_icon("lucide:chart-no-axes").is_ok());
+        assert!(validate_lucide_icon("paperclip").is_err());
+        assert!(validate_lucide_icon("lucide:Paperclip").is_err());
+        assert!(validate_lucide_icon("lucide:../paperclip").is_err());
     }
 }

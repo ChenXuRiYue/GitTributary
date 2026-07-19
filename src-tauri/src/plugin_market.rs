@@ -21,6 +21,7 @@ const MAX_PLUGIN_BYTES: u64 = 128 * 1024 * 1024;
 pub struct PluginMarketItem {
     pub id: String,
     pub name: String,
+    pub icon: Option<String>,
     pub description: String,
     pub version: String,
     pub publisher: String,
@@ -239,6 +240,7 @@ fn market_item(manifest: &ExtensionManifest, state: &AppState) -> PluginMarketIt
     PluginMarketItem {
         id: manifest.id.clone(),
         name: manifest.name.clone(),
+        icon: manifest.icon.clone(),
         description: manifest.description.clone(),
         version: manifest.version.clone(),
         publisher: manifest.publisher.clone(),
@@ -278,6 +280,11 @@ fn stage_project_plugin(
         &staging.join("manifest.json"),
         &mut limits,
     )?;
+    if let Some(icon) = &manifest.icon {
+        if !icon.starts_with("lucide:") {
+            copy_file_checked(&source.join(icon), &staging.join(icon), &mut limits)?;
+        }
+    }
 
     let mut frontend_roots = BTreeSet::new();
     for view in &manifest.contributes.views {
@@ -285,7 +292,9 @@ fn stage_project_plugin(
         let parent = entry.parent().unwrap_or_else(|| Path::new(""));
         frontend_roots.insert(parent.to_path_buf());
         if let Some(icon) = &view.icon {
-            copy_file_checked(&source.join(icon), &staging.join(icon), &mut limits)?;
+            if !icon.starts_with("lucide:") {
+                copy_file_checked(&source.join(icon), &staging.join(icon), &mut limits)?;
+            }
         }
     }
     for relative in frontend_roots {

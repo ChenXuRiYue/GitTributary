@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { DomainTrail, type DomainTrailItem } from "@/components/DomainTrail";
+import { resolveExtensionIcon } from "@/extensions/icons";
 import { cn } from "@/lib/utils";
 
 import {
@@ -140,6 +141,7 @@ export function PluginManagerPanel() {
   const selected = filteredPlugins.find((plugin) => plugin.id === selectedId)
     ?? filteredPlugins[0]
     ?? null;
+  const SelectedIcon = resolveExtensionIcon(selected?.icon, selected?.id);
   const installedCount = plugins.filter((plugin) => plugin.installedVersion !== null).length;
   const trailItems: DomainTrailItem[] = [{ id: "plugins", label: "插件" }];
 
@@ -266,6 +268,7 @@ export function PluginManagerPanel() {
             ) : filteredPlugins.map((plugin) => {
               const current = selected?.id === plugin.id;
               const updateAvailable = isUpdateAvailable(plugin);
+              const PluginIcon = resolveExtensionIcon(plugin.icon, plugin.id);
               return (
                 <button
                   key={plugin.id}
@@ -285,7 +288,7 @@ export function PluginManagerPanel() {
                       ? "border-primary/30 bg-primary/10 text-primary"
                       : "bg-background text-muted-foreground",
                   )}>
-                    <Box className="size-4" />
+                    <PluginIcon className="size-4" />
                   </div>
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 items-center gap-2">
@@ -325,7 +328,7 @@ export function PluginManagerPanel() {
                   <div className="flex flex-wrap items-start justify-between gap-4 border-b px-4 py-3">
                     <div className="flex min-w-0 items-start gap-3">
                       <div className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-muted/35">
-                        <Box className="size-4 text-muted-foreground" />
+                        <SelectedIcon className="size-5 text-muted-foreground" />
                       </div>
                       <div className="min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">

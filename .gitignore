@@ -11,8 +11,17 @@ node_modules
 dist
 dist-ssr
 *.local
+
+# Generated plugin artifacts
+plugins/*/frontend/dist/
+plugins/*/frontend/*.tsbuildinfo
+plugins/*/backend/target/
 src-tauri/binaries/
 src-tauri/resources/plugins/
+src-tauri/resources/.plugins-staging/
+
+# Standalone Cargo crate outputs
+src-tauri/crates/*/target/
 
 # Editor directories and files
 .vscode/*

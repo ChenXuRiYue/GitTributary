@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "apiVersion": "1",
-  "id": "dev.gittributary.site-publisher",
-  "name": "发布",
-  "icon": "lucide:send",
-  "description": "从仓库文档构建静态站点并发布到 GitHub Pages。",
+  "id": "dev.gittributary.attachment-manager",
+  "name": "附件",
+  "icon": "lucide:paperclip",
+  "description": "浏览仓库附件、检查 Markdown 引用与孤立文件。",
   "version": "0.1.1",
   "publisher": "GitTributary",
   "engines": {
@@ -13,9 +13,9 @@
   "contributes": {
     "views": [
       {
-        "id": "site-publisher.main",
-        "title": "发布",
-        "description": "文档范围、构建结果与静态发布。",
+        "id": "attachment-manager.main",
+        "title": "附件",
+        "description": "仓库附件与引用关系。",
         "location": "activitybar",
         "entry": "frontend/dist/index.html"
       }
@@ -24,20 +24,18 @@
   "backend": {
     "runtime": "rust-cdylib",
     "entry": "backend/target/release",
-    "library": "site_publisher_plugin",
+    "library": "attachment_manager_plugin",
     "methods": {
-      "site.scan": ["files:read"],
-      "site.build": ["files:read"],
-      "site.publish": ["files:read", "git:write"]
+      "attachments.scan": ["files:read"],
+      "attachments.preview": ["files:read"]
     }
   },
   "activationEvents": [
-    "onView:site-publisher.main"
+    "onView:attachment-manager.main"
   ],
   "permissions": [
     "repository:read",
     "files:read",
-    "git:write",
     "store:read",
     "store:write",
     "shell:open"
