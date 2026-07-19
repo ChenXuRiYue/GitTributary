@@ -594,6 +594,8 @@ mod tests {
             store: std::sync::Mutex::new(store),
             event_pool: std::sync::Mutex::new(EventPool::new()),
             node_registry: std::sync::Mutex::new(FlowNodeRegistry::new()),
+            extensions: crate::extensions::ExtensionRegistry::default(),
+            plugin_host: crate::plugin_host::PluginHostSupervisor::default(),
         };
         (dir, state)
     }
@@ -715,8 +717,12 @@ mod tests {
             .unwrap();
         {
             let mut store = state.store.lock().unwrap();
-            store.bind_repo(&invalid_dir.path().display().to_string()).unwrap();
-            store.bind_repo(&valid_dir.path().display().to_string()).unwrap();
+            store
+                .bind_repo(&invalid_dir.path().display().to_string())
+                .unwrap();
+            store
+                .bind_repo(&valid_dir.path().display().to_string())
+                .unwrap();
         }
 
         let entries = collect_remote_configs(&state).unwrap();
@@ -745,8 +751,8 @@ mod tests {
             })
             .unwrap();
 
-        let entries = collect_remote_configs_with_base_dir(&state, store_dir.path().to_path_buf())
-            .unwrap();
+        let entries =
+            collect_remote_configs_with_base_dir(&state, store_dir.path().to_path_buf()).unwrap();
 
         let config = entries
             .iter()

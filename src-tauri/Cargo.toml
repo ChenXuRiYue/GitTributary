@@ -1,5 +1,12 @@
 [workspace]
-members = ["crates/gt-git", "crates/gt-store", "crates/gt-flow", "crates/gt-site"]
+members = [
+    "crates/gt-git",
+    "crates/gt-store",
+    "crates/gt-flow",
+    "crates/gt-site",
+    "crates/gt-plugin-protocol",
+    "crates/gt-plugin-host",
+]
 
 [package]
 name = "gittributary"
@@ -30,6 +37,7 @@ gt-git = { path = "crates/gt-git" }
 gt-store = { path = "crates/gt-store" }
 gt-flow = { path = "crates/gt-flow" }
 gt-site = { path = "crates/gt-site" }
+gt-plugin-protocol = { path = "crates/gt-plugin-protocol" }
 dirs-next = "2"
 
 [dev-dependencies]

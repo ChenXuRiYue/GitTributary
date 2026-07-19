@@ -4,9 +4,9 @@
   "version": "0.1.3",
   "identifier": "com.axel.git.tributary",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run plugin:mvp:build && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run plugin:host:prepare && npm run plugin:bundle:prepare && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -24,6 +24,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": ["binaries/gt-plugin-host"],
+    "resources": {
+      "resources/plugins/": "plugins/"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

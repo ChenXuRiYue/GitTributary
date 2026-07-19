@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "apiVersion": "1",
+  "id": "dev.gittributary.repository-insights",
+  "name": "仓库洞察",
+  "description": "项目内插件，用于展示仓库、Git 和 Flow 摘要。",
+  "version": "0.1.0",
+  "publisher": "GitTributary",
+  "engines": {
+    "gittributary": ">=0.1.3"
+  },
+  "contributes": {
+    "views": [
+      {
+        "id": "repository-insights.overview",
+        "title": "仓库洞察",
+        "location": "activitybar",
+        "entry": "frontend/dist/index.html"
+      }
+    ]
+  },
+  "backend": {
+    "runtime": "rust-cdylib",
+    "entry": "backend/target/release",
+    "library": "repository_insights_plugin"
+  },
+  "activationEvents": [
+    "onView:repository-insights.overview"
+  ],
+  "permissions": [
+    "repository:read",
+    "git:read",
+    "flow:read"
+  ]
+}

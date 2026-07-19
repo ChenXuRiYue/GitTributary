@@ -10,8 +10,11 @@ mod auth;
 mod commands;
 mod config_dir;
 mod error;
+mod extensions;
 mod identity;
 mod keys;
+mod plugin_host;
+mod plugin_market;
 use commands::credentials::{
     clear_data_center_config_token, clear_git_token, get_data_center_config_credential_status,
     get_git_credentials, set_data_center_config_token, set_git_email, set_git_remote_url,
@@ -29,8 +32,8 @@ use commands::git::{
     get_status, open_repo, stage_all, stage_files,
 };
 use commands::remote::{
-    add_remote, clone_remote_repo, get_remote_configs, get_remotes, git_fetch, git_pull,
-    git_push, remove_remote, set_project_token, set_remote_url,
+    add_remote, clone_remote_repo, get_remote_configs, get_remotes, git_fetch, git_pull, git_push,
+    remove_remote, set_project_token, set_remote_url,
 };
 use commands::site::{site_build, site_open_output, site_publish_pages, site_scan};
 use commands::store::{
@@ -40,11 +43,13 @@ use commands::store::{
     store_namespaces, store_scan, store_set, store_switch_environment, store_switch_profile,
 };
 use commands::sync::{
-    check_data_center_config_repo, sync_data_center_now, sync_get_config, sync_get_state,
-    sync_now, sync_set_config, unbind_data_center_config_remote,
-    update_data_center_config_remote,
+    check_data_center_config_repo, sync_data_center_now, sync_get_config, sync_get_state, sync_now,
+    sync_set_config, unbind_data_center_config_remote, update_data_center_config_remote,
 };
 use commands::workspace::{get_recent_repos, get_workspace_info};
+use extensions::{extension_call, extension_list, ExtensionRegistry};
+use plugin_host::{plugin_host_ping, plugin_host_status, PluginHostSupervisor};
+use plugin_market::{plugin_install, plugin_market_list, plugin_uninstall};
 
 /// 应用状态
 pub struct AppState {
@@ -52,6 +57,8 @@ pub struct AppState {
     pub store: Mutex<Store>,
     pub event_pool: Mutex<EventPool>,
     pub node_registry: Mutex<FlowNodeRegistry>,
+    pub extensions: ExtensionRegistry,
+    pub plugin_host: PluginHostSupervisor,
 }
 
 pub(crate) fn set_active_repo_state(
@@ -126,7 +133,17 @@ pub fn run() {
         .migrate_git_remote_url_to_local()
         .expect("无法迁移 Git 默认远程配置");
 
+    let plugins_dir = store_dir.join("plugins");
+    if let Err(error) = std::fs::create_dir_all(&plugins_dir) {
+        eprintln!("[extensions] 无法创建插件目录: {error}");
+    }
+    let extensions = ExtensionRegistry::discover(&plugins_dir);
+    let extension_assets = extensions.clone();
+
     tauri::Builder::default()
+        .register_uri_scheme_protocol("gt-plugin", move |_context, request| {
+            extensions::asset_response(&extension_assets, &request)
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
@@ -134,9 +151,14 @@ pub fn run() {
             store: Mutex::new(store),
             event_pool: Mutex::new(EventPool::new()),
             node_registry: Mutex::new(FlowNodeRegistry::new()),
+            extensions,
+            plugin_host: PluginHostSupervisor::default(),
         })
         .setup(|app| {
             let state = app.state::<AppState>();
+            if let Err(error) = state.plugin_host.start() {
+                eprintln!("[gt-plugin-host] {error}");
+            }
             let _ = publish_flow_event(
                 &state,
                 EventDraft {
@@ -233,6 +255,13 @@ pub fn run() {
             set_data_center_config_token,
             clear_data_center_config_token,
             set_git_ssh_key,
+            extension_list,
+            extension_call,
+            plugin_market_list,
+            plugin_install,
+            plugin_uninstall,
+            plugin_host_status,
+            plugin_host_ping,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, PanelLeftClose, PanelLeft, MoreHorizontal } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLink, PanelLeftClose, PanelLeft, MoreHorizontal, Puzzle } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -7,6 +7,11 @@ import { IconNav, type NavItem } from "@/components/IconNav";
 
 import { modules } from "./plugins/registry";
 import type { ModuleDescriptor } from "./plugins/types";
+import {
+  ExtensionFrame,
+  useExtensionContributions,
+  type ExtensionViewContribution,
+} from "./extensions";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
@@ -44,37 +49,80 @@ function parseNavMoreUiState(value: unknown): NavMoreUiState | null {
   };
 }
 
-/** 将模块描述转换为通用 NavItem(收起态使用 IconNav) */
-const navItems: NavItem[] = modules.map((module) => ({
-  id: module.id,
-  name: module.name,
-  icon: module.icon,
-  pinned: module.pinned,
-  group: module.group === "system" ? "system" : "main",
+type BuiltinWorkbenchModule = ModuleDescriptor & { kind: "builtin" };
+
+interface ExtensionWorkbenchModule {
+  kind: "extension";
+  id: string;
+  name: string;
+  description: string;
+  icon: typeof Puzzle;
+  group: "main";
+  fullHeight: true;
+  pinned: boolean;
+  contribution: ExtensionViewContribution;
+}
+
+type WorkbenchModule = BuiltinWorkbenchModule | ExtensionWorkbenchModule;
+
+const builtinModules: BuiltinWorkbenchModule[] = modules.map((module) => ({
+  ...module,
+  kind: "builtin",
 }));
 
 function App() {
-  const [activeId, setActiveId] = useState(modules[0]?.id ?? "");
+  const { contributions } = useExtensionContributions();
+  const workbenchModules = useMemo<WorkbenchModule[]>(() => [
+    ...builtinModules,
+    ...contributions.map((contribution) => ({
+      kind: "extension" as const,
+      id: `extension:${contribution.pluginId}:${contribution.viewId}`,
+      name: contribution.title,
+      description: contribution.description,
+      icon: Puzzle,
+      group: "main" as const,
+      fullHeight: true as const,
+      pinned: true,
+      contribution,
+    })),
+  ], [contributions]);
+  const navItems = useMemo<NavItem[]>(() => workbenchModules.map((module) => ({
+    id: module.id,
+    name: module.name,
+    icon: module.icon,
+    pinned: module.pinned,
+    group: module.group === "system" ? "system" : "main",
+  })), [workbenchModules]);
+
+  const [activeId, setActiveId] = useState(builtinModules[0]?.id ?? "");
   const [collapsed, setCollapsed] = useState(true);
   const [width, setWidth] = useState(DEFAULT_WIDTH);
   const [dragging, setDragging] = useState(false);
+  // 折叠态 IconNav 和展开态侧边栏共用这一份“更多”展开状态。
   const [moreOpen, setMoreOpen] = useState(false);
   const asideRef = useRef<HTMLElement>(null);
 
-  const active = modules.find((module) => module.id === activeId) ?? modules[0];
-  const ActivePanel = active?.panel;
+  const active = workbenchModules.find((module) => module.id === activeId) ?? workbenchModules[0];
+  const ActivePanel = active?.kind === "builtin" ? active.panel : null;
   const isFullHeightPanel = active?.fullHeight === true;
 
   // 分组(展开态用)
-  const mainModules = modules.filter((module) => (module.group ?? "main") === "main");
-  const systemModules = modules.filter((module) => module.group === "system");
+  const mainModules = workbenchModules.filter((module) => (module.group ?? "main") === "main");
+  const systemModules = workbenchModules.filter((module) => module.group === "system");
   const pinnedModules = mainModules.filter((module) => module.pinned !== false);
   const overflowModules = mainModules.filter((module) => module.pinned === false);
+
+  useEffect(() => {
+    if (!workbenchModules.some((module) => module.id === activeId)) {
+      setActiveId(workbenchModules[0]?.id ?? "");
+    }
+  }, [activeId, workbenchModules]);
 
   const openProjectRepo = useCallback(() => {
     void openUrl(PROJECT_REPO_URL);
   }, []);
 
+  // 只负责把“更多”展开状态写入 Tauri 存储，不直接修改 React 页面状态。
   const persistMoreOpen = useCallback((open: boolean) => {
     void invoke("store_set", {
       namespace: NAV_MORE_STATE_NS,
@@ -85,10 +133,12 @@ function App() {
         updatedAt: Date.now(),
       } satisfies NavMoreUiState,
     }).catch(() => {
-      // Sidebar interaction should not depend on store availability.
+      // 即使存储暂时不可用，也不能阻止用户展开或收起菜单。
     });
   }, []);
 
+  // App 外壳的一级侧边栏展开为“图标 + 文字”时，点击其“更多”按钮会切换并保存状态。
+  // 当前一级 modules 没有 pinned: false 的模块，因此这个按钮暂时不会渲染出来。
   const toggleMoreOpen = useCallback(() => {
     setMoreOpen((open) => {
       const next = !open;
@@ -97,11 +147,13 @@ function App() {
     });
   }, [persistMoreOpen]);
 
+  // IconNav 是受控组件：它给出明确的新状态，App 负责更新并持久化。
   const setMoreOpenAndPersist = useCallback((open: boolean) => {
     setMoreOpen(open);
     persistMoreOpen(open);
   }, [persistMoreOpen]);
 
+  // App 首次挂载时读取三天内保存的状态，让菜单恢复到上次的展开或收起状态。
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -120,9 +172,10 @@ function App() {
           await invoke("store_delete", { namespace: NAV_MORE_STATE_NS, key: NAV_MORE_STATE_KEY });
         }
       } catch {
-        // First run, expired state, or running outside Tauri.
+        // 首次运行、缓存失效或不在 Tauri 环境中时，沿用默认关闭状态。
       }
     })();
+    // 组件卸载后忽略异步读取结果，避免再修改已经卸载的组件状态。
     return () => { cancelled = true; };
   }, []);
 
@@ -156,7 +209,7 @@ function App() {
   }, []);
 
   /** 展开态按钮(带文字) */
-  function ExpandedButton({ module }: { module: ModuleDescriptor }) {
+  function ExpandedButton({ module }: { module: WorkbenchModule }) {
     const Icon = module.icon;
     const isActive = module.id === active?.id;
     return (
@@ -297,7 +350,9 @@ function App() {
           )}
           {isFullHeightPanel ? (
             <div className="min-h-0 flex-1 overflow-hidden">
-              {ActivePanel && <ActivePanel />}
+              {active?.kind === "extension"
+                ? <ExtensionFrame contribution={active.contribution} />
+                : ActivePanel && <ActivePanel />}
             </div>
           ) : (
             <ScrollArea className="flex-1">

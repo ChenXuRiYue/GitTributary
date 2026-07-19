@@ -109,6 +109,8 @@ mod tests {
             store: std::sync::Mutex::new(store),
             event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
             node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
+            extensions: crate::extensions::ExtensionRegistry::default(),
+            plugin_host: crate::plugin_host::PluginHostSupervisor::default(),
         };
         (dir, state)
     }
@@ -171,10 +173,7 @@ mod tests {
         let repo = init_repo_with_commit(dir.path());
         repo.add_remote("upstream", "https://github.com/c/d.git")
             .unwrap();
-        assert_eq!(
-            preferred_commit_remote(&repo),
-            Some("upstream".to_string())
-        );
+        assert_eq!(preferred_commit_remote(&repo), Some("upstream".to_string()));
     }
 
     #[test]

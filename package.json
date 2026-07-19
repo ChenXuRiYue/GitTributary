@@ -4,6 +4,9 @@
   "version": "0.1.3",
   "license": "MIT",
   "type": "module",
+  "workspaces": [
+    "plugins/*/frontend"
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ChenXuRiYue/GitTributary.git"
@@ -16,7 +19,12 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "plugin:host:build": "cargo build --manifest-path src-tauri/Cargo.toml -p gt-plugin-host",
+    "plugin:host:prepare": "node scripts/prepare_plugin_host.mjs",
+    "plugin:build": "node scripts/build_plugins.mjs",
+    "plugin:bundle:prepare": "npm run plugin:build && node scripts/prepare_plugins.mjs",
+    "plugin:mvp:build": "npm run plugin:host:prepare && npm run plugin:build"
   },
   "dependencies": {
     "@radix-ui/react-scroll-area": "^1.2.12",

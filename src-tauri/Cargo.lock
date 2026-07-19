@@ -1358,6 +1358,7 @@ dependencies = [
  "dirs-next",
  "gt-flow",
  "gt-git",
+ "gt-plugin-protocol",
  "gt-site",
  "gt-store",
  "serde",
@@ -1452,6 +1453,23 @@ dependencies = [
  "serde",
  "tempfile",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "gt-plugin-host"
+version = "0.1.0"
+dependencies = [
+ "gt-plugin-protocol",
+ "libloading",
+ "serde_json",
+]
+
+[[package]]
+name = "gt-plugin-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

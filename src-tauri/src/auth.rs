@@ -77,8 +77,7 @@ pub(crate) fn resolve_auth_for_publish_target(
     let prefers_https = url.starts_with("http://") || url.starts_with("https://");
 
     if !prefers_ssh {
-        if let Some(credential_ref) = credential_ref.and_then(|value| value.strip_prefix("repo:"))
-        {
+        if let Some(credential_ref) = credential_ref.and_then(|value| value.strip_prefix("repo:")) {
             let key = project_token_key_for_path(credential_ref);
             if let Some(val) = store.get("private.credentials", &key) {
                 if let Some(token) = val.as_str() {
@@ -240,6 +239,8 @@ mod tests {
             store: std::sync::Mutex::new(store),
             event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
             node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
+            extensions: crate::extensions::ExtensionRegistry::default(),
+            plugin_host: crate::plugin_host::PluginHostSupervisor::default(),
         };
         (dir, state)
     }

@@ -1,0 +1,135 @@
+import { callExtension, extensionErrorMessage } from "./api";
+import {
+  EXTENSION_API_VERSION,
+  type ExtensionBridgeRequest,
+  type ExtensionHostReadyMessage,
+  type ExtensionPluginReadyMessage,
+  type ExtensionViewContribution,
+} from "./types";
+
+const MAX_PENDING_REQUESTS = 32;
+
+function isBridgeRequest(value: unknown): value is ExtensionBridgeRequest {
+  if (typeof value !== "object" || value === null) return false;
+  const request = value as Partial<ExtensionBridgeRequest>;
+  return request.type === "gittributary:request"
+    && typeof request.id === "string"
+    && request.id.length > 0
+    && request.id.length <= 128
+    && typeof request.method === "string"
+    && request.method.length > 0
+    && request.method.length <= 128;
+}
+
+function isPluginReadyMessage(
+  value: unknown,
+  sessionId: string,
+): value is ExtensionPluginReadyMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const message = value as Partial<ExtensionPluginReadyMessage>;
+  return message.type === "gittributary:plugin-ready"
+    && message.apiVersion === EXTENSION_API_VERSION
+    && message.sessionId === sessionId;
+}
+
+function currentTheme(): "light" | "dark" {
+  return document.documentElement.classList.contains("dark") ? "dark" : "light";
+}
+
+export interface AttachedExtensionBridge {
+  pluginPort: MessagePort;
+  sessionId: string;
+  dispose: () => void;
+}
+
+export interface ExtensionBridgeOptions {
+  onReady?: () => void;
+}
+
+/** Bind one MessagePort to one immutable plugin identity. */
+export function attachExtensionBridge(
+  contribution: ExtensionViewContribution,
+  options: ExtensionBridgeOptions = {},
+): AttachedExtensionBridge {
+  const channel = new MessageChannel();
+  const sessionId = crypto.randomUUID();
+  let pending = 0;
+  let disposed = false;
+  let ready = false;
+
+  channel.port1.onmessage = (event: MessageEvent<unknown>) => {
+    if (disposed) return;
+    if (isPluginReadyMessage(event.data, sessionId)) {
+      if (!ready) {
+        ready = true;
+        options.onReady?.();
+      }
+      return;
+    }
+    if (!isBridgeRequest(event.data)) return;
+    const request = event.data;
+
+    if (pending >= MAX_PENDING_REQUESTS) {
+      channel.port1.postMessage({
+        type: "gittributary:response",
+        id: request.id,
+        ok: false,
+        error: { code: "TOO_MANY_REQUESTS", message: "扩展请求过于频繁" },
+      });
+      return;
+    }
+
+    pending += 1;
+    void callExtension({
+      pluginId: contribution.pluginId,
+      method: request.method,
+      payload: request.payload ?? null,
+    }).then((result) => {
+      if (disposed) return;
+      channel.port1.postMessage({
+        type: "gittributary:response",
+        id: request.id,
+        ok: true,
+        result,
+      });
+    }).catch((error: unknown) => {
+      if (disposed) return;
+      const message = extensionErrorMessage(error);
+      channel.port1.postMessage({
+        type: "gittributary:response",
+        id: request.id,
+        ok: false,
+        error: { code: "EXTENSION_CALL_FAILED", message },
+      });
+    }).finally(() => {
+      pending = Math.max(0, pending - 1);
+    });
+  };
+  channel.port1.start();
+  return {
+    pluginPort: channel.port2,
+    sessionId,
+    dispose: () => {
+      disposed = true;
+      channel.port1.close();
+      channel.port2.close();
+    },
+  };
+}
+
+export function notifyExtensionReady(
+  frame: HTMLIFrameElement,
+  contribution: ExtensionViewContribution,
+  port: MessagePort,
+  sessionId: string,
+) {
+  const message: ExtensionHostReadyMessage = {
+    type: "gittributary:host-ready",
+    apiVersion: EXTENSION_API_VERSION,
+    sessionId,
+    pluginId: contribution.pluginId,
+    viewId: contribution.viewId,
+    theme: currentTheme(),
+  };
+  frame.contentWindow?.postMessage(message, "*", [port]);
+}

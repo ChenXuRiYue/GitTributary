@@ -1,10 +1,11 @@
-import { BookOpenCheck, GitBranch, Database, Workflow } from "lucide-react";
+import { Blocks, BookOpenCheck, GitBranch, Database, Workflow } from "lucide-react";
 
 import type { ModuleDescriptor } from "./types";
 import { FlowPanel } from "./flow/FlowPanel";
 import { GitPanel } from "./git/GitPanel";
 import { SitePanel } from "./site/SitePanel";
 import { StorePanel } from "./store/StorePanel";
+import { ExtensionMarketplacePanel } from "./extensions/ExtensionMarketplacePanel";
 
 /** 模块注册表。侧边栏与内容区会按这里的描述自动渲染。 */
 export const modules: ModuleDescriptor[] = [
@@ -38,6 +39,15 @@ export const modules: ModuleDescriptor[] = [
     description: "配置浏览、环境切换与远程同步。",
     icon: Database,
     panel: StorePanel,
+    fullHeight: true,
+  },
+  {
+    id: "extensions",
+    name: "插件",
+    description: "安装、更新和管理随应用提供的插件。",
+    icon: Blocks,
+    panel: ExtensionMarketplacePanel,
+    group: "system",
     fullHeight: true,
   },
 ];
