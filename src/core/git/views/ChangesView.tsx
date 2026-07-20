@@ -14,14 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { DiffPanel, type DiffFileEntry, type DiffPatch } from "@/components/DiffPanel";
 import { cn } from "@/lib/utils";
-
-interface RepoOverview {
-  path: string;
-  current_branch: string;
-  is_dirty: boolean;
-  changed_count: number;
-  remote_url: string | null;
-}
+import type { GitViewProps, RepoOverview } from "../types";
 
 interface FileStatus {
   path: string;
@@ -37,13 +30,6 @@ interface CommitInfo {
   time: string;
 }
 
-interface WorkspaceInfo {
-  active_repo: string | null;
-  recent_repos: string[];
-  device_id: string | null;
-  device_name: string | null;
-}
-
 interface ChangesSelectionUiState {
   version: 1;
   checkedPaths: string[];
@@ -52,6 +38,7 @@ interface ChangesSelectionUiState {
 
 const CHANGES_SELECTION_STATE_NS = "ui-state";
 const CHANGES_SELECTION_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+const EMPTY_CHECKED_PATHS = new Set<string>();
 
 function stableHash(value: string): string {
   let hash = 2166136261;
@@ -86,17 +73,24 @@ function shortPath(path: string): string {
   return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : path;
 }
 
-export function ChangesView() {
-  const [overview, setOverview] = useState<RepoOverview | null>(null);
+export function ChangesView({
+  overview,
+  recentRepos,
+  sessionGeneration,
+  openRepository,
+  refreshRepository,
+  onStatusCountChange,
+}: GitViewProps) {
   const [files, setFiles] = useState<DiffFileEntry[]>([]);
+  const [dataGeneration, setDataGeneration] = useState<number | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [showRecent, setShowRecent] = useState(false);
   const selectionStateKeyRef = useRef<string | null>(null);
+  const loadedGenerationRef = useRef<number | null>(null);
 
   const persistCheckedSelection = useCallback(async (key: string | null, nextChecked: Set<string>) => {
     if (!key) return;
@@ -128,6 +122,7 @@ export function ChangesView() {
 
       if (cached && fresh) {
         const restored = new Set(cached.checkedPaths.filter((path) => currentPaths.has(path)));
+        if (selectionStateKeyRef.current !== key) return;
         setChecked(restored);
         if (restored.size !== cached.checkedPaths.length) {
           void persistCheckedSelection(key, restored);
@@ -142,39 +137,26 @@ export function ChangesView() {
       // Missing or unreadable cache falls back to the current default.
     }
 
+    if (selectionStateKeyRef.current !== key) return;
     setChecked(defaultChecked);
     void persistCheckedSelection(key, defaultChecked);
   }, [persistCheckedSelection]);
 
-  // 打开指定仓库(复用逻辑)
-  const openRepo = useCallback(async (path: string) => {
-    try {
-      const ov = await invoke<RepoOverview>("open_repo", { path });
-      setOverview(ov);
-      const st = await invoke<FileStatus[]>("get_status");
-      const entries: DiffFileEntry[] = st.map((s) => ({ path: s.path, kind: s.kind, staged: s.staged }));
-      setFiles(entries);
-      await restoreCheckedSelection(ov, entries);
-      setError(null);
-      setResult(null);
-      setShowRecent(false);
-    } catch (e) {
-      setError(String(e));
-    }
-  }, [restoreCheckedSelection]);
-
   // 刷新当前仓库状态
   const refresh = useCallback(async () => {
+    if (!overview) return;
+    const requestedGeneration = sessionGeneration;
     try {
-      const ov = await invoke<RepoOverview>("get_overview");
-      setOverview(ov);
       const st = await invoke<FileStatus[]>("get_status");
+      if (loadedGenerationRef.current !== requestedGeneration) return;
       const entries: DiffFileEntry[] = st.map((s) => ({ path: s.path, kind: s.kind, staged: s.staged }));
       setFiles(entries);
-      await restoreCheckedSelection(ov, entries);
+      setDataGeneration(requestedGeneration);
+      onStatusCountChange(entries.length);
+      await restoreCheckedSelection(overview, entries);
       setError(null);
     } catch { /* not opened */ }
-  }, [restoreCheckedSelection]);
+  }, [onStatusCountChange, overview, restoreCheckedSelection, sessionGeneration]);
 
   const updateChecked = useCallback((nextChecked: Set<string>) => {
     setChecked(nextChecked);
@@ -185,22 +167,19 @@ export function ChangesView() {
   const openFromDialog = async () => {
     const selected = await open({ directory: true, multiple: false });
     if (!selected) return;
-    await openRepo(selected as string);
+    setShowRecent(false);
+    await openRepository(selected as string);
   };
 
-  // 启动时:从 store 读取 workspace,自动打开上次的仓库
   useEffect(() => {
-    (async () => {
-      try {
-        const ws = await invoke<WorkspaceInfo>("get_workspace_info");
-        setRecentRepos(ws.recent_repos ?? []);
-        // 自动打开上次的仓库
-        if (ws.active_repo) {
-          await openRepo(ws.active_repo);
-        }
-      } catch { /* first time, no workspace */ }
-    })();
-  }, [openRepo]);
+    if (!overview || loadedGenerationRef.current === sessionGeneration) return;
+    loadedGenerationRef.current = sessionGeneration;
+    selectionStateKeyRef.current = null;
+    setFiles([]);
+    setChecked(new Set());
+    onStatusCountChange(0);
+    void refresh();
+  }, [onStatusCountChange, overview, refresh, sessionGeneration]);
 
   const fetchDiff = async (path: string): Promise<DiffPatch | null> => {
     try { return await invoke<DiffPatch>("get_file_diff", { path }); }
@@ -208,21 +187,26 @@ export function ChangesView() {
   };
 
   const doCommit = async () => {
-    if (!message.trim() || checked.size === 0) return;
+    const activeFiles = dataGeneration === sessionGeneration ? files : [];
+    const activeChecked = dataGeneration === sessionGeneration ? checked : EMPTY_CHECKED_PATHS;
+    if (!message.trim() || activeChecked.size === 0) return;
     setLoading(true); setResult(null); setError(null);
     try {
       let info: CommitInfo;
-      if (checked.size === files.length) {
+      if (activeChecked.size === activeFiles.length) {
         info = await invoke<CommitInfo>("commit_all", { message });
       } else {
-        info = await invoke<CommitInfo>("commit_selected", { paths: Array.from(checked), message });
+        info = await invoke<CommitInfo>("commit_selected", { paths: Array.from(activeChecked), message });
       }
       setResult(`[${info.short_id}] ${info.message}`);
       setMessage("");
-      await refresh();
+      await refreshRepository();
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
   };
+
+  const visibleFiles = dataGeneration === sessionGeneration ? files : [];
+  const visibleChecked = dataGeneration === sessionGeneration ? checked : EMPTY_CHECKED_PATHS;
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -237,7 +221,7 @@ export function ChangesView() {
               <span className="flex-1 truncate text-xs text-muted-foreground" title={overview.path}>
                 {shortPath(overview.path)}
               </span>
-              <span className="text-xs text-muted-foreground">{overview.changed_count} 变更</span>
+              <span className="text-xs text-muted-foreground">{visibleFiles.length} 变更</span>
             </>
           ) : (
             <span className="flex-1 text-xs text-muted-foreground">选择一个 Git 仓库开始</span>
@@ -260,7 +244,7 @@ export function ChangesView() {
                   <button
                     key={repo}
                     type="button"
-                    onClick={() => openRepo(repo)}
+                    onClick={() => openRepository(repo)}
                     className={cn(
                       "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent",
                       overview?.path === repo && "bg-accent font-medium",
@@ -293,9 +277,9 @@ export function ChangesView() {
               rows={1}
             />
             <Button size="sm" className="h-8 shrink-0" onClick={doCommit}
-              disabled={loading || !message.trim() || checked.size === 0}>
+              disabled={loading || !message.trim() || visibleChecked.size === 0}>
               <Send className="size-3.5" />
-              <span className="text-xs">{checked.size < files.length ? `${checked.size}` : "全部"}</span>
+              <span className="text-xs">{visibleChecked.size < visibleFiles.length ? `${visibleChecked.size}` : "全部"}</span>
             </Button>
           </div>
         )}
@@ -307,10 +291,10 @@ export function ChangesView() {
       {overview && (
         <div className="min-h-0 flex-1 overflow-hidden">
           <DiffPanel
-            files={files}
+            files={visibleFiles}
             fetchDiff={fetchDiff}
             checkable
-            checked={checked}
+            checked={visibleChecked}
             onCheckedChange={updateChecked}
           />
         </div>
@@ -323,7 +307,7 @@ export function ChangesView() {
           <p className="text-sm">打开一个 Git 仓库开始工作</p>
           <div className="flex gap-2">
             {recentRepos.length > 0 && (
-              <Button variant="outline" size="sm" onClick={() => openRepo(recentRepos[0])}>
+              <Button variant="outline" size="sm" onClick={() => openRepository(recentRepos[0])}>
                 <Clock className="size-3.5" /> 打开最近: {shortPath(recentRepos[0])}
               </Button>
             )}

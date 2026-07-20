@@ -66,7 +66,7 @@ pub(crate) fn set_active_repo_state(
     repo: GitRepo,
     state: &AppState,
 ) -> Result<RepoOverview, String> {
-    let overview = repo.overview().map_err(|e| e.to_string())?;
+    let overview = repo.metadata().map_err(|e| e.to_string())?;
     let branch = overview.current_branch.clone();
     let repo_path = overview.path.to_string_lossy().to_string();
     {

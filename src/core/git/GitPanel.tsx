@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { gitViews } from "./registry";
+import type { RepoOverview } from "./types";
 import { IconNav, type NavItem } from "@/components/IconNav";
 import { Button } from "@/components/ui/button";
 import { DomainTrail, type DomainTrailItem } from "@/components/DomainTrail";
@@ -23,46 +24,11 @@ interface GitViewUiState {
   updatedAt: number;
 }
 
-interface RepoOverview {
-  path: string;
-  current_branch: string;
-  is_dirty: boolean;
-  changed_count: number;
-  remote_url: string | null;
-}
-
-interface FileStatus {
-  path: string;
-  kind: string;
-  staged: boolean;
-}
-
-interface BranchInfo {
-  name: string;
-  is_head: boolean;
-  is_remote: boolean;
-}
-
-interface LogEntry {
-  id: string;
-  short_id: string;
-  message: string;
-  author: string;
-  email: string;
-  time: string;
-}
-
 interface WorkspaceInfo {
   active_repo: string | null;
   recent_repos: string[];
   device_id: string | null;
   device_name: string | null;
-}
-
-interface GitShellStats {
-  changed: number;
-  branches: number;
-  commits: number;
 }
 
 const GIT_VIEW_STATE_NS = "ui-state";
@@ -101,35 +67,16 @@ export function GitPanel() {
   const [overview, setOverview] = useState<RepoOverview | null>(null);
   const [recentRepos, setRecentRepos] = useState<string[]>([]);
   const [repoMenuOpen, setRepoMenuOpen] = useState(false);
-  const [shellStats, setShellStats] = useState<GitShellStats>({
-    changed: 0,
-    branches: 0,
-    commits: 0,
-  });
+  const [statusCount, setStatusCount] = useState(0);
+  const [sessionGeneration, setSessionGeneration] = useState(0);
   const repoMenuRef = useRef<HTMLDivElement | null>(null);
+  const requestGenerationRef = useRef(0);
+  const initializedRef = useRef(false);
   const active = gitViews.find((v) => v.id === activeId) ?? gitViews[0];
   const ActiveView = active?.panel;
 
-  const loadShellStats = useCallback(async (nextOverview: RepoOverview | null) => {
-    if (!nextOverview) {
-      setShellStats({ changed: 0, branches: 0, commits: 0 });
-      return;
-    }
-
-    const [statusResult, branchResult, logResult] = await Promise.allSettled([
-      invoke<FileStatus[]>("get_status"),
-      invoke<BranchInfo[]>("get_branches"),
-      invoke<LogEntry[]>("get_log", { limit: 200 }),
-    ]);
-
-    setShellStats({
-      changed: statusResult.status === "fulfilled" ? statusResult.value.length : nextOverview.changed_count,
-      branches: branchResult.status === "fulfilled" ? branchResult.value.length : 0,
-      commits: logResult.status === "fulfilled" ? logResult.value.length : 0,
-    });
-  }, []);
-
   const refreshGitContext = useCallback(async (repoPath?: string | null) => {
+    const requestGeneration = ++requestGenerationRef.current;
     let nextRecentRepos: string[] = [];
     let pathToOpen = repoPath?.trim() || "";
 
@@ -137,7 +84,7 @@ export function GitPanel() {
       const workspace = await invoke<WorkspaceInfo>("get_workspace_info");
       nextRecentRepos = workspace.recent_repos ?? [];
       if (!pathToOpen) pathToOpen = workspace.active_repo ?? "";
-      setRecentRepos(nextRecentRepos);
+      if (requestGeneration === requestGenerationRef.current) setRecentRepos(nextRecentRepos);
     } catch {
       // Browser preview or first-run shells may not have workspace state yet.
     }
@@ -146,17 +93,35 @@ export function GitPanel() {
       const nextOverview = pathToOpen
         ? await invoke<RepoOverview>("open_repo", { path: pathToOpen })
         : await invoke<RepoOverview>("get_overview");
+      if (requestGeneration !== requestGenerationRef.current) return;
       setOverview(nextOverview);
+      setStatusCount(0);
+      setSessionGeneration((generation) => generation + 1);
       setRecentRepos((current) => {
         const merged = [nextOverview.path, ...nextRecentRepos, ...current];
         return Array.from(new Set(merged.filter(Boolean))).slice(0, 10);
       });
-      await loadShellStats(nextOverview);
     } catch {
+      if (requestGeneration !== requestGenerationRef.current) return;
       setOverview(null);
-      await loadShellStats(null);
+      setStatusCount(0);
+      setSessionGeneration((generation) => generation + 1);
     }
-  }, [loadShellStats]);
+  }, []);
+
+  const refreshRepository = useCallback(async () => {
+    const requestGeneration = ++requestGenerationRef.current;
+    try {
+      const nextOverview = await invoke<RepoOverview>("get_overview");
+      if (requestGeneration !== requestGenerationRef.current) return;
+      setOverview(nextOverview);
+      setSessionGeneration((generation) => generation + 1);
+    } catch {
+      if (requestGeneration !== requestGenerationRef.current) return;
+      setOverview(null);
+      setStatusCount(0);
+    }
+  }, []);
 
   const selectView = useCallback((id: string) => {
     setActiveId(id);
@@ -171,8 +136,7 @@ export function GitPanel() {
     }).catch(() => {
       // The Git panel remains usable even when the store is unavailable.
     });
-    void refreshGitContext();
-  }, [refreshGitContext]);
+  }, []);
 
   const openRepoFromShell = useCallback(async (path: string) => {
     setRepoMenuOpen(false);
@@ -186,6 +150,8 @@ export function GitPanel() {
   }, [openRepoFromShell]);
 
   useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
     void refreshGitContext();
   }, [refreshGitContext]);
 
@@ -249,16 +215,16 @@ export function GitPanel() {
     : "未打开仓库";
   const secondaryDomainStats = (() => {
     switch (activeId) {
-      case "branches": return `分支:${shellStats.branches}`;
-      case "history": return `提交:${shellStats.commits}`;
       case "remote": return `远程:${overview?.remote_url ? 1 : 0}`;
       case "safety": return `仓库:${overview ? 1 : 0}`;
+      case "branches": return "按需加载分支";
+      case "history": return "按需加载历史";
       case "changes":
       default:
-        return `变更:${shellStats.changed}`;
+        return `变更:${statusCount}`;
     }
   })();
-  const primaryDomainStats = `仓库:${recentRepos.length} 变更:${shellStats.changed}`;
+  const primaryDomainStats = `仓库:${recentRepos.length}`;
   const headerStats = [secondaryDomainStats, primaryDomainStats];
 
   return (
@@ -300,7 +266,7 @@ export function GitPanel() {
                     className="h-8 px-2"
                     onClick={() => {
                       setRepoMenuOpen(false);
-                      void refreshGitContext();
+                      void refreshRepository();
                     }}
                   >
                     <RefreshCw className="size-3.5" />
@@ -389,7 +355,16 @@ export function GitPanel() {
 
         {/* 内容展示区 */}
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-          {ActiveView && <ActiveView key={`${activeId}.${overview?.path ?? "no-repo"}`} />}
+          {ActiveView && (
+            <ActiveView
+              overview={overview}
+              recentRepos={recentRepos}
+              sessionGeneration={sessionGeneration}
+              openRepository={openRepoFromShell}
+              refreshRepository={refreshRepository}
+              onStatusCountChange={setStatusCount}
+            />
+          )}
         </div>
       </div>
     </div>

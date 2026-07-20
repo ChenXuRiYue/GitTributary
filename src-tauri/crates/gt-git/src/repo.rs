@@ -31,8 +31,8 @@ impl GitRepo {
     /// 打开已有仓库。支持从子目录向上 discover。
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
-        let repo = Repository::discover(path)
-            .map_err(|_| GitError::NotARepo(path.to_path_buf()))?;
+        let repo =
+            Repository::discover(path).map_err(|_| GitError::NotARepo(path.to_path_buf()))?;
         Ok(Self { repo })
     }
 
@@ -52,8 +52,19 @@ impl GitRepo {
         self.repo.workdir()
     }
 
-    /// 获取仓库概况快照。
+    /// 获取包含工作区状态的完整仓库概况快照。
     pub fn overview(&self) -> Result<RepoOverview> {
+        let mut overview = self.metadata()?;
+        overview.changed_count = self.status()?.len();
+        overview.is_dirty = overview.changed_count > 0;
+        Ok(overview)
+    }
+
+    /// 获取不遍历工作区的轻量仓库元数据。
+    ///
+    /// 页面 Shell 使用该接口，状态由激活视图显式请求，避免打开仓库时
+    /// 隐式扫描后又立即重复扫描。
+    pub fn metadata(&self) -> Result<RepoOverview> {
         let path = self
             .repo
             .workdir()
@@ -61,9 +72,6 @@ impl GitRepo {
             .to_path_buf();
 
         let branch = current_branch(&self.repo).unwrap_or_else(|_| "HEAD".to_string());
-
-        let changed_count = self.status()?.len();
-        let is_dirty = changed_count > 0;
 
         let remote_url = self
             .repo
@@ -74,8 +82,8 @@ impl GitRepo {
         Ok(RepoOverview {
             path,
             current_branch: branch,
-            is_dirty,
-            changed_count,
+            is_dirty: false,
+            changed_count: 0,
             remote_url,
         })
     }

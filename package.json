@@ -24,7 +24,10 @@
     "plugin:host:prepare": "node scripts/prepare_plugin_host.mjs",
     "plugin:build": "node scripts/build_plugins.mjs",
     "plugin:bundle:prepare": "npm run plugin:build && node scripts/prepare_plugins.mjs",
-    "plugin:mvp:build": "npm run plugin:host:prepare && npm run plugin:build"
+    "plugin:mvp:build": "npm run plugin:host:prepare && npm run plugin:build",
+    "perf:contract": "node scripts/check_git_performance_contract.mjs",
+    "perf:rust": "cargo test --manifest-path src-tauri/Cargo.toml -p gt-git --release --test performance_test -- --ignored --nocapture --test-threads=1",
+    "perf:check": "npm run perf:contract && npm run perf:rust"
   },
   "dependencies": {
     "@radix-ui/react-scroll-area": "^1.2.12",

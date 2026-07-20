@@ -1,6 +1,23 @@
 import type { ComponentType } from "react";
 import type { LucideIcon } from "lucide-react";
 
+export interface RepoOverview {
+  path: string;
+  current_branch: string;
+  is_dirty: boolean;
+  changed_count: number;
+  remote_url: string | null;
+}
+
+export interface GitViewProps {
+  overview: RepoOverview | null;
+  recentRepos: string[];
+  sessionGeneration: number;
+  openRepository: (path: string) => Promise<void>;
+  refreshRepository: () => Promise<void>;
+  onStatusCountChange: (count: number) => void;
+}
+
 /** Git 二级视图描述 */
 export interface GitViewDescriptor {
   /** 唯一标识 */
@@ -10,7 +27,7 @@ export interface GitViewDescriptor {
   /** 二级栏图标 */
   icon: LucideIcon;
   /** 内容区组件 */
-  panel: ComponentType;
+  panel: ComponentType<GitViewProps>;
   /**
    * 是否固定展示在二级栏中。
    * true(默认):直接显示图标

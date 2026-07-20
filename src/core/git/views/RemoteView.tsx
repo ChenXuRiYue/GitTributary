@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   Clock,
@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { GitViewProps, RepoOverview } from "../types";
 
 interface RemoteInfo {
   name: string;
@@ -53,21 +54,6 @@ interface ConfigRepoCheckReport {
   message: string;
   default_branch: string | null;
   refs_count: number;
-}
-
-interface RepoOverview {
-  path: string;
-  current_branch: string;
-  is_dirty: boolean;
-  changed_count: number;
-  remote_url: string | null;
-}
-
-interface WorkspaceInfo {
-  active_repo: string | null;
-  recent_repos: string[];
-  device_id: string | null;
-  device_name: string | null;
 }
 
 interface RemoteDraft {
@@ -109,18 +95,6 @@ function repositoryName(remote: Pick<RemoteInfo, "name" | "repo_path" | "url">):
     .filter(Boolean)
     .pop();
   return pathName || repositoryNameFromUrl(remote.url) || remote.name;
-}
-
-function mergeRepoOptions(paths: Array<string | null | undefined>): string[] {
-  const seen = new Set<string>();
-  const options: string[] = [];
-  paths.forEach((path) => {
-    const normalized = path?.trim();
-    if (!normalized || seen.has(normalized)) return;
-    seen.add(normalized);
-    options.push(normalized);
-  });
-  return options;
 }
 
 function sourceLabel(source: string): string {
@@ -171,9 +145,13 @@ function verifyLabel(status: string): string {
   }
 }
 
-export function RemoteView() {
-  const [overview, setOverview] = useState<RepoOverview | null>(null);
-  const [recentRepos, setRecentRepos] = useState<string[]>([]);
+export function RemoteView({
+  overview,
+  recentRepos,
+  sessionGeneration,
+  openRepository,
+  refreshRepository,
+}: GitViewProps) {
   const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
   const [syncConfig, setSyncConfig] = useState<SyncConfigPayload | null>(null);
   const [cloneUrl, setCloneUrl] = useState("");
@@ -203,6 +181,7 @@ export function RemoteView() {
   const [configCheck, setConfigCheck] = useState<ConfigRepoCheckReport | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const loadedGenerationRef = useRef<number | null>(null);
   useEffect(() => {
     setRemoteDrafts((current) => {
       const next = { ...current };
@@ -236,29 +215,14 @@ export function RemoteView() {
     setRemotes(r);
   }, []);
 
-  const loadSyncConfig = useCallback(async () => {
-    const config = await invoke<SyncConfigPayload | null>("sync_get_config");
-    setSyncConfig(config);
-    if (config) {
-      setConfigUrl(config.url);
-      setConfigBranch(config.branch || "main");
-    }
-  }, []);
-
   const refresh = useCallback(async () => {
+    const requestedGeneration = sessionGeneration;
     let nextError: string | null = null;
+    let nextRemotes: RemoteInfo[] | null = null;
+    let nextSyncConfig: SyncConfigPayload | null | undefined;
 
     try {
-      const ov = await invoke<RepoOverview>("get_overview");
-      setOverview(ov);
-    } catch (e) {
-      setOverview(null);
-      const message = String(e);
-      nextError = message === "尚未打开仓库" ? null : message;
-    }
-
-    try {
-      await loadRemoteConfigs();
+      nextRemotes = await invoke<RemoteInfo[]>("get_remote_configs");
     } catch (e) {
       nextError = nextError
         ? `${nextError}; 远程配置读取失败: ${String(e)}`
@@ -266,52 +230,40 @@ export function RemoteView() {
     }
 
     try {
-      await loadSyncConfig();
+      nextSyncConfig = await invoke<SyncConfigPayload | null>("sync_get_config");
     } catch (e) {
       nextError = nextError
         ? `${nextError}; 配置中心读取失败: ${String(e)}`
         : `配置中心读取失败: ${String(e)}`;
     }
 
+    if (loadedGenerationRef.current !== requestedGeneration) return;
+    if (nextRemotes) setRemotes(nextRemotes);
+    if (nextSyncConfig !== undefined) {
+      setSyncConfig(nextSyncConfig);
+      if (nextSyncConfig) {
+        setConfigUrl(nextSyncConfig.url);
+        setConfigBranch(nextSyncConfig.branch || "main");
+      }
+    }
     setError(nextError);
-  }, [loadRemoteConfigs, loadSyncConfig]);
+  }, [sessionGeneration]);
 
   const openRepo = useCallback(async (path: string) => {
     try {
-      const ov = await invoke<RepoOverview>("open_repo", { path });
-      setOverview(ov);
-      setRecentRepos((current) => mergeRepoOptions([ov.path, ...current]).slice(0, 10));
-      await loadRemoteConfigs();
+      await openRepository(path);
       setError(null);
     } catch (e) {
-      setOverview(null);
-      await loadRemoteConfigs().catch(() => setRemotes([]));
       setError(String(e));
       return;
     }
-
-    try {
-      await loadSyncConfig();
-    } catch (e) {
-      setError(`配置中心读取失败: ${String(e)}`);
-    }
-  }, [loadRemoteConfigs, loadSyncConfig]);
+  }, [openRepository]);
 
   useEffect(() => {
-    (async () => {
-      try {
-        const ws = await invoke<WorkspaceInfo>("get_workspace_info");
-        setRecentRepos(ws.recent_repos ?? []);
-        if (ws.active_repo) {
-          await openRepo(ws.active_repo);
-        } else {
-          await refresh();
-        }
-      } catch {
-        await refresh();
-      }
-    })();
-  }, [openRepo, refresh]);
+    if (loadedGenerationRef.current === sessionGeneration) return;
+    loadedGenerationRef.current = sessionGeneration;
+    void refresh();
+  }, [refresh, sessionGeneration]);
 
   const flash = (msg: string) => {
     setStatus(msg);
@@ -342,8 +294,7 @@ export function RemoteView() {
         commitName: cloneCommitName.trim() || null,
         commitEmail: cloneCommitEmail.trim() || null,
       });
-      setOverview(ov);
-      setRecentRepos((current) => mergeRepoOptions([ov.path, ...current]).slice(0, 10));
+      await refreshRepository();
       setCloneUrl(""); setCloneParentPath(""); setCloneToken(""); setCloneCommitName(""); setCloneCommitEmail("");
       flash(`远程访问校验通过,仓库已 Clone 到 ${shortPath(ov.path)}`);
       await loadRemoteConfigs();

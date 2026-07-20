@@ -45,7 +45,7 @@ pub(crate) fn open_repo(path: String, state: State<'_, AppState>) -> Result<Repo
 pub(crate) fn get_overview(state: State<'_, AppState>) -> Result<RepoOverview, String> {
     let lock = state.repo.lock().unwrap();
     let repo = lock.as_ref().ok_or("尚未打开仓库")?;
-    repo.overview().map_err(|e| e.to_string())
+    repo.metadata().map_err(|e| e.to_string())
 }
 
 /// 获取变更文件列表

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   GitBranch,
   Plus,
@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import type { GitViewProps } from "../types";
 
 interface BranchInfo {
   name: string;
@@ -20,23 +21,32 @@ interface BranchInfo {
   is_remote: boolean;
 }
 
-export function BranchesView() {
+export function BranchesView({ overview, sessionGeneration, refreshRepository }: GitViewProps) {
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const loadedGenerationRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
+    if (!overview) return;
+    const requestedGeneration = sessionGeneration;
     try {
       const list = await invoke<BranchInfo[]>("get_branches");
+      if (loadedGenerationRef.current !== requestedGeneration) return;
       setBranches(list);
       setError(null);
     } catch (e) {
       setError(String(e));
     }
-  }, []);
+  }, [overview, sessionGeneration]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!overview || loadedGenerationRef.current === sessionGeneration) return;
+    loadedGenerationRef.current = sessionGeneration;
+    setBranches([]);
+    void refresh();
+  }, [overview, refresh, sessionGeneration]);
 
   const handleCreate = async () => {
     if (!newName.trim()) return;
@@ -53,7 +63,7 @@ export function BranchesView() {
     setLoading(true); setError(null);
     try {
       await invoke("checkout_branch", { name });
-      await refresh();
+      await refreshRepository();
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
   };

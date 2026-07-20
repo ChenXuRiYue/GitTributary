@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { DiffPanel, type DiffFileEntry, type DiffPatch } from "@/components/DiffPanel";
 import { ResizeHandle } from "@/components/ResizeHandle";
 import { cn } from "@/lib/utils";
+import type { GitViewProps } from "../types";
 
 interface LogEntry {
   id: string;
@@ -39,6 +40,7 @@ interface HistoryUiState {
 const HISTORY_STATE_NS = "ui-state";
 const HISTORY_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const HISTORY_DETAIL_LINE_LIMIT = 20;
+const HISTORY_FIRST_PAGE_LIMIT = 50;
 
 function stableHash(value: string): string {
   let hash = 2166136261;
@@ -116,7 +118,7 @@ function wrapDetailText(value: string): string {
     .join("\n");
 }
 
-export function HistoryView() {
+export function HistoryView({ overview, sessionGeneration }: GitViewProps) {
   const [entries, setEntries] = useState<LogEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -126,6 +128,7 @@ export function HistoryView() {
   const stateKeyRef = useRef<string | null>(null);
   const focusedIdRef = useRef<string | null>(null);
   const expandedIdRef = useRef<string | null>(null);
+  const loadedGenerationRef = useRef<number | null>(null);
   const [hoverCard, setHoverCard] = useState<{
     title: string;
     description: string;
@@ -190,7 +193,11 @@ export function HistoryView() {
     }
   }, [persistHistoryState]);
 
-  const restoreHistoryState = useCallback(async (log: LogEntry[], overview: RepoOverview) => {
+  const restoreHistoryState = useCallback(async (
+    log: LogEntry[],
+    overview: RepoOverview,
+    expectedGeneration: number,
+  ) => {
     const key = historyStateKey(overview);
     const hasCommit = (id: string) => log.some((entry) => entry.id === id);
     stateKeyRef.current = key;
@@ -211,6 +218,7 @@ export function HistoryView() {
 
     try {
       const raw = await invoke<unknown>("store_get", { namespace: HISTORY_STATE_NS, key });
+      if (loadedGenerationRef.current !== expectedGeneration) return;
       const cached = parseHistoryUiState(raw);
       const fresh = cached && Date.now() - cached.updatedAt <= HISTORY_STATE_TTL_MS;
       if (cached && fresh && hasCommit(cached.focusedCommitId)) {
@@ -226,27 +234,34 @@ export function HistoryView() {
       // Missing or unreadable cache falls through to the default selection.
     }
 
-    await focusCommit(log[0].id, true, key);
+    await focusCommit(null, false, key, false);
   }, [focusCommit]);
 
   const refresh = useCallback(async () => {
+    if (!overview) return;
+    const requestedGeneration = sessionGeneration;
     try {
-      const [log, overview] = await Promise.all([
-        invoke<LogEntry[]>("get_log", { limit: 200 }),
-        invoke<RepoOverview>("get_overview"),
-      ]);
+      const log = await invoke<LogEntry[]>("get_log", { limit: HISTORY_FIRST_PAGE_LIMIT });
+      if (loadedGenerationRef.current !== requestedGeneration) return;
       setEntries(log);
       setError(null);
-      await restoreHistoryState(log, overview);
+      await restoreHistoryState(log, overview, requestedGeneration);
     } catch (e) {
       setEntries([]);
       stateKeyRef.current = null;
       await focusCommit(null, false, null, false);
       setError(String(e));
     }
-  }, [focusCommit, restoreHistoryState]);
+  }, [focusCommit, overview, restoreHistoryState, sessionGeneration]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!overview || loadedGenerationRef.current === sessionGeneration) return;
+    loadedGenerationRef.current = sessionGeneration;
+    setEntries([]);
+    stateKeyRef.current = null;
+    void focusCommit(null, false, null, false);
+    void refresh();
+  }, [focusCommit, overview, refresh, sessionGeneration]);
 
   const selected = entries.find((e) => e.id === focusedId);
 
