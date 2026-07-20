@@ -1,4 +1,4 @@
-export type AttachmentKind = "image" | "audio" | "video" | "document";
+export type AttachmentKind = "image" | "audio" | "link";
 
 export interface AttachmentReference {
   notePath: string;
@@ -13,6 +13,7 @@ export interface AttachmentItem {
   mimeType: string;
   size: number;
   modifiedAt: number | null;
+  url: string | null;
   references: AttachmentReference[];
 }
 
@@ -21,6 +22,7 @@ export interface AttachmentScanReport {
   scannedAt: number;
   durationMs: number;
   notesScanned: number;
+  skippedEntries: number;
   totalSize: number;
   attachments: AttachmentItem[];
 }

@@ -22,8 +22,7 @@ const MAX_PREVIEW_BYTES: u64 = 24 * 1024 * 1024;
 enum AttachmentKind {
     Image,
     Audio,
-    Video,
-    Document,
+    Link,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -37,6 +36,7 @@ struct AttachmentReference {
 #[serde(rename_all = "camelCase")]
 struct AttachmentItem {
     path: String,
+    url: Option<String>,
     name: String,
     extension: String,
     kind: AttachmentKind,
@@ -53,6 +53,7 @@ struct AttachmentScanReport {
     scanned_at: u64,
     duration_ms: u128,
     notes_scanned: usize,
+    skipped_entries: usize,
     total_size: u64,
     attachments: Vec<AttachmentItem>,
 }
@@ -97,13 +98,21 @@ fn scan_repository(repo_path: &str) -> Result<AttachmentScanReport, String> {
     let root = canonical_root(repo_path)?;
     let mut attachments = Vec::new();
     let mut markdown_paths = Vec::new();
+    let mut skipped_entries = 0;
+    let mut notes_scanned = 0;
 
     for entry in WalkDir::new(&root)
         .follow_links(false)
         .into_iter()
         .filter_entry(included_entry)
     {
-        let entry = entry.map_err(|error| error.to_string())?;
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => {
+                skipped_entries += 1;
+                continue;
+            }
+        };
         if !entry.file_type().is_file() {
             continue;
         }
@@ -116,9 +125,16 @@ fn scan_repository(repo_path: &str) -> Result<AttachmentScanReport, String> {
         let Some(kind) = attachment_kind(&extension) else {
             continue;
         };
-        let metadata = entry.metadata().map_err(|error| error.to_string())?;
+        let metadata = match entry.metadata() {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                skipped_entries += 1;
+                continue;
+            }
+        };
         attachments.push(AttachmentItem {
             path: relative_path(&root, path)?,
+            url: None,
             name: entry.file_name().to_string_lossy().into_owned(),
             extension: extension.clone(),
             kind,
@@ -144,17 +160,55 @@ fn scan_repository(repo_path: &str) -> Result<AttachmentScanReport, String> {
     for (index, item) in attachments.iter().enumerate() {
         by_name.entry(item.name.clone()).or_default().push(index);
     }
+    let mut by_remote_url = HashMap::<String, usize>::new();
 
     for note_path in &markdown_paths {
-        let metadata = fs::metadata(note_path).map_err(|error| error.to_string())?;
+        let metadata = match fs::metadata(note_path) {
+            Ok(metadata) => metadata,
+            Err(_) => {
+                skipped_entries += 1;
+                continue;
+            }
+        };
         if metadata.len() > MAX_NOTE_BYTES {
+            skipped_entries += 1;
             continue;
         }
         let Ok(content) = fs::read_to_string(note_path) else {
+            skipped_entries += 1;
             continue;
         };
+        notes_scanned += 1;
         let note_relative = relative_path(&root, note_path)?;
         for (raw_target, line) in extract_references(&content)? {
+            if let Some(url) = remote_url(&raw_target) {
+                let reference = AttachmentReference {
+                    note_path: note_relative.clone(),
+                    line,
+                };
+                if let Some(index) = by_remote_url.get(&url).copied() {
+                    if !attachments[index].references.contains(&reference) {
+                        attachments[index].references.push(reference);
+                    }
+                } else {
+                    let name = remote_name(&url);
+                    let extension = extension(Path::new(&name));
+                    let index = attachments.len();
+                    attachments.push(AttachmentItem {
+                        path: url.clone(),
+                        url: Some(url.clone()),
+                        name,
+                        extension: extension.clone(),
+                        kind: AttachmentKind::Link,
+                        mime_type: mime_type(&extension).to_string(),
+                        size: 0,
+                        modified_at: None,
+                        references: vec![reference],
+                    });
+                    by_remote_url.insert(url, index);
+                }
+                continue;
+            }
             let Some(target) = resolve_reference(&note_relative, &raw_target) else {
                 continue;
             };
@@ -185,7 +239,8 @@ fn scan_repository(repo_path: &str) -> Result<AttachmentScanReport, String> {
             .unwrap_or_default()
             .as_secs(),
         duration_ms: started.elapsed().as_millis(),
-        notes_scanned: markdown_paths.len(),
+        notes_scanned,
+        skipped_entries,
         total_size,
         attachments,
     })
@@ -213,15 +268,25 @@ fn read_preview(repo_path: &str, relative: &str) -> Result<AttachmentPreview, St
 
 fn extract_references(content: &str) -> Result<Vec<(String, usize)>, String> {
     let patterns = [
-        r#"!?\[[^\]]*\]\(\s*<?([^\s)>]+)>?(?:\s+[\"'][^\"']*[\"'])?\s*\)"#,
-        r#"!?\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]"#,
-        r#"(?i)(?:src|href)\s*=\s*[\"']([^\"']+)[\"']"#,
+        // Angle-bracket destinations may contain spaces; bare destinations may not.
+        (
+            r#"!?\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+[\"'][^\"']*[\"'])?\s*\)"#,
+            &[1, 2][..],
+        ),
+        (
+            r#"!?\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]"#,
+            &[1][..],
+        ),
+        (r#"(?i)(?:src|href)\s*=\s*[\"']([^\"']+)[\"']"#, &[1][..]),
     ];
     let mut found = BTreeMap::<(usize, String), ()>::new();
-    for pattern in patterns {
+    for (pattern, capture_indexes) in patterns {
         let regex = Regex::new(pattern).map_err(|error| error.to_string())?;
         for captures in regex.captures_iter(content) {
-            let Some(target) = captures.get(1) else {
+            let Some(target) = capture_indexes
+                .iter()
+                .find_map(|index| captures.get(*index))
+            else {
                 continue;
             };
             let line = content[..target.start()]
@@ -257,6 +322,36 @@ fn resolve_reference(note_path: &str, target: &str) -> Option<String> {
     }
     components.extend(Path::new(decoded.trim_start_matches('/')).components());
     normalize_components(components)
+}
+
+fn remote_url(target: &str) -> Option<String> {
+    let target = target.trim().trim_matches('<').trim_matches('>');
+    let scheme_end = target.find("://")?;
+    let scheme = &target[..scheme_end];
+    if !scheme.eq_ignore_ascii_case("http") && !scheme.eq_ignore_ascii_case("https") {
+        return None;
+    }
+    let without_fragment = target.split_once('#').map_or(target, |(url, _)| url);
+    let authority_and_path = &without_fragment[scheme_end + 3..];
+    let authority = authority_and_path
+        .split(['/', '?'])
+        .next()
+        .unwrap_or_default();
+    (!authority.is_empty()).then(|| without_fragment.to_string())
+}
+
+fn remote_name(url: &str) -> String {
+    let after_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let (authority, path_and_query) = after_scheme
+        .split_once('/')
+        .map_or((after_scheme, ""), |(authority, rest)| (authority, rest));
+    let path = path_and_query.split('?').next().unwrap_or_default();
+    let encoded_name = path.rsplit('/').find(|part| !part.is_empty());
+    encoded_name
+        .and_then(|name| percent_decode_str(name).decode_utf8().ok())
+        .map(|name| name.into_owned())
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| authority.split('?').next().unwrap_or(authority).to_string())
 }
 
 fn normalize_components<'a>(components: impl IntoIterator<Item = Component<'a>>) -> Option<String> {
@@ -313,36 +408,33 @@ fn included_entry(entry: &DirEntry) -> bool {
 
 fn attachment_kind(extension: &str) -> Option<AttachmentKind> {
     match extension {
-        "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "avif" | "svg" => {
-            Some(AttachmentKind::Image)
-        }
+        "png" | "apng" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "avif" | "svg" | "ico"
+        | "tif" | "tiff" | "heic" | "heif" | "jxl" => Some(AttachmentKind::Image),
         "mp3" | "wav" | "ogg" | "m4a" | "aac" | "flac" => Some(AttachmentKind::Audio),
-        "mp4" | "webm" | "mov" | "mkv" => Some(AttachmentKind::Video),
-        "pdf" => Some(AttachmentKind::Document),
         _ => None,
     }
 }
 
 fn mime_type(extension: &str) -> &'static str {
     match extension {
-        "png" => "image/png",
+        "png" | "apng" => "image/png",
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
         "webp" => "image/webp",
         "bmp" => "image/bmp",
         "avif" => "image/avif",
         "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "tif" | "tiff" => "image/tiff",
+        "heic" => "image/heic",
+        "heif" => "image/heif",
+        "jxl" => "image/jxl",
         "mp3" => "audio/mpeg",
         "wav" => "audio/wav",
         "ogg" => "audio/ogg",
         "m4a" => "audio/mp4",
         "aac" => "audio/aac",
         "flac" => "audio/flac",
-        "mp4" => "video/mp4",
-        "webm" => "video/webm",
-        "mov" => "video/quicktime",
-        "mkv" => "video/x-matroska",
-        "pdf" => "application/pdf",
         _ => "application/octet-stream",
     }
 }
@@ -436,6 +528,36 @@ mod tests {
     }
 
     #[test]
+    fn scans_extended_image_formats_and_ignores_removed_types() {
+        let directory = tempfile::tempdir().unwrap();
+        for name in [
+            "photo.HEIC",
+            "scan.tiff",
+            "icon.ico",
+            "motion.apng",
+            "next.jxl",
+        ] {
+            fs::write(directory.path().join(name), b"image").unwrap();
+        }
+        fs::write(directory.path().join("movie.mp4"), b"video").unwrap();
+        fs::write(directory.path().join("document.pdf"), b"pdf").unwrap();
+
+        let report = scan_repository(directory.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(report.attachments.len(), 5);
+        assert!(report
+            .attachments
+            .iter()
+            .all(|item| item.kind == AttachmentKind::Image));
+    }
+
+    #[test]
+    fn resolves_angle_bracket_reference_with_spaces() {
+        let references = extract_references("![photo](<assets/my photo.png>)").unwrap();
+        assert_eq!(references, vec![("assets/my photo.png".to_string(), 1)]);
+    }
+
+    #[test]
     fn rejects_preview_path_outside_repository() {
         let directory = tempfile::tempdir().unwrap();
         assert_eq!(
@@ -454,5 +576,81 @@ mod tests {
             resolve_reference("note.md", "data:image/png;base64,abc"),
             None
         );
+    }
+
+    #[test]
+    fn aggregates_remote_links_without_binding_them_to_local_attachments() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir_all(directory.path().join("assets")).unwrap();
+        fs::write(directory.path().join("assets/photo.png"), b"png").unwrap();
+        fs::write(
+            directory.path().join("first.md"),
+            concat!(
+                "![local](assets/photo.png)\n",
+                "![remote](https://example.com/media/photo.png?width=800#preview)\n",
+                "![ignored](data:image/png;base64,abc)\n",
+            ),
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("second.md"),
+            "<img src=\"https://example.com/media/photo.png?width=800#other\">\n",
+        )
+        .unwrap();
+
+        let report = scan_repository(directory.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(report.attachments.len(), 2);
+        assert_eq!(report.total_size, 3);
+        let local = report
+            .attachments
+            .iter()
+            .find(|item| item.kind == AttachmentKind::Image)
+            .unwrap();
+        assert_eq!(local.url, None);
+        assert_eq!(local.references.len(), 1);
+        assert_eq!(local.references[0].note_path, "first.md");
+
+        let remote = report
+            .attachments
+            .iter()
+            .find(|item| item.kind == AttachmentKind::Link)
+            .unwrap();
+        assert_eq!(
+            remote.url.as_deref(),
+            Some("https://example.com/media/photo.png?width=800")
+        );
+        assert_eq!(remote.path, "https://example.com/media/photo.png?width=800");
+        assert_eq!(remote.name, "photo.png");
+        assert_eq!(remote.extension, "png");
+        assert_eq!(remote.mime_type, "image/png");
+        assert_eq!(remote.size, 0);
+        assert_eq!(remote.references.len(), 2);
+    }
+
+    #[test]
+    fn recognizes_only_http_links_and_preserves_query() {
+        assert_eq!(
+            remote_url("<HTTPS://example.com/file.svg?v=2#icon>"),
+            Some("HTTPS://example.com/file.svg?v=2".to_string())
+        );
+        assert_eq!(remote_url("data:image/png;base64,abc"), None);
+        assert_eq!(remote_url("ftp://example.com/file.png"), None);
+        assert_eq!(remote_url("https:///missing-host.png"), None);
+    }
+
+    #[test]
+    fn counts_only_markdown_files_that_were_parsed() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("oversized.md"),
+            vec![b'x'; MAX_NOTE_BYTES as usize + 1],
+        )
+        .unwrap();
+
+        let report = scan_repository(directory.path().to_str().unwrap()).unwrap();
+
+        assert_eq!(report.notes_scanned, 0);
+        assert_eq!(report.skipped_entries, 1);
     }
 }

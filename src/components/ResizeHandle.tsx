@@ -16,6 +16,10 @@ interface ResizeHandleProps {
   snapThreshold?: number;
   /** 额外 className */
   className?: string;
+  /** 把手位于面板哪一侧，start 用于从面板左边缘反向调整 */
+  edge?: "start" | "end";
+  /** 无障碍名称，用于区分同一页面中的多个分隔条 */
+  ariaLabel?: string;
 }
 
 /**
@@ -33,6 +37,8 @@ export function ResizeHandle({
   snapTo,
   snapThreshold = 8,
   className,
+  edge = "end",
+  ariaLabel = "调整面板大小",
 }: ResizeHandleProps) {
   const dragging = useRef(false);
   const startPos = useRef(0);
@@ -65,7 +71,7 @@ export function ResizeHandle({
           direction === "horizontal"
             ? ev.clientX - startPos.current
             : ev.clientY - startPos.current;
-        const raw = startSize.current + delta;
+        const raw = startSize.current + delta * (edge === "start" ? -1 : 1);
         onResize(applySnap(raw));
       };
 
@@ -80,7 +86,7 @@ export function ResizeHandle({
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
     },
-    [direction, size, onResize, applySnap],
+    [direction, edge, size, onResize, applySnap],
   );
 
   // 双击重置到预设值
@@ -92,6 +98,11 @@ export function ResizeHandle({
 
   return (
     <div
+      role="separator"
+      aria-label={ariaLabel}
+      aria-orientation={direction === "horizontal" ? "vertical" : "horizontal"}
+      aria-valuemin={minSize}
+      aria-valuenow={Math.round(size)}
       onMouseDown={onMouseDown}
       onDoubleClick={onDoubleClick}
       className={cn(

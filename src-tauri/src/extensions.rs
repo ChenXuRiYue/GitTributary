@@ -398,6 +398,11 @@ pub fn asset_response(
     if segments.len() != 2 {
         return text_response(StatusCode::BAD_REQUEST, "invalid extension asset path");
     }
+    let content_security_policy = if registry.has_permission(segments[0], "network:read") {
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; media-src 'self' data: https: http:; object-src 'self' data:; connect-src 'none'; frame-ancestors *"
+    } else {
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; object-src 'self' data:; connect-src 'none'; frame-ancestors *"
+    };
     let path = match registry.resolve_asset(segments[0], segments[1]) {
         Ok(path) => path,
         Err(error) => return text_response(StatusCode::NOT_FOUND, &error),
@@ -406,10 +411,7 @@ pub fn asset_response(
         Ok(body) => Response::builder()
             .status(StatusCode::OK)
             .header(header::CONTENT_TYPE, content_type(&path))
-            .header(
-                "Content-Security-Policy",
-                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data:; object-src 'self' data:; connect-src 'none'; frame-ancestors *",
-            )
+            .header("Content-Security-Policy", content_security_policy)
             .header("Access-Control-Allow-Origin", "*")
             .body(body)
             .unwrap(),
@@ -685,6 +687,7 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
         "store:read",
         "store:write",
         "shell:open",
+        "network:read",
     ];
     if manifest
         .permissions
@@ -1338,7 +1341,49 @@ mod tests {
             .unwrap();
         assert!(csp.contains("script-src 'self'"));
         assert!(csp.contains("connect-src 'none'"));
+        assert!(!csp.contains("img-src 'self' data: https:"));
         assert!(!csp.contains("unsafe-eval"));
+    }
+
+    #[test]
+    fn network_permission_allows_remote_media_without_enabling_fetch() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir_all(directory.path().join("web")).unwrap();
+        fs::write(directory.path().join("web/index.html"), "<h1>network</h1>").unwrap();
+        fs::write(
+            directory.path().join("manifest.json"),
+            r#"{
+              "schemaVersion": 1,
+              "apiVersion": "1",
+              "id": "com.example.network",
+              "name": "Network",
+              "version": "0.1.0",
+              "icon": "lucide:paperclip",
+              "contributes": {"views": [{
+                "id": "main", "title": "Network", "entry": "web/index.html"
+              }]},
+              "permissions": ["network:read"]
+            }"#,
+        )
+        .unwrap();
+
+        let registry = ExtensionRegistry::default();
+        registry.register_path(directory.path()).unwrap();
+        let request = Request::builder()
+            .uri("gt-plugin://localhost/com.example.network/web/index.html")
+            .body(Vec::new())
+            .unwrap();
+        let response = asset_response(&registry, &request);
+        let csp = response
+            .headers()
+            .get("Content-Security-Policy")
+            .unwrap()
+            .to_str()
+            .unwrap();
+
+        assert!(csp.contains("img-src 'self' data: https: http:"));
+        assert!(csp.contains("media-src 'self' data: https: http:"));
+        assert!(csp.contains("connect-src 'none'"));
     }
 
     #[test]
