@@ -27,7 +27,8 @@
     "plugin:mvp:build": "npm run plugin:host:prepare && npm run plugin:build",
     "perf:contract": "node scripts/check_git_performance_contract.mjs",
     "perf:rust": "cargo test --manifest-path src-tauri/Cargo.toml -p gt-git --release --test performance_test -- --ignored --nocapture --test-threads=1",
-    "perf:check": "npm run perf:contract && npm run perf:rust"
+    "perf:attachments": "cargo test --manifest-path plugins/attachment-manager/backend/Cargo.toml --release classifies_large_link_inventory_within_budget -- --ignored --nocapture --test-threads=1",
+    "perf:check": "npm run perf:contract && npm run perf:rust && npm run perf:attachments"
   },
   "dependencies": {
     "@radix-ui/react-scroll-area": "^1.2.12",

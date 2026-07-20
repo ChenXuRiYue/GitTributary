@@ -1,8 +1,11 @@
 export type AttachmentKind = "image" | "audio" | "link";
+export type LinkKind = "image" | "audio" | "video" | "website" | "download" | "unknown";
+export type AttachmentReferenceRole = "embed" | "navigation";
 
 export interface AttachmentReference {
   notePath: string;
   line: number;
+  role?: AttachmentReferenceRole;
 }
 
 export interface AttachmentItem {
@@ -14,6 +17,8 @@ export interface AttachmentItem {
   size: number;
   modifiedAt: number | null;
   url: string | null;
+  linkKind?: LinkKind | null;
+  domain?: string | null;
   references: AttachmentReference[];
 }
 
