@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { EXTENSIONS_CHANGED_EVENT } from "@/extensions/events";
+
 import { flowApi } from "../api";
 import { DEFAULT_FLOW_FOLDER, SAMPLE_WORKFLOW } from "../constants";
 import type { FlowContextMenuState, FlowFolderCreateDraft, FlowPoint, FlowTreeSelection } from "../components/flowBrowserTypes";
@@ -154,6 +156,15 @@ const [section, setSection] = useState<FlowSection>("flows");
   useEffect(() => {
     void loadNodeDefinitions();
   }, [loadNodeDefinitions]);
+
+  useEffect(() => {
+    const handleExtensionsChanged = () => {
+      void loadNodeDefinitions();
+      void loadFlowNodes(selectedId);
+    };
+    window.addEventListener(EXTENSIONS_CHANGED_EVENT, handleExtensionsChanged);
+    return () => window.removeEventListener(EXTENSIONS_CHANGED_EVENT, handleExtensionsChanged);
+  }, [loadFlowNodes, loadNodeDefinitions, selectedId]);
 
   useEffect(() => {
     void loadRecord(selectedId);

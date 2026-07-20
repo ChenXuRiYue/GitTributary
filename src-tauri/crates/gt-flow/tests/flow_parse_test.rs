@@ -4,9 +4,68 @@ use std::collections::BTreeMap;
 
 use gt_flow::{
     build_flow_draft, parse_workflow, run_flow_with_executor, DryRunActionExecutor, EventDraft,
-    EventPool, FlowBuildRequest, FlowBuildStepRequest, FlowBuildTriggerRequest, FlowNodeRegistry,
-    FlowRecord, FlowRunRequest, FlowRunStatus,
+    EventPool, FlowBuildRequest, FlowBuildStepRequest, FlowBuildTriggerRequest, FlowNodeDefinition,
+    FlowNodeRegistry, FlowRecord, FlowRunRequest, FlowRunStatus,
 };
+
+fn node_definition(
+    uses: &str,
+    node_type: &str,
+    inputs: &[(&str, &str)],
+    outputs: &[(&str, &str)],
+) -> FlowNodeDefinition {
+    FlowNodeDefinition {
+        uses: uses.to_string(),
+        name: uses.to_string(),
+        node_type: node_type.to_string(),
+        summary: uses.to_string(),
+        description: String::new(),
+        inputs_schema: inputs
+            .iter()
+            .map(|(name, kind)| ((*name).to_string(), (*kind).to_string()))
+            .collect(),
+        outputs_schema: outputs
+            .iter()
+            .map(|(name, kind)| ((*name).to_string(), (*kind).to_string()))
+            .collect(),
+    }
+}
+
+fn test_node_registry() -> FlowNodeRegistry {
+    let mut registry = FlowNodeRegistry::new();
+    registry
+        .replace_core_nodes(vec![
+            node_definition(
+                "gittributary/files/assert-exists@v1",
+                "validate",
+                &[("path", "string")],
+                &[("path", "string")],
+            ),
+            node_definition(
+                "gittributary/git/push@v1",
+                "git",
+                &[
+                    ("repo", "string"),
+                    ("remote", "string"),
+                    ("branch", "string"),
+                ],
+                &[("remote", "string"), ("branch", "string")],
+            ),
+        ])
+        .unwrap();
+    registry
+        .replace_plugin_nodes(
+            "com.example.publisher",
+            vec![node_definition(
+                "com.example.publisher/build@v1",
+                "build",
+                &[("repo", "string"), ("output", "string")],
+                &[("html_dir", "string")],
+            )],
+        )
+        .unwrap();
+    registry
+}
 
 const VALID_WORKFLOW: &str = r#"
 name: 每日晚间备份
@@ -111,7 +170,7 @@ jobs:
     runs-on: gittributary-local
     steps:
       - id: notify
-        uses: gittributary/ui/notify@v1
+        uses: gittributary/files/assert-exists@v1
 "#;
     let summary = parse_workflow(workflow).unwrap();
     assert_eq!(summary.triggers[0].filters["branches"], ["main"]);
@@ -205,7 +264,7 @@ jobs:
     steps:
       - id: build
         name: 构建 HTML
-        uses: gittributary/notes/build-html@v1
+        uses: com.example.publisher/build@v1
         with:
           repo: ${{ gt.workspace.active_repo }}
           output: /tmp/blog-html
@@ -226,7 +285,7 @@ jobs:
         "2026-06-25T00:00:00Z".to_string(),
         "2026-06-25T00:00:00Z".to_string(),
     );
-    let registry = FlowNodeRegistry::new();
+    let registry = test_node_registry();
     let nodes = registry.compile_record(&record);
 
     assert_eq!(nodes.len(), 2);
@@ -240,7 +299,7 @@ jobs:
 #[test]
 fn builds_flow_draft_from_event_and_nodes() {
     let pool = EventPool::new();
-    let registry = FlowNodeRegistry::new();
+    let registry = test_node_registry();
     let request = FlowBuildRequest {
         id: "flow.publish_notes_blog".to_string(),
         name: "发布笔记博客".to_string(),
@@ -256,32 +315,22 @@ fn builds_flow_draft_from_event_and_nodes() {
             FlowBuildStepRequest {
                 id: Some("context".to_string()),
                 name: None,
-                uses: "gittributary/workspace/resolve-publish-context@v1".to_string(),
-                inputs: BTreeMap::from([
-                    (
-                        "source_repo".to_string(),
-                        "${{ gt.workspace.active_repo }}".to_string(),
-                    ),
-                    (
-                        "target_repo".to_string(),
-                        "${{ gt.store.blog.repo }}".to_string(),
-                    ),
-                    ("target_branch".to_string(), "main".to_string()),
-                ]),
+                uses: "gittributary/files/assert-exists@v1".to_string(),
+                inputs: BTreeMap::from([(
+                    "path".to_string(),
+                    "${{ gt.workspace.active_repo }}".to_string(),
+                )]),
             },
             FlowBuildStepRequest {
                 id: Some("build".to_string()),
                 name: None,
-                uses: "gittributary/notes/build-html@v1".to_string(),
+                uses: "com.example.publisher/build@v1".to_string(),
                 inputs: BTreeMap::from([
                     (
                         "repo".to_string(),
-                        "${{ steps.context.outputs.source_repo }}".to_string(),
+                        "${{ steps.context.outputs.path }}".to_string(),
                     ),
-                    (
-                        "output".to_string(),
-                        "${{ steps.context.outputs.output_dir }}".to_string(),
-                    ),
+                    ("output".to_string(), "/tmp/output".to_string()),
                 ]),
             },
         ],
@@ -315,15 +364,17 @@ jobs:
     runs-on: gittributary-local
     steps:
       - id: build
-        uses: gittributary/notes/build-html@v1
+        uses: com.example.publisher/build@v1
         with:
-          repo: ${{ steps.context.outputs.source_repo }}
+          repo: ${{ steps.context.outputs.path }}
           output: /tmp/out
       - id: context
-        uses: gittributary/workspace/resolve-publish-context@v1
+        uses: gittributary/files/assert-exists@v1
+        with:
+          path: /tmp/source
 "#;
     let pool = EventPool::new();
-    let registry = FlowNodeRegistry::new();
+    let registry = test_node_registry();
     let draft =
         gt_flow::build_flow_draft_from_yaml(workflow.to_string(), &pool.catalog(), &registry)
             .unwrap();
@@ -350,17 +401,14 @@ jobs:
   publish:
     runs-on: gittributary-local
     steps:
-      - id: context
-        uses: gittributary/workspace/resolve-publish-context@v1
+      - id: source
+        uses: gittributary/files/assert-exists@v1
         with:
-          source_repo: /tmp/source
-          target_repo: /tmp/target
-          target_branch: main
-      - id: build
-        uses: gittributary/notes/build-html@v1
+          path: /tmp/source
+      - id: verify
+        uses: gittributary/files/assert-exists@v1
         with:
-          repo: ${{ steps.context.outputs.source_repo }}
-          output: ${{ steps.context.outputs.output_dir }}
+          path: ${{ steps.source.outputs.path }}
 "#;
     let summary = parse_workflow(workflow).unwrap();
     let record = FlowRecord::new(
@@ -370,7 +418,7 @@ jobs:
         "2026-06-25T00:00:00Z".to_string(),
         "2026-06-25T00:00:00Z".to_string(),
     );
-    let registry = FlowNodeRegistry::new();
+    let registry = test_node_registry();
     let mut executor = DryRunActionExecutor;
 
     let report = run_flow_with_executor(
@@ -388,10 +436,7 @@ jobs:
     );
 
     assert_eq!(report.status, FlowRunStatus::Succeeded);
-    let build = &report.jobs[0].nodes[1];
-    assert_eq!(build.inputs["repo"], "/tmp/source");
-    assert_eq!(
-        build.outputs["html_dir"],
-        "/tmp/source/.gittributary/output"
-    );
+    let verify = &report.jobs[0].nodes[1];
+    assert_eq!(verify.inputs["path"], "/tmp/source");
+    assert_eq!(verify.outputs["path"], "/tmp/source");
 }

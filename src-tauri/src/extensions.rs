@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 
 use serde::de::DeserializeOwned;
@@ -9,6 +10,7 @@ use serde_json::{json, Value};
 use tauri::http::{header, Request, Response, StatusCode};
 use tauri::State;
 
+use gt_flow::FlowNodeDefinition;
 use gt_git::{resolve_repo_root, AuthMethod, GitRepo};
 
 use crate::auth::resolve_auth_for_publish_target;
@@ -46,9 +48,12 @@ pub struct ExtensionManifest {
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ExtensionContributions {
     #[serde(default)]
     pub views: Vec<ExtensionView>,
+    #[serde(default)]
+    pub flow_nodes: Vec<ExtensionFlowNode>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -66,6 +71,37 @@ pub struct ExtensionView {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtensionFlowNode {
+    pub uses: String,
+    pub name: String,
+    #[serde(rename = "type")]
+    pub node_type: String,
+    pub summary: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub inputs: BTreeMap<String, String>,
+    #[serde(default)]
+    pub outputs: BTreeMap<String, String>,
+    pub method: String,
+}
+
+impl ExtensionFlowNode {
+    fn definition(&self) -> FlowNodeDefinition {
+        FlowNodeDefinition {
+            uses: self.uses.clone(),
+            name: self.name.clone(),
+            node_type: self.node_type.clone(),
+            summary: self.summary.clone(),
+            description: self.description.clone(),
+            inputs_schema: self.inputs.clone(),
+            outputs_schema: self.outputs.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct ExtensionBackend {
     #[serde(default = "default_backend_runtime")]
     pub runtime: String,
@@ -79,19 +115,30 @@ pub struct ExtensionBackend {
 struct InstalledExtension {
     manifest: ExtensionManifest,
     root: PathBuf,
+    generation: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BackendMethodSnapshot {
+    generation: u64,
     version: String,
     path: PathBuf,
     permissions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PluginFlowNodeBindingSnapshot {
+    plugin_id: String,
+    uses: String,
+    method: String,
+    backend: BackendMethodSnapshot,
 }
 
 #[derive(Clone, Default)]
 pub struct ExtensionRegistry {
     installed: Arc<RwLock<BTreeMap<String, InstalledExtension>>>,
     lifecycle: Arc<Mutex<()>>,
+    next_generation: Arc<AtomicU64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -105,6 +152,7 @@ pub struct ExtensionListItem {
     pub permissions: Vec<String>,
     pub backend: Option<ExtensionBackendInfo>,
     pub views: Vec<ExtensionViewContribution>,
+    pub flow_nodes: Vec<FlowNodeDefinition>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -148,10 +196,15 @@ impl ExtensionRegistry {
         let root = root
             .canonicalize()
             .map_err(|_| "插件目录不存在".to_string())?;
-        self.installed
-            .write()
-            .unwrap()
-            .insert(manifest.id.clone(), InstalledExtension { manifest, root });
+        let generation = self.next_generation.fetch_add(1, Ordering::Relaxed) + 1;
+        self.installed.write().unwrap().insert(
+            manifest.id.clone(),
+            InstalledExtension {
+                manifest,
+                root,
+                generation,
+            },
+        );
         Ok(())
     }
 
@@ -181,6 +234,61 @@ impl ExtensionRegistry {
 
     pub(crate) fn lifecycle_lock(&self) -> MutexGuard<'_, ()> {
         self.lifecycle.lock().unwrap()
+    }
+
+    pub(crate) fn contribute_active_flow_nodes(
+        &self,
+        registry: &mut gt_flow::FlowNodeRegistry,
+    ) -> Result<(), String> {
+        let installed = self.installed.read().unwrap();
+        let mut candidate = registry.clone();
+        for extension in installed.values() {
+            candidate.replace_plugin_nodes(
+                &extension.manifest.id,
+                extension
+                    .manifest
+                    .contributes
+                    .flow_nodes
+                    .iter()
+                    .map(ExtensionFlowNode::definition)
+                    .collect(),
+            )?;
+        }
+        *registry = candidate;
+        Ok(())
+    }
+
+    pub(crate) fn flow_node_binding_snapshot(
+        &self,
+        plugin_id: &str,
+        uses: &str,
+    ) -> Result<PluginFlowNodeBindingSnapshot, String> {
+        let (method, backend) = self.flow_node_backend_snapshot(plugin_id, uses)?;
+        Ok(PluginFlowNodeBindingSnapshot {
+            plugin_id: plugin_id.to_string(),
+            uses: uses.to_string(),
+            method,
+            backend,
+        })
+    }
+
+    pub(crate) fn invoke_flow_node(
+        &self,
+        plugin_host: &crate::plugin_host::PluginHostSupervisor,
+        expected: &PluginFlowNodeBindingSnapshot,
+        payload: Value,
+    ) -> Result<Value, String> {
+        let _lifecycle = self.lifecycle_lock();
+        let current = self.flow_node_binding_snapshot(&expected.plugin_id, &expected.uses)?;
+        if current != *expected {
+            return Err("extension_changed_during_flow_node".to_string());
+        }
+        for permission in &current.backend.permissions {
+            if !self.has_permission(&current.plugin_id, permission) {
+                return Err("permission_denied".to_string());
+            }
+        }
+        plugin_host.invoke_plugin(&current.backend.path, &current.method, payload)
     }
 
     pub fn list(&self) -> Vec<ExtensionListItem> {
@@ -246,10 +354,34 @@ impl ExtensionRegistry {
             ),
         )?;
         Ok(BackendMethodSnapshot {
+            generation: extension.generation,
             version: extension.manifest.version.clone(),
             path,
             permissions,
         })
+    }
+
+    fn flow_node_backend_snapshot(
+        &self,
+        plugin_id: &str,
+        uses: &str,
+    ) -> Result<(String, BackendMethodSnapshot), String> {
+        let method = {
+            let installed = self.installed.read().unwrap();
+            let extension = installed
+                .get(plugin_id)
+                .ok_or_else(|| "extension_not_found".to_string())?;
+            extension
+                .manifest
+                .contributes
+                .flow_nodes
+                .iter()
+                .find(|node| node.uses == uses)
+                .map(|node| node.method.clone())
+                .ok_or_else(|| "plugin_flow_node_not_found".to_string())?
+        };
+        let snapshot = self.backend_method_snapshot(plugin_id, &method)?;
+        Ok((method, snapshot))
     }
 }
 
@@ -515,6 +647,13 @@ fn extension_to_list_item(extension: &InstalledExtension) -> ExtensionListItem {
                 }
             })
             .collect(),
+        flow_nodes: extension
+            .manifest
+            .contributes
+            .flow_nodes
+            .iter()
+            .map(ExtensionFlowNode::definition)
+            .collect(),
     }
 }
 
@@ -531,8 +670,8 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
     if !valid_version_segment(&manifest.version) {
         return Err("插件 version 格式无效".to_string());
     }
-    if manifest.contributes.views.is_empty() {
-        return Err("MVP 插件至少需要贡献一个 view".to_string());
+    if manifest.contributes.views.is_empty() && manifest.contributes.flow_nodes.is_empty() {
+        return Err("插件至少需要贡献一个 view 或 flowNode".to_string());
     }
     if let Some(icon) = &manifest.icon {
         validate_lucide_icon(icon)?;
@@ -566,6 +705,26 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
             } else {
                 safe_join(root, icon)?;
             }
+        }
+    }
+    let backend = manifest.backend.as_ref();
+    let mut flow_node_uses = BTreeSet::new();
+    for node in &manifest.contributes.flow_nodes {
+        if node.uses.trim().is_empty()
+            || !node.uses.starts_with(&format!("{}/", manifest.id))
+            || !flow_node_uses.insert(node.uses.as_str())
+            || node.name.trim().is_empty()
+            || node.node_type.trim().is_empty()
+            || node.summary.trim().is_empty()
+            || node.method.trim().is_empty()
+        {
+            return Err("插件 flowNode 定义无效".to_string());
+        }
+        let method_declared = backend
+            .and_then(|backend| backend.methods.get(&node.method))
+            .is_some();
+        if !method_declared {
+            return Err("插件 flowNode method 未在 backend.methods 声明".to_string());
         }
     }
     if let Some(backend) = &manifest.backend {
@@ -969,6 +1128,7 @@ mod tests {
             store: std::sync::Mutex::new(store),
             event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
             node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
+            flow_execution: std::sync::Mutex::new(()),
             extensions: ExtensionRegistry::default(),
             plugin_host: std::sync::Arc::new(crate::plugin_host::PluginHostSupervisor::default()),
         };
@@ -1001,6 +1161,132 @@ mod tests {
                 "passphrase": null,
             })
         );
+    }
+
+    #[test]
+    fn validates_headless_flow_node_plugins() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir_all(directory.path().join("backend")).unwrap();
+        fs::write(
+            directory
+                .path()
+                .join("backend")
+                .join(native_library_name("demo_plugin")),
+            b"placeholder",
+        )
+        .unwrap();
+        let manifest: ExtensionManifest = serde_json::from_value(json!({
+            "schemaVersion": 1,
+            "apiVersion": "1",
+            "id": "com.example.demo",
+            "name": "Demo",
+            "version": "0.1.0",
+            "contributes": {
+                "flowNodes": [{
+                    "uses": "com.example.demo/scan@v1",
+                    "name": "Scan",
+                    "type": "scan",
+                    "summary": "Scan files",
+                    "inputs": { "root": "string" },
+                    "outputs": { "count": "number" },
+                    "method": "flow.scan"
+                }]
+            },
+            "backend": {
+                "runtime": "rust-cdylib",
+                "entry": "backend",
+                "library": "demo_plugin",
+                "methods": { "flow.scan": ["files:read"] }
+            },
+            "permissions": ["files:read"]
+        }))
+        .unwrap();
+
+        validate_manifest(&manifest, directory.path()).unwrap();
+        validate_backend_exists(&manifest, directory.path()).unwrap();
+
+        let registry = ExtensionRegistry::default();
+        fs::write(
+            directory.path().join("manifest.json"),
+            serde_json::to_vec(&json!({
+                "schemaVersion": 1,
+                "apiVersion": "1",
+                "id": "com.example.demo",
+                "name": "Demo",
+                "version": "0.1.0",
+                "contributes": {
+                    "flowNodes": [{
+                        "uses": "com.example.demo/scan@v1",
+                        "name": "Scan",
+                        "type": "scan",
+                        "summary": "Scan files",
+                        "method": "flow.scan"
+                    }]
+                },
+                "backend": {
+                    "runtime": "rust-cdylib",
+                    "entry": "backend",
+                    "library": "demo_plugin",
+                    "methods": { "flow.scan": ["files:read"] }
+                },
+                "permissions": ["files:read"]
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        registry.register_path(directory.path()).unwrap();
+        let first_binding = registry
+            .flow_node_binding_snapshot("com.example.demo", "com.example.demo/scan@v1")
+            .unwrap();
+        let mut nodes = gt_flow::FlowNodeRegistry::new();
+        registry.contribute_active_flow_nodes(&mut nodes).unwrap();
+        assert!(nodes.get("com.example.demo/scan@v1").is_some());
+        registry.register_path(directory.path()).unwrap();
+        let reinstalled_binding = registry
+            .flow_node_binding_snapshot("com.example.demo", "com.example.demo/scan@v1")
+            .unwrap();
+        assert_ne!(first_binding, reinstalled_binding);
+        nodes.unregister_plugin_nodes("com.example.demo");
+        assert!(nodes.get("com.example.demo/scan@v1").is_none());
+    }
+
+    #[test]
+    fn rejects_invalid_flow_node_bindings() {
+        let directory = tempfile::tempdir().unwrap();
+        let manifest = |uses: &str, method: &str| -> ExtensionManifest {
+            serde_json::from_value(json!({
+                "schemaVersion": 1,
+                "apiVersion": "1",
+                "id": "com.example.demo",
+                "name": "Demo",
+                "version": "0.1.0",
+                "contributes": {
+                    "flowNodes": [{
+                        "uses": uses,
+                        "name": "Scan",
+                        "type": "scan",
+                        "summary": "Scan files",
+                        "method": method
+                    }]
+                },
+                "backend": {
+                    "entry": "backend",
+                    "library": "demo_plugin",
+                    "methods": { "flow.scan": [] }
+                }
+            }))
+            .unwrap()
+        };
+        assert!(validate_manifest(
+            &manifest("gittributary/files/override@v1", "flow.scan"),
+            directory.path()
+        )
+        .is_err());
+        assert!(validate_manifest(
+            &manifest("com.example.demo/scan@v1", "missing.method"),
+            directory.path()
+        )
+        .is_err());
     }
 
     #[test]

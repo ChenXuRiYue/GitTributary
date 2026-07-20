@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::commands::flow::refresh_flow_node_registry;
 use crate::config_dir::store_base_dir;
 use crate::extensions::{
     backend_library_relative_path, read_manifest, validate_backend_exists, validate_manifest,
@@ -27,6 +28,7 @@ pub struct PluginMarketItem {
     pub publisher: String,
     pub permissions: Vec<String>,
     pub views: Vec<PluginMarketView>,
+    pub flow_nodes: Vec<PluginMarketFlowNode>,
     pub backend_runtime: Option<String>,
     pub installed: bool,
     pub available: bool,
@@ -40,6 +42,14 @@ pub struct PluginMarketItem {
 pub struct PluginMarketView {
     pub id: String,
     pub title: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PluginMarketFlowNode {
+    pub uses: String,
+    pub name: String,
+    pub node_type: String,
 }
 
 #[tauri::command]
@@ -114,24 +124,64 @@ pub fn plugin_install(
     let had_target = target.exists();
     if had_target {
         if let Err(error) = fs::rename(&target, &backup) {
-            if let Some(previous_root) = previous_root {
-                let _ = state.extensions.register_path(&previous_root);
+            let error = format!("备份旧插件失败: {error}");
+            if let Some(previous_root) = previous_root.as_ref() {
+                if let Err(restore_error) = restore_plugin_registration(&state, previous_root) {
+                    let _ = fs::remove_dir_all(&staging);
+                    return Err(format!("{error}; 恢复旧插件失败: {restore_error}"));
+                }
             }
             let _ = fs::remove_dir_all(&staging);
-            return Err(format!("备份旧插件失败: {error}"));
+            return Err(error);
         }
     }
 
     let install_result = fs::rename(&staging, &target)
         .map_err(|error| format!("切换插件版本失败: {error}"))
-        .and_then(|_| state.extensions.register_path(&target));
+        .and_then(|_| state.extensions.register_path(&target))
+        .and_then(|_| refresh_flow_node_registry(&state));
     if let Err(error) = install_result {
-        let _ = fs::remove_dir_all(&target);
-        if had_target {
-            let _ = fs::rename(&backup, &target);
+        let mut rollback_errors = Vec::new();
+        let _ = state.extensions.unregister(&manifest.id);
+        if let Err(refresh_error) = refresh_flow_node_registry(&state) {
+            rollback_errors.push(format!("移除新插件节点失败: {refresh_error}"));
         }
-        if let Some(previous_root) = previous_root {
-            let _ = state.extensions.register_path(&previous_root);
+
+        let target_removed = if target.exists() {
+            match fs::remove_dir_all(&target) {
+                Ok(()) => true,
+                Err(remove_error) => {
+                    rollback_errors.push(format!("清理新插件失败: {remove_error}"));
+                    false
+                }
+            }
+        } else {
+            true
+        };
+        let old_files_restored = if had_target {
+            if target_removed {
+                match fs::rename(&backup, &target) {
+                    Ok(()) => true,
+                    Err(rename_error) => {
+                        rollback_errors.push(format!("恢复旧插件目录失败: {rename_error}"));
+                        false
+                    }
+                }
+            } else {
+                false
+            }
+        } else {
+            true
+        };
+        if old_files_restored {
+            if let Some(previous_root) = previous_root.as_ref() {
+                if let Err(restore_error) = restore_plugin_registration(&state, previous_root) {
+                    rollback_errors.push(format!("恢复旧插件注册失败: {restore_error}"));
+                }
+            }
+        }
+        if !rollback_errors.is_empty() {
+            return Err(format!("{error}; 回滚失败: {}", rollback_errors.join("; ")));
         }
         return Err(error);
     }
@@ -163,14 +213,33 @@ pub fn plugin_uninstall(
     ensure_installed_root(&plugins_root, &registered_root)?;
 
     state.plugin_host.unload_plugin()?;
-    let previous_root = state
-        .extensions
-        .unregister(&plugin_id)
-        .ok_or_else(|| "extension_not_found".to_string())?;
     let trash = trash_root.join(format!("{}-{}", plugin_id, operation_token()));
     if let Err(error) = fs::rename(&plugin_root, &trash) {
-        let _ = state.extensions.register_path(&previous_root);
         return Err(format!("移动待卸载插件失败: {error}"));
+    }
+    let Some(previous_root) = state.extensions.unregister(&plugin_id) else {
+        let _ = fs::rename(&trash, &plugin_root);
+        return Err("extension_not_found".to_string());
+    };
+    if let Err(error) = refresh_flow_node_registry(&state) {
+        if let Err(rename_error) = fs::rename(&trash, &plugin_root) {
+            let moved_root = previous_root
+                .strip_prefix(&plugin_root)
+                .map(|relative| trash.join(relative));
+            let runtime_restore = moved_root
+                .map_err(|strip_error| strip_error.to_string())
+                .and_then(|moved_root| restore_plugin_registration(&state, &moved_root));
+            return match runtime_restore {
+                Ok(()) => Err(format!("{error}; 恢复插件目录失败: {rename_error}")),
+                Err(runtime_error) => Err(format!(
+                    "{error}; 恢复插件目录失败: {rename_error}; 恢复插件运行状态失败: {runtime_error}"
+                )),
+            };
+        }
+        return match restore_plugin_registration(&state, &previous_root) {
+            Ok(()) => Err(error),
+            Err(restore_error) => Err(format!("{error}; 恢复插件失败: {restore_error}")),
+        };
     }
     let _ = fs::remove_dir_all(&trash);
     let _ = app.emit("extensions://changed", &plugin_id);
@@ -179,6 +248,21 @@ pub fn plugin_uninstall(
 
 fn plugins_root() -> PathBuf {
     store_base_dir().join("plugins")
+}
+
+fn restore_plugin_registration(state: &AppState, root: &Path) -> Result<(), String> {
+    state.extensions.register_path(root)?;
+    if let Err(error) = refresh_flow_node_registry(state) {
+        let manifest = read_manifest(root)?;
+        let _ = state.extensions.unregister(&manifest.id);
+        return match refresh_flow_node_registry(state) {
+            Ok(()) => Err(error),
+            Err(rollback_error) => Err(format!(
+                "{error}; 移除失败注册后重建 Flow 节点池失败: {rollback_error}"
+            )),
+        };
+    }
+    Ok(())
 }
 
 fn plugin_catalog_root(app: &AppHandle) -> Result<PathBuf, String> {
@@ -252,6 +336,16 @@ fn market_item(manifest: &ExtensionManifest, state: &AppState) -> PluginMarketIt
             .map(|view| PluginMarketView {
                 id: view.id.clone(),
                 title: view.title.clone(),
+            })
+            .collect(),
+        flow_nodes: manifest
+            .contributes
+            .flow_nodes
+            .iter()
+            .map(|node| PluginMarketFlowNode {
+                uses: node.uses.clone(),
+                name: node.name.clone(),
+                node_type: node.node_type.clone(),
             })
             .collect(),
         native_code: backend_runtime.as_deref() == Some("rust-cdylib"),

@@ -111,15 +111,6 @@ impl FlowActionExecutor for DryRunActionExecutor {
         _context: &FlowExecutionContext,
     ) -> Result<FlowActionOutcome> {
         let outputs = match node.uses.as_str() {
-            "gittributary/workspace/resolve-publish-context@v1" => json!({
-                "source_repo": inputs.get("source_repo").cloned().unwrap_or_default(),
-                "target_repo": inputs.get("target_repo").cloned().unwrap_or_default(),
-                "target_branch": inputs.get("target_branch").cloned().unwrap_or_else(|| "main".to_string()),
-                "output_dir": format!("{}/.gittributary/output", inputs.get("source_repo").cloned().unwrap_or_default()),
-            }),
-            "gittributary/notes/build-html@v1" => json!({
-                "html_dir": inputs.get("output").cloned().unwrap_or_default(),
-            }),
             "gittributary/files/assert-exists@v1" => json!({
                 "path": inputs.get("path").cloned().unwrap_or_default(),
             }),

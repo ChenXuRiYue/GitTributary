@@ -88,9 +88,10 @@ function preparePlugin(directory) {
   if (typeof manifest.id !== "string" || manifest.id.length === 0) {
     fail(`${directory}/manifest.json is missing id`);
   }
-  const views = manifest.contributes?.views;
-  if (!Array.isArray(views) || views.length === 0) {
-    fail(`${directory}/manifest.json must contribute at least one view`);
+  const views = manifest.contributes?.views ?? [];
+  const flowNodes = manifest.contributes?.flowNodes ?? [];
+  if (!Array.isArray(views) || !Array.isArray(flowNodes) || (views.length === 0 && flowNodes.length === 0)) {
+    fail(`${directory}/manifest.json must contribute at least one view or flowNode`);
   }
 
   const outputRoot = resolve(staging, directory);

@@ -18,7 +18,20 @@ export interface FlowNodeDefinition {
   description: string;
   inputs_schema: Record<string, string>;
   outputs_schema: Record<string, string>;
+  source: FlowNodeSource;
 }
+
+export type FlowNodeSource = {
+  kind: "core";
+  id: null;
+  name: string;
+  version: string | null;
+} | {
+  kind: "plugin";
+  id: string;
+  name: string;
+  version: string | null;
+};
 
 export interface FlowNodeSpec {
   id: string;
@@ -29,4 +42,5 @@ export interface FlowNodeSpec {
   summary: string;
   inputs: Record<string, string>;
   known: boolean;
+  owner?: { kind: "core" } | { kind: "plugin"; id: string } | null;
 }

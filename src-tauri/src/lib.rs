@@ -25,7 +25,7 @@ use commands::flow::{
     flow_build_draft, flow_create_folder, flow_delete, flow_delete_folder, flow_emit_event,
     flow_event_catalog, flow_get, flow_list, flow_list_folders, flow_match_event,
     flow_node_catalog, flow_nodes, flow_recent_events, flow_records_from_store, flow_run,
-    flow_save, flow_set_enabled, flow_validate,
+    flow_save, flow_set_enabled, flow_validate, inspect_flow_node_sources,
 };
 use commands::git::{
     checkout_branch, commit_all, commit_selected, create_branch, delete_branch, get_branch_log,
@@ -57,6 +57,7 @@ pub struct AppState {
     pub store: Mutex<Store>,
     pub event_pool: Mutex<EventPool>,
     pub node_registry: Mutex<FlowNodeRegistry>,
+    pub flow_execution: Mutex<()>,
     pub extensions: ExtensionRegistry,
     pub plugin_host: Arc<PluginHostSupervisor>,
 }
@@ -138,6 +139,8 @@ pub fn run() {
         eprintln!("[extensions] 无法创建插件目录: {error}");
     }
     let extensions = ExtensionRegistry::discover(&plugins_dir);
+    let node_registry = inspect_flow_node_sources(&extensions)
+        .unwrap_or_else(|error| panic!("无法汇聚 Flow 节点来源: {error}"));
     let extension_assets = extensions.clone();
 
     tauri::Builder::default()
@@ -150,7 +153,8 @@ pub fn run() {
             repo: Mutex::new(None),
             store: Mutex::new(store),
             event_pool: Mutex::new(EventPool::new()),
-            node_registry: Mutex::new(FlowNodeRegistry::new()),
+            node_registry: Mutex::new(node_registry),
+            flow_execution: Mutex::new(()),
             extensions,
             plugin_host: Arc::new(PluginHostSupervisor::default()),
         })

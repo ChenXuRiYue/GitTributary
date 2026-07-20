@@ -1,9 +1,42 @@
 //! 文件管理 Core 的只读 Tauri 命令。
 
+use std::collections::BTreeMap;
+
 use gt_files::{
     FileWorkspace, ListOptions, ListReport, ScanOptions, ScanReport, SearchOptions, SearchReport,
     TextFile,
 };
+use gt_flow::FlowNodeDefinition;
+
+pub(crate) fn flow_node_definitions() -> Vec<FlowNodeDefinition> {
+    vec![
+        FlowNodeDefinition {
+            uses: "gittributary/files/assert-exists@v1".to_string(),
+            name: "校验文件存在".to_string(),
+            node_type: "validate".to_string(),
+            summary: "检查目标路径是否存在并可选校验非空".to_string(),
+            description: "在写入、提交或推送前确认文件或目录存在。".to_string(),
+            inputs_schema: BTreeMap::from([
+                ("path".to_string(), "string".to_string()),
+                ("non_empty".to_string(), "boolean?".to_string()),
+            ]),
+            outputs_schema: BTreeMap::from([("path".to_string(), "string".to_string())]),
+        },
+        FlowNodeDefinition {
+            uses: "gittributary/files/sync-dir@v1".to_string(),
+            name: "同步目录".to_string(),
+            node_type: "sync".to_string(),
+            summary: "把源目录中的文件递归复制到目标目录".to_string(),
+            description: "用于在本地目录之间同步构建产物；当前不会删除目标目录中的孤立文件。"
+                .to_string(),
+            inputs_schema: BTreeMap::from([
+                ("from".to_string(), "string".to_string()),
+                ("to".to_string(), "string".to_string()),
+            ]),
+            outputs_schema: BTreeMap::from([("changed_count".to_string(), "number".to_string())]),
+        },
+    ]
+}
 
 #[tauri::command]
 pub(crate) fn files_list(

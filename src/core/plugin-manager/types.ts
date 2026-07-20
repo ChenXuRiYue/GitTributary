@@ -3,6 +3,12 @@ export interface MarketPluginView {
   title: string;
 }
 
+export interface MarketPluginFlowNode {
+  uses: string;
+  name: string;
+  nodeType: string;
+}
+
 export interface MarketPlugin {
   id: string;
   name: string;
@@ -12,6 +18,7 @@ export interface MarketPlugin {
   publisher: string;
   permissions: string[];
   views: MarketPluginView[];
+  flowNodes: MarketPluginFlowNode[];
   backendRuntime: string | null;
   installed: boolean;
   available: boolean;

@@ -25,11 +25,26 @@ pub struct FlowNodeSpec {
     pub summary: String,
     pub inputs: BTreeMap<String, String>,
     pub known: bool,
+    #[serde(default)]
+    pub owner: Option<FlowNodeOwner>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(tag = "kind", content = "id", rename_all = "snake_case")]
+pub enum FlowNodeOwner {
+    Core,
+    Plugin(String),
+}
+
+#[derive(Debug, Clone)]
+struct RegisteredFlowNode {
+    definition: FlowNodeDefinition,
+    owner: FlowNodeOwner,
 }
 
 #[derive(Debug, Clone)]
 pub struct FlowNodeRegistry {
-    definitions: BTreeMap<String, FlowNodeDefinition>,
+    definitions: BTreeMap<String, RegisteredFlowNode>,
 }
 
 impl Default for FlowNodeRegistry {
@@ -41,23 +56,99 @@ impl Default for FlowNodeRegistry {
 impl FlowNodeRegistry {
     pub fn new() -> Self {
         Self {
-            definitions: builtin_node_definitions()
-                .into_iter()
-                .map(|definition| (definition.uses.clone(), definition))
-                .collect(),
+            definitions: BTreeMap::new(),
         }
     }
 
     pub fn list(&self) -> Vec<FlowNodeDefinition> {
-        self.definitions.values().cloned().collect()
+        self.definitions
+            .values()
+            .map(|registered| registered.definition.clone())
+            .collect()
+    }
+
+    pub fn list_with_owners(&self) -> Vec<(FlowNodeDefinition, FlowNodeOwner)> {
+        self.definitions
+            .values()
+            .map(|registered| (registered.definition.clone(), registered.owner.clone()))
+            .collect()
     }
 
     pub fn get(&self, uses: &str) -> Option<&FlowNodeDefinition> {
-        self.definitions.get(uses)
+        self.definitions
+            .get(uses)
+            .map(|registered| &registered.definition)
     }
 
-    pub fn register(&mut self, definition: FlowNodeDefinition) {
-        self.definitions.insert(definition.uses.clone(), definition);
+    pub fn owner_of(&self, uses: &str) -> Option<&FlowNodeOwner> {
+        self.definitions
+            .get(uses)
+            .map(|registered| &registered.owner)
+    }
+
+    pub fn replace_core_nodes(
+        &mut self,
+        definitions: Vec<FlowNodeDefinition>,
+    ) -> Result<(), String> {
+        self.replace_nodes(FlowNodeOwner::Core, definitions)
+    }
+
+    pub fn replace_plugin_nodes(
+        &mut self,
+        plugin_id: &str,
+        definitions: Vec<FlowNodeDefinition>,
+    ) -> Result<(), String> {
+        if plugin_id.trim().is_empty() || plugin_id != plugin_id.trim() {
+            return Err("flow_node_plugin_id_empty".to_string());
+        }
+        self.replace_nodes(FlowNodeOwner::Plugin(plugin_id.to_string()), definitions)
+    }
+
+    fn replace_nodes(
+        &mut self,
+        owner: FlowNodeOwner,
+        definitions: Vec<FlowNodeDefinition>,
+    ) -> Result<(), String> {
+        let mut incoming = BTreeMap::new();
+        for definition in definitions {
+            if definition.uses.trim().is_empty() || definition.uses != definition.uses.trim() {
+                return Err("flow_node_uses_empty".to_string());
+            }
+            if incoming
+                .insert(definition.uses.clone(), definition)
+                .is_some()
+            {
+                return Err("flow_node_uses_duplicate".to_string());
+            }
+        }
+        for uses in incoming.keys() {
+            if self
+                .definitions
+                .get(uses)
+                .is_some_and(|registered| registered.owner != owner)
+            {
+                return Err(format!("flow_node_uses_conflict:{uses}"));
+            }
+        }
+
+        self.definitions
+            .retain(|_, registered| registered.owner != owner);
+        for (uses, definition) in incoming {
+            self.definitions.insert(
+                uses,
+                RegisteredFlowNode {
+                    definition,
+                    owner: owner.clone(),
+                },
+            );
+        }
+        Ok(())
+    }
+
+    pub fn unregister_plugin_nodes(&mut self, plugin_id: &str) {
+        let owner = FlowNodeOwner::Plugin(plugin_id.to_string());
+        self.definitions
+            .retain(|_, registered| registered.owner != owner);
     }
 
     pub fn compile_record(&self, record: &FlowRecord) -> Vec<FlowNodeSpec> {
@@ -73,7 +164,8 @@ pub fn compile_flow_nodes(summary: &FlowSummary, registry: &FlowNodeRegistry) ->
     let mut nodes = Vec::new();
     for job in &summary.jobs {
         for (index, step) in job.steps.iter().enumerate() {
-            let definition = registry.get(&step.uses);
+            let registered = registry.definitions.get(&step.uses);
+            let definition = registered.map(|item| &item.definition);
             let fallback_id = format!("{}-{}", job.id, index + 1);
             nodes.push(FlowNodeSpec {
                 id: step.id.clone().unwrap_or(fallback_id),
@@ -88,120 +180,186 @@ pub fn compile_flow_nodes(summary: &FlowSummary, registry: &FlowNodeRegistry) ->
                     .unwrap_or_else(|| "未注册节点动作".to_string()),
                 inputs: step.inputs.clone(),
                 known: definition.is_some(),
+                owner: registered.map(|item| item.owner.clone()),
             });
         }
     }
     nodes
 }
 
-pub fn builtin_node_definitions() -> Vec<FlowNodeDefinition> {
-    vec![
-        node_definition(
-            "gittributary/workspace/resolve-publish-context@v1",
-            "解析发布上下文",
-            "context",
-            "解析源仓库、目标仓库、输出目录和目标分支",
-            "根据当前工作区和数据中心配置产出发布链路所需上下文,供后续构建、同步和 Git 节点引用。",
-            &[
-                ("source_repo", "string"),
-                ("target_repo", "string"),
-                ("target_branch", "string"),
-            ],
-            &[
-                ("source_repo", "string"),
-                ("target_repo", "string"),
-                ("target_branch", "string"),
-                ("output_dir", "string"),
-            ],
-        ),
-        node_definition(
-            "gittributary/notes/build-html@v1",
-            "构建笔记 HTML",
-            "build",
-            "把笔记内容构建成 HTML 产物",
-            "调用笔记系统构建能力,将源仓库中的 Markdown 或笔记数据输出为可发布的 HTML 目录。",
-            &[("repo", "string"), ("output", "string")],
-            &[("html_dir", "string")],
-        ),
-        node_definition(
-            "gittributary/files/assert-exists@v1",
-            "校验文件存在",
-            "validate",
-            "检查目标路径是否存在并可选校验非空",
-            "用于在写入、提交或推送前确认构建产物存在,避免把空目录或错误产物发布出去。",
-            &[("path", "string"), ("non_empty", "boolean")],
-            &[("path", "string")],
-        ),
-        node_definition(
-            "gittributary/files/sync-dir@v1",
-            "同步目录",
-            "sync",
-            "把一个目录同步到另一个目录",
-            "用于将构建产物复制到目标仓库工作区,后续可扩展为增量同步、删除孤儿文件和冲突报告。",
-            &[("from", "string"), ("to", "string")],
-            &[("changed_count", "number")],
-        ),
-        node_definition(
-            "gittributary/git/commit-all@v1",
-            "提交全部变更",
-            "git",
-            "暂存并提交指定仓库的全部变更",
-            "用于在目标仓库中生成一次提交。没有变更时应返回可解释结果,由 Runner 决定 skipped 或 failed。",
-            &[("repo", "string"), ("message", "string")],
-            &[("commit", "string"), ("branch", "string")],
-        ),
-        node_definition(
-            "gittributary/git/push@v1",
-            "推送分支",
-            "git",
-            "把指定仓库分支推送到远程",
-            "用于将本地提交推送到远程仓库。该节点通常是发布类 Flow 的最后高风险动作。",
-            &[("repo", "string"), ("remote", "string"), ("branch", "string")],
-            &[("remote", "string"), ("branch", "string")],
-        ),
-        node_definition(
-            "gittributary/store/sync-now@v1",
-            "同步数据中心",
-            "sync",
-            "立即同步公共数据中心配置",
-            "调用数据中心同步能力,将 public 配置与已绑定的配置数据库进行一次双向同步。",
-            &[],
-            &[("message", "string")],
-        ),
-        node_definition(
-            "gittributary/ui/notify@v1",
-            "发送通知",
-            "notify",
-            "向用户展示 Flow 运行结果",
-            "用于在 Flow 完成或失败后给出可见反馈。P0 可以先记录到运行日志,P1 再接系统通知。",
-            &[("title", "string"), ("message", "string")],
-            &[],
-        ),
-    ]
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn node_definition(
-    uses: &str,
-    name: &str,
-    node_type: &str,
-    summary: &str,
-    description: &str,
-    inputs_schema: &[(&str, &str)],
-    outputs_schema: &[(&str, &str)],
-) -> FlowNodeDefinition {
-    FlowNodeDefinition {
-        uses: uses.to_string(),
-        name: name.to_string(),
-        node_type: node_type.to_string(),
-        summary: summary.to_string(),
-        description: description.to_string(),
-        inputs_schema: inputs_schema
-            .iter()
-            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
-            .collect(),
-        outputs_schema: outputs_schema
-            .iter()
-            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
-            .collect(),
+    fn plugin_node(uses: &str, name: &str) -> FlowNodeDefinition {
+        FlowNodeDefinition {
+            uses: uses.to_string(),
+            name: name.to_string(),
+            node_type: "plugin".to_string(),
+            summary: name.to_string(),
+            description: String::new(),
+            inputs_schema: BTreeMap::new(),
+            outputs_schema: BTreeMap::new(),
+        }
+    }
+
+    fn core_node(uses: &str, name: &str) -> FlowNodeDefinition {
+        let mut definition = plugin_node(uses, name);
+        definition.node_type = "core".to_string();
+        definition
+    }
+
+    #[test]
+    fn new_registry_is_empty() {
+        let registry = FlowNodeRegistry::new();
+        assert!(registry.list().is_empty());
+    }
+
+    #[test]
+    fn atomically_replaces_core_nodes() {
+        let mut registry = FlowNodeRegistry::new();
+        let first = "gittributary/test/first@v1";
+        let stale = "gittributary/test/stale@v1";
+        registry
+            .replace_core_nodes(vec![core_node(first, "First"), core_node(stale, "Stale")])
+            .unwrap();
+        registry
+            .replace_core_nodes(vec![core_node(first, "First v2")])
+            .unwrap();
+        assert_eq!(registry.get(first).unwrap().name, "First v2");
+        assert!(registry.get(stale).is_none());
+        assert_eq!(registry.owner_of(first), Some(&FlowNodeOwner::Core));
+    }
+
+    #[test]
+    fn replaces_and_unregisters_nodes_by_plugin() {
+        let mut registry = FlowNodeRegistry::new();
+        let core = "gittributary/files/assert-exists@v1";
+        registry
+            .replace_core_nodes(vec![core_node(core, "Assert exists")])
+            .unwrap();
+        let first = "com.example.publisher/build@v1";
+        let stale = "com.example.publisher/scan@v1";
+        registry
+            .replace_plugin_nodes(
+                "com.example.publisher",
+                vec![plugin_node(first, "Build"), plugin_node(stale, "Scan")],
+            )
+            .unwrap();
+        assert_eq!(
+            registry.owner_of(first),
+            Some(&FlowNodeOwner::Plugin("com.example.publisher".to_string()))
+        );
+
+        registry
+            .replace_plugin_nodes(
+                "com.example.publisher",
+                vec![plugin_node(first, "Build v2")],
+            )
+            .unwrap();
+        assert_eq!(registry.get(first).unwrap().name, "Build v2");
+        assert!(registry.get(stale).is_none());
+
+        registry.unregister_plugin_nodes("com.example.publisher");
+        assert!(registry.get(first).is_none());
+        assert!(registry.get(core).is_some());
+    }
+
+    #[test]
+    fn rejects_cross_owner_collisions_without_mutation() {
+        let mut registry = FlowNodeRegistry::new();
+        let core = "gittributary/files/assert-exists@v1";
+        registry
+            .replace_core_nodes(vec![core_node(core, "Assert exists")])
+            .unwrap();
+        let error = registry
+            .replace_plugin_nodes("com.example.bad", vec![plugin_node(core, "Override core")])
+            .unwrap_err();
+        assert_eq!(error, format!("flow_node_uses_conflict:{core}"));
+        assert_eq!(registry.owner_of(core), Some(&FlowNodeOwner::Core));
+
+        let shared = "com.example.first/action@v1";
+        registry
+            .replace_plugin_nodes("com.example.first", vec![plugin_node(shared, "First")])
+            .unwrap();
+        assert!(registry
+            .replace_plugin_nodes("com.example.second", vec![plugin_node(shared, "Second")])
+            .is_err());
+        assert_eq!(registry.get(shared).unwrap().name, "First");
+    }
+
+    #[test]
+    fn rejects_duplicate_batch_without_removing_previous_nodes() {
+        let mut registry = FlowNodeRegistry::new();
+        let uses = "com.example.demo/action@v1";
+        registry
+            .replace_plugin_nodes("com.example.demo", vec![plugin_node(uses, "Existing")])
+            .unwrap();
+        assert!(registry
+            .replace_plugin_nodes(
+                "com.example.demo",
+                vec![plugin_node(uses, "A"), plugin_node(uses, "B")],
+            )
+            .is_err());
+        assert_eq!(registry.get(uses).unwrap().name, "Existing");
+    }
+
+    #[test]
+    fn deserializes_legacy_specs_without_owner() {
+        let spec: FlowNodeSpec = serde_json::from_value(serde_json::json!({
+            "id": "scan",
+            "name": null,
+            "job_id": "job",
+            "uses": "com.example.demo/scan@v1",
+            "node_type": "unknown",
+            "summary": "Legacy",
+            "inputs": {},
+            "known": false
+        }))
+        .unwrap();
+        assert_eq!(spec.owner, None);
+    }
+
+    #[test]
+    fn lists_core_and_plugin_owners() {
+        let mut registry = FlowNodeRegistry::new();
+        let core = "gittributary/files/assert-exists@v1";
+        registry
+            .replace_core_nodes(vec![core_node(core, "Assert exists")])
+            .unwrap();
+        let uses = "com.example.demo/action@v1";
+        registry
+            .replace_plugin_nodes("com.example.demo", vec![plugin_node(uses, "Demo")])
+            .unwrap();
+        let owners = registry
+            .list_with_owners()
+            .into_iter()
+            .map(|(definition, owner)| (definition.uses, owner))
+            .collect::<BTreeMap<_, _>>();
+        assert_eq!(
+            owners.get(uses),
+            Some(&FlowNodeOwner::Plugin("com.example.demo".to_string()))
+        );
+        assert_eq!(owners.get(core), Some(&FlowNodeOwner::Core));
+    }
+
+    #[test]
+    fn rejects_core_collision_without_mutating_existing_core_nodes() {
+        let mut registry = FlowNodeRegistry::new();
+        let core = "gittributary/test/core@v1";
+        let plugin = "com.example.demo/action@v1";
+        registry
+            .replace_core_nodes(vec![core_node(core, "Core")])
+            .unwrap();
+        registry
+            .replace_plugin_nodes("com.example.demo", vec![plugin_node(plugin, "Plugin")])
+            .unwrap();
+
+        let error = registry
+            .replace_core_nodes(vec![core_node(plugin, "Conflicting core")])
+            .unwrap_err();
+        assert_eq!(error, format!("flow_node_uses_conflict:{plugin}"));
+        assert_eq!(registry.get(core).unwrap().name, "Core");
+        assert_eq!(registry.get(plugin).unwrap().name, "Plugin");
     }
 }

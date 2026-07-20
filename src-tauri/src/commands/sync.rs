@@ -4,12 +4,28 @@
 
 use tauri::State;
 
+use gt_flow::FlowNodeDefinition;
 use gt_git::AuthMethod;
 use gt_store::Store;
 
 use crate::config_dir::store_base_dir;
 use crate::error::classify_config_repo_check_error;
 use crate::AppState;
+
+pub(crate) fn flow_node_definitions() -> Vec<FlowNodeDefinition> {
+    vec![FlowNodeDefinition {
+        uses: "gittributary/store/sync-now@v1".to_string(),
+        name: "同步数据中心".to_string(),
+        node_type: "sync".to_string(),
+        summary: "立即同步数据中心配置仓库".to_string(),
+        description: "执行 pull、导入、导出、提交和 push 的完整同步。".to_string(),
+        inputs_schema: std::collections::BTreeMap::new(),
+        outputs_schema: std::collections::BTreeMap::from([(
+            "message".to_string(),
+            "string".to_string(),
+        )]),
+    }]
+}
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub(crate) struct SyncConfigPayload {
@@ -75,10 +91,7 @@ pub(crate) fn sync_get_config(
 
 /// 把 payload 落为 SyncConfig、ensure checkout、并按需 import 远端数据。
 /// `active_environment_id` 为空时默认 "default"。
-fn apply_sync_config(
-    config: SyncConfigPayload,
-    state: &State<'_, AppState>,
-) -> Result<(), String> {
+fn apply_sync_config(config: SyncConfigPayload, state: &State<'_, AppState>) -> Result<(), String> {
     let token = {
         let store = state.store.lock().unwrap();
         require_config_repo_url_and_token(&store, &config.url)?
@@ -307,8 +320,7 @@ mod tests {
     #[test]
     fn require_config_repo_url_and_token_rejects_non_https() {
         let (_dir, store) = temp_store();
-        let err =
-            require_config_repo_url_and_token(&store, "git@github.com:a/b.git").unwrap_err();
+        let err = require_config_repo_url_and_token(&store, "git@github.com:a/b.git").unwrap_err();
         assert!(err.contains("HTTPS"));
     }
 

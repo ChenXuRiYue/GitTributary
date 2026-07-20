@@ -5,7 +5,7 @@
   "name": "发布",
   "icon": "lucide:send",
   "description": "从仓库文档构建静态站点并发布到 GitHub Pages。",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "GitTributary",
   "engines": {
     "gittributary": ">=0.1.3"
@@ -19,6 +19,50 @@
         "location": "activitybar",
         "entry": "frontend/dist/index.html"
       }
+    ],
+    "flowNodes": [
+      {
+        "uses": "dev.gittributary.site-publisher/scan@v1",
+        "name": "扫描站点内容",
+        "type": "scan",
+        "summary": "扫描当前仓库中的 Markdown 与站点资源",
+        "description": "调用发布插件后端分析可发布内容，并输出候选目录和文件统计。",
+        "inputs": {
+          "repo_path": "string"
+        },
+        "outputs": {
+          "repoPath": "string",
+          "markdownCount": "number",
+          "assetCount": "number",
+          "defaultOutputDir": "string"
+        },
+        "method": "flow.site.scan"
+      },
+      {
+        "uses": "dev.gittributary.site-publisher/build@v1",
+        "name": "构建静态站点",
+        "type": "build",
+        "summary": "把仓库中的 Markdown 构建成静态 HTML 站点",
+        "description": "调用发布插件的真实站点构建器，并输出页面、资源和链接检查报告。",
+        "inputs": {
+          "repo_path": "string",
+          "output_dir": "string",
+          "site_title": "string",
+          "include": "string",
+          "exclude": "string?",
+          "theme": "string?",
+          "with_search": "boolean?",
+          "copy_assets": "boolean?"
+        },
+        "outputs": {
+          "outputDir": "string",
+          "indexHtml": "string",
+          "pageCount": "number",
+          "assetCount": "number",
+          "durationMs": "number"
+        },
+        "method": "flow.site.build"
+      }
     ]
   },
   "backend": {
@@ -27,6 +71,8 @@
     "library": "site_publisher_plugin",
     "methods": {
       "site.scan": ["files:read"],
+      "flow.site.scan": ["files:read"],
+      "flow.site.build": ["files:read"],
       "site.build": ["files:read"],
       "site.publish": ["files:read", "git:write"]
     }

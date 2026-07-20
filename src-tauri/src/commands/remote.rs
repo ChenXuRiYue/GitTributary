@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 use tauri::State;
 
-use gt_flow::EventDraft;
+use gt_flow::{EventDraft, FlowNodeDefinition};
 use gt_git::{AuthMethod, GitRepo, RemoteInfo, RepoOverview};
 use gt_store::Store;
 
@@ -20,6 +20,25 @@ use crate::identity::{
 };
 use crate::keys::{project_token_key_for_path, remote_meta_key, repo_path_from_project_token_key};
 use crate::{publish_flow_event, set_active_repo_state, AppState};
+
+pub(crate) fn flow_node_definitions() -> Vec<FlowNodeDefinition> {
+    vec![FlowNodeDefinition {
+        uses: "gittributary/git/push@v1".to_string(),
+        name: "推送分支".to_string(),
+        node_type: "git".to_string(),
+        summary: "把指定仓库分支推送到远程".to_string(),
+        description: "使用宿主认证配置将本地分支推送到指定 remote。".to_string(),
+        inputs_schema: std::collections::BTreeMap::from([
+            ("repo".to_string(), "string".to_string()),
+            ("remote".to_string(), "string".to_string()),
+            ("branch".to_string(), "string".to_string()),
+        ]),
+        outputs_schema: std::collections::BTreeMap::from([
+            ("remote".to_string(), "string".to_string()),
+            ("branch".to_string(), "string".to_string()),
+        ]),
+    }]
+}
 
 #[derive(serde::Serialize)]
 pub(crate) struct RemoteConfigEntry {
@@ -594,6 +613,7 @@ mod tests {
             store: std::sync::Mutex::new(store),
             event_pool: std::sync::Mutex::new(EventPool::new()),
             node_registry: std::sync::Mutex::new(FlowNodeRegistry::new()),
+            flow_execution: std::sync::Mutex::new(()),
             extensions: crate::extensions::ExtensionRegistry::default(),
             plugin_host: std::sync::Arc::new(crate::plugin_host::PluginHostSupervisor::default()),
         };

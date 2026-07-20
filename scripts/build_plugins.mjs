@@ -78,9 +78,10 @@ function buildPlugin(directory) {
   }
   claimedPluginIcons.set(manifest.icon, manifest.id);
 
-  const views = manifest.contributes?.views;
-  if (!Array.isArray(views) || views.length === 0) {
-    fail(`${manifest.id} must contribute at least one view`);
+  const views = manifest.contributes?.views ?? [];
+  const flowNodes = manifest.contributes?.flowNodes ?? [];
+  if (!Array.isArray(views) || !Array.isArray(flowNodes) || (views.length === 0 && flowNodes.length === 0)) {
+    fail(`${manifest.id} must contribute at least one view or flowNode`);
   }
   const frontendProjects = new Set(
     views.map((view, index) => findProjectFile(

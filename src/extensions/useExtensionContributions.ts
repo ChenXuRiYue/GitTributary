@@ -8,8 +8,7 @@ import type {
   ExtensionContributionsState,
   ExtensionViewContribution,
 } from "./types";
-
-const EXTENSIONS_CHANGED_EVENT = "gittributary:extensions-changed";
+import { EXTENSIONS_CHANGED_EVENT } from "./events";
 
 export function useExtensionContributions(): ExtensionContributionsState {
   const [contributions, setContributions] = useState<ExtensionViewContribution[]>([]);

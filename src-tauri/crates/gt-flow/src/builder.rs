@@ -188,8 +188,8 @@ fn validate_jobs(
                 continue;
             };
 
-            for input in definition.inputs_schema.keys() {
-                if !step.inputs.contains_key(input) {
+            for (input, input_type) in &definition.inputs_schema {
+                if !input_type.ends_with('?') && !step.inputs.contains_key(input) {
                     diagnostics.push(diagnostic(
                         FlowDiagnosticSeverity::Warning,
                         "missing_input",

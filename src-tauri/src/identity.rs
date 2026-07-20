@@ -109,6 +109,7 @@ mod tests {
             store: std::sync::Mutex::new(store),
             event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
             node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
+            flow_execution: std::sync::Mutex::new(()),
             extensions: crate::extensions::ExtensionRegistry::default(),
             plugin_host: std::sync::Arc::new(crate::plugin_host::PluginHostSupervisor::default()),
         };

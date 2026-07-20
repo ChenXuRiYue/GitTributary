@@ -4,29 +4,50 @@
 //! 的连接层:`gt-flow` 只负责编排(顺序执行 job/step、渲染表达式),
 //! 真正的动作(commit/push/sync/文件操作)由这里注入执行。
 //!
-//! 当前用 `match node.uses.as_str()` 做分发,这是已知的技术债——
-//! 详见 `doc/工作流/流构造与执行技术实现.md` P2 "真实 Action Registry"。
-//! 后续每加一个新节点类型都要来改这个大 match,值得抽成可注册的
-//! action map,但这次重构只搬文件、不改行为,故保留现状。
+//! Core 节点暂时由 `match node.uses.as_str()` 分发；插件节点通过 manifest 注册，
+//! 运行时按插件与 backend method 快照路由到 sidecar。
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde_json::{json, Value};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
 
 use gt_flow::{
     CloudEvent, EventDefinition, EventDraft, EventReceipt, FlowActionExecutor, FlowActionOutcome,
-    FlowBuildDraft, FlowBuildRequest, FlowExecutionContext, FlowNodeDefinition, FlowNodeSpec,
-    FlowRecord, FlowRunReport, FlowRunRequest, FlowSummary,
+    FlowBuildDraft, FlowBuildRequest, FlowExecutionContext, FlowNodeDefinition, FlowNodeOwner,
+    FlowNodeRegistry, FlowNodeSpec, FlowRecord, FlowRunReport, FlowRunRequest, FlowSummary,
 };
 use gt_git::GitRepo;
 use gt_store::Store;
 
 use crate::auth::resolve_auth;
+use crate::commands::{files as file_commands, git as git_commands, remote, sync};
+use crate::extensions::{ExtensionRegistry, PluginFlowNodeBindingSnapshot};
 use crate::identity::{commit_identity_for_repo_remote, preferred_commit_remote};
 use crate::{publish_flow_event, sync_data_center_now, AppState};
+
+pub(crate) fn inspect_flow_node_sources(
+    extensions: &ExtensionRegistry,
+) -> Result<FlowNodeRegistry, String> {
+    let mut core_nodes = Vec::new();
+    core_nodes.extend(file_commands::flow_node_definitions());
+    core_nodes.extend(git_commands::flow_node_definitions());
+    core_nodes.extend(remote::flow_node_definitions());
+    core_nodes.extend(sync::flow_node_definitions());
+
+    let mut registry = FlowNodeRegistry::new();
+    registry.replace_core_nodes(core_nodes)?;
+    extensions.contribute_active_flow_nodes(&mut registry)?;
+    Ok(registry)
+}
+
+pub(crate) fn refresh_flow_node_registry(state: &AppState) -> Result<(), String> {
+    let candidate = inspect_flow_node_sources(&state.extensions)?;
+    *state.node_registry.lock().unwrap() = candidate;
+    Ok(())
+}
 
 #[derive(serde::Serialize)]
 pub(crate) struct FlowListItem {
@@ -37,6 +58,22 @@ pub(crate) struct FlowListItem {
     folder: String,
     created_at: String,
     updated_at: String,
+}
+
+#[derive(serde::Serialize)]
+pub(crate) struct FlowNodeCatalogItem {
+    #[serde(flatten)]
+    definition: FlowNodeDefinition,
+    source: FlowNodeCatalogSource,
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct FlowNodeCatalogSource {
+    kind: &'static str,
+    id: Option<String>,
+    name: String,
+    version: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -74,11 +111,18 @@ fn workspace_context_from_store(store: &Store) -> Value {
 
 struct AppFlowActionExecutor<'a> {
     state: &'a AppState,
+    plugin_bindings: BTreeMap<String, PluginFlowNodeBindingSnapshot>,
 }
 
 impl<'a> AppFlowActionExecutor<'a> {
-    fn new(state: &'a AppState) -> Self {
-        Self { state }
+    fn new(
+        state: &'a AppState,
+        plugin_bindings: BTreeMap<String, PluginFlowNodeBindingSnapshot>,
+    ) -> Self {
+        Self {
+            state,
+            plugin_bindings,
+        }
     }
 }
 
@@ -89,25 +133,15 @@ impl FlowActionExecutor for AppFlowActionExecutor<'_> {
         inputs: &BTreeMap<String, String>,
         context: &FlowExecutionContext,
     ) -> gt_flow::Result<FlowActionOutcome> {
+        if matches!(node.owner.as_ref(), Some(FlowNodeOwner::Plugin(_))) {
+            return self.execute_plugin_node(node, inputs, context);
+        }
         let outcome = match node.uses.as_str() {
-            "gittributary/workspace/resolve-publish-context@v1" => {
-                self.resolve_publish_context(inputs, context)
-            }
-            "gittributary/notes/build-html@v1" => self.build_html_placeholder(inputs),
             "gittributary/files/assert-exists@v1" => self.assert_exists(inputs),
             "gittributary/files/sync-dir@v1" => self.sync_dir(inputs),
             "gittributary/git/commit-all@v1" => self.commit_all(inputs),
             "gittributary/git/push@v1" => self.push(inputs),
             "gittributary/store/sync-now@v1" => self.sync_store(),
-            "gittributary/ui/notify@v1" => Ok(FlowActionOutcome {
-                outputs: json!({}),
-                skipped: false,
-                message: Some(format!(
-                    "{}: {}",
-                    inputs.get("title").cloned().unwrap_or_default(),
-                    inputs.get("message").cloned().unwrap_or_default()
-                )),
-            }),
             _ => Err(gt_flow::FlowError::Validation(format!(
                 "节点动作未实现: {}",
                 node.uses
@@ -118,50 +152,31 @@ impl FlowActionExecutor for AppFlowActionExecutor<'_> {
 }
 
 impl AppFlowActionExecutor<'_> {
-    fn resolve_publish_context(
+    fn execute_plugin_node(
         &self,
+        node: &FlowNodeSpec,
         inputs: &BTreeMap<String, String>,
         context: &FlowExecutionContext,
     ) -> gt_flow::Result<FlowActionOutcome> {
-        let workspace_repo = context
-            .workspace
-            .get("active_repo")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let workspace_branch = context
-            .workspace
-            .get("active_branch")
-            .and_then(Value::as_str)
-            .unwrap_or("main");
-        let source_repo = input_or_default(inputs, "source_repo", workspace_repo);
-        let target_repo = input_or_default(inputs, "target_repo", &source_repo);
-        let target_branch = input_or_default(inputs, "target_branch", workspace_branch);
-        let output_dir = PathBuf::from(&source_repo)
-            .join(".gittributary")
-            .join("output")
-            .to_string_lossy()
-            .to_string();
-        Ok(FlowActionOutcome {
-            outputs: json!({
-                "source_repo": source_repo,
-                "target_repo": target_repo,
-                "target_branch": target_branch,
-                "output_dir": output_dir,
-            }),
-            skipped: false,
-            message: Some("context_resolved".to_string()),
-        })
-    }
-
-    fn build_html_placeholder(
-        &self,
-        inputs: &BTreeMap<String, String>,
-    ) -> gt_flow::Result<FlowActionOutcome> {
-        let output = require_input(inputs, "output")?;
-        Ok(FlowActionOutcome {
-            outputs: json!({ "html_dir": output }),
-            skipped: false,
-            message: Some("build_html_placeholder".to_string()),
+        let binding = self.plugin_bindings.get(&node.uses).ok_or_else(|| {
+            gt_flow::FlowError::Validation(format!("插件节点运行快照不存在: {}", node.uses))
+        })?;
+        let value = self
+            .state
+            .extensions
+            .invoke_flow_node(
+                &self.state.plugin_host,
+                binding,
+                json!({
+                    "inputs": inputs,
+                    "context": {
+                        "now": &context.now,
+                    },
+                }),
+            )
+            .map_err(to_validation_error)?;
+        serde_json::from_value(value).map_err(|error| {
+            gt_flow::FlowError::Validation(format!("插件节点返回值无效 ({}): {error}", node.uses))
         })
     }
 
@@ -252,14 +267,6 @@ impl AppFlowActionExecutor<'_> {
             message: Some("store_synced".to_string()),
         })
     }
-}
-
-fn input_or_default(inputs: &BTreeMap<String, String>, key: &str, fallback: &str) -> String {
-    inputs
-        .get(key)
-        .filter(|value| !value.trim().is_empty())
-        .cloned()
-        .unwrap_or_else(|| fallback.to_string())
 }
 
 fn require_input(inputs: &BTreeMap<String, String>, key: &str) -> gt_flow::Result<String> {
@@ -556,9 +563,41 @@ pub(crate) fn flow_match_event(
 }
 
 #[tauri::command]
-pub(crate) fn flow_node_catalog(state: State<'_, AppState>) -> Vec<FlowNodeDefinition> {
+pub(crate) fn flow_node_catalog(state: State<'_, AppState>) -> Vec<FlowNodeCatalogItem> {
+    let _lifecycle = state.extensions.lifecycle_lock();
+    let plugins = state
+        .extensions
+        .list()
+        .into_iter()
+        .map(|plugin| (plugin.id.clone(), plugin))
+        .collect::<BTreeMap<_, _>>();
     let registry = state.node_registry.lock().unwrap();
-    registry.list()
+    registry
+        .list_with_owners()
+        .into_iter()
+        .map(|(definition, owner)| {
+            let source = match owner {
+                FlowNodeOwner::Core => FlowNodeCatalogSource {
+                    kind: "core",
+                    id: None,
+                    name: "GitTributary Core".to_string(),
+                    version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                },
+                FlowNodeOwner::Plugin(plugin_id) => {
+                    let plugin = plugins.get(&plugin_id);
+                    FlowNodeCatalogSource {
+                        kind: "plugin",
+                        id: Some(plugin_id.clone()),
+                        name: plugin
+                            .map(|item| item.name.clone())
+                            .unwrap_or_else(|| plugin_id.clone()),
+                        version: plugin.map(|item| item.version.clone()),
+                    }
+                }
+            };
+            FlowNodeCatalogItem { definition, source }
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -580,11 +619,28 @@ pub(crate) fn flow_nodes(
 }
 
 #[tauri::command]
-pub(crate) fn flow_run(
+pub(crate) async fn flow_run(
     id: String,
     request: Option<FlowRunRequest>,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<FlowRunReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<AppState>();
+        flow_run_blocking(id, request, &state)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+fn flow_run_blocking(
+    id: String,
+    request: Option<FlowRunRequest>,
+    state: &AppState,
+) -> Result<FlowRunReport, String> {
+    let _execution = state
+        .flow_execution
+        .try_lock()
+        .map_err(|_| "flow_run_already_in_progress".to_string())?;
     let (record, workspace) = {
         let store = state.store.lock().unwrap();
         let key = gt_flow::workflow_key(&id);
@@ -596,8 +652,21 @@ pub(crate) fn flow_run(
         let workspace = workspace_context_from_store(&store);
         (record, workspace)
     };
-    let registry = state.node_registry.lock().unwrap();
-    let mut executor = AppFlowActionExecutor::new(&state);
+    let (registry, plugin_bindings) = {
+        let _lifecycle = state.extensions.lifecycle_lock();
+        let registry = state.node_registry.lock().unwrap().clone();
+        let mut bindings = BTreeMap::new();
+        for node in registry.compile_record(&record) {
+            if let Some(FlowNodeOwner::Plugin(plugin_id)) = node.owner {
+                let binding = state
+                    .extensions
+                    .flow_node_binding_snapshot(&plugin_id, &node.uses)?;
+                bindings.insert(node.uses, binding);
+            }
+        }
+        (registry, bindings)
+    };
+    let mut executor = AppFlowActionExecutor::new(state, plugin_bindings);
     let report = gt_flow::run_flow_with_executor(
         &record,
         request.unwrap_or(FlowRunRequest {
@@ -608,10 +677,8 @@ pub(crate) fn flow_run(
         workspace,
         &mut executor,
     );
-    drop(registry);
-
     let _ = publish_flow_event(
-        &state,
+        state,
         EventDraft {
             source: "gittributary://gt-flow".to_string(),
             event_type: match report.status {
@@ -637,13 +704,97 @@ mod tests {
     use super::*;
 
     #[test]
-    fn input_or_default_uses_fallback_when_missing_or_blank() {
-        let mut inputs = BTreeMap::new();
-        inputs.insert("k".to_string(), "  ".to_string());
-        assert_eq!(input_or_default(&inputs, "k", "fallback"), "fallback");
-        assert_eq!(input_or_default(&inputs, "missing", "fallback"), "fallback");
-        inputs.insert("k".to_string(), "value".to_string());
-        assert_eq!(input_or_default(&inputs, "k", "fallback"), "value");
+    fn inspects_only_executable_core_node_sources() {
+        let registry = inspect_flow_node_sources(&ExtensionRegistry::default()).unwrap();
+        let uses = registry
+            .list()
+            .into_iter()
+            .map(|definition| definition.uses)
+            .collect::<Vec<_>>();
+        assert_eq!(uses.len(), 5);
+        assert!(uses.contains(&"gittributary/files/assert-exists@v1".to_string()));
+        assert!(uses.contains(&"gittributary/files/sync-dir@v1".to_string()));
+        assert!(uses.contains(&"gittributary/git/commit-all@v1".to_string()));
+        assert!(uses.contains(&"gittributary/git/push@v1".to_string()));
+        assert!(uses.contains(&"gittributary/store/sync-now@v1".to_string()));
+        assert!(!uses.iter().any(|uses| uses.contains("build-html")));
+        assert!(!uses.iter().any(|uses| uses.contains("notify")));
+        assert!(!uses.iter().any(|uses| uses.contains("publish-context")));
+    }
+
+    #[test]
+    fn inspects_active_plugin_node_sources() {
+        let directory = tempfile::tempdir().unwrap();
+        let backend = directory.path().join("backend");
+        std::fs::create_dir_all(&backend).unwrap();
+        let library = if cfg!(target_os = "windows") {
+            "demo.dll"
+        } else if cfg!(target_os = "macos") {
+            "libdemo.dylib"
+        } else {
+            "libdemo.so"
+        };
+        std::fs::write(backend.join(library), b"placeholder").unwrap();
+        std::fs::write(
+            directory.path().join("manifest.json"),
+            r#"{
+              "schemaVersion": 1,
+              "apiVersion": "1",
+              "id": "com.example.demo",
+              "name": "Demo",
+              "version": "0.1.0",
+              "contributes": {"flowNodes": [{
+                "uses": "com.example.demo/action@v1",
+                "name": "Demo action",
+                "type": "action",
+                "summary": "Run demo",
+                "method": "flow.action"
+              }]},
+              "backend": {
+                "runtime": "rust-cdylib",
+                "entry": "backend",
+                "library": "demo",
+                "methods": {"flow.action": []}
+              }
+            }"#,
+        )
+        .unwrap();
+        let extensions = ExtensionRegistry::default();
+        extensions.register_path(directory.path()).unwrap();
+
+        let registry = inspect_flow_node_sources(&extensions).unwrap();
+        assert_eq!(registry.list().len(), 6);
+        assert_eq!(
+            registry.owner_of("com.example.demo/action@v1"),
+            Some(&FlowNodeOwner::Plugin("com.example.demo".to_string()))
+        );
+    }
+
+    #[test]
+    fn serializes_flow_node_catalog_source() {
+        let item = FlowNodeCatalogItem {
+            definition: FlowNodeDefinition {
+                uses: "com.example.demo/action@v1".to_string(),
+                name: "Demo".to_string(),
+                node_type: "action".to_string(),
+                summary: "Demo action".to_string(),
+                description: String::new(),
+                inputs_schema: BTreeMap::new(),
+                outputs_schema: BTreeMap::new(),
+            },
+            source: FlowNodeCatalogSource {
+                kind: "plugin",
+                id: Some("com.example.demo".to_string()),
+                name: "Demo Plugin".to_string(),
+                version: Some("1.2.3".to_string()),
+            },
+        };
+        let value = serde_json::to_value(item).unwrap();
+        assert_eq!(value["uses"], "com.example.demo/action@v1");
+        assert_eq!(value["source"]["kind"], "plugin");
+        assert_eq!(value["source"]["id"], "com.example.demo");
+        assert_eq!(value["source"]["name"], "Demo Plugin");
+        assert_eq!(value["source"]["version"], "1.2.3");
     }
 
     #[test]

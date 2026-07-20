@@ -24,8 +24,7 @@ pub use event::{
     FlowTriggerMatch,
 };
 pub use node::{
-    builtin_node_definitions, compile_flow_nodes, FlowNodeDefinition, FlowNodeRegistry,
-    FlowNodeSpec,
+    compile_flow_nodes, FlowNodeDefinition, FlowNodeOwner, FlowNodeRegistry, FlowNodeSpec,
 };
 pub use runner::{
     run_flow_with_executor, DryRunActionExecutor, FlowActionExecutor, FlowActionOutcome,

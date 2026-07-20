@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::path::PathBuf;
@@ -99,12 +100,104 @@ pub fn handle_request(method: &str, payload: Value) -> Result<Value, String> {
             let config = required_field::<SiteBuildConfig>(&payload, "config")?;
             serialize(gt_site::build_site(config).map_err(|error| error.to_string())?)
         }
+        "flow.site.scan" => flow_scan(payload),
+        "flow.site.build" => flow_build(payload),
         "site.publish" => {
             let request = required_field::<SitePublishRequest>(&payload, "request")?;
             let context = required_field::<GitPublishContext>(&payload, "gitContext")?;
             serialize(publish_pages(request, context)?)
         }
         _ => Err(format!("unsupported method: {method}")),
+    }
+}
+
+fn flow_scan(payload: Value) -> Result<Value, String> {
+    let inputs = required_field::<BTreeMap<String, String>>(&payload, "inputs")?;
+    let repo_path = inputs
+        .get("repo_path")
+        .or_else(|| inputs.get("repoPath"))
+        .filter(|value| !value.trim().is_empty())
+        .cloned()
+        .ok_or_else(|| "missing flow input: repo_path".to_string())?;
+    let report = gt_site::scan_repo(repo_path).map_err(|error| error.to_string())?;
+    Ok(json!({
+        "outputs": report,
+        "skipped": false,
+        "message": "site_scan_completed"
+    }))
+}
+
+fn flow_build(payload: Value) -> Result<Value, String> {
+    let inputs = required_field::<BTreeMap<String, String>>(&payload, "inputs")?;
+    let config = SiteBuildConfig {
+        repo_path: required_input(&inputs, "repo_path")?,
+        output_dir: required_input(&inputs, "output_dir")?,
+        site_title: required_input(&inputs, "site_title")?,
+        include: list_input(&inputs, "include")?,
+        exclude: optional_list_input(&inputs, "exclude")?,
+        theme: optional_input(&inputs, "theme").unwrap_or_else(|| "typora-light".to_string()),
+        with_search: boolean_input(&inputs, "with_search", true)?,
+        copy_assets: boolean_input(&inputs, "copy_assets", true)?,
+    };
+    let report = gt_site::build_site(config).map_err(|error| error.to_string())?;
+    Ok(json!({
+        "outputs": report,
+        "skipped": false,
+        "message": "site_build_completed"
+    }))
+}
+
+fn required_input(inputs: &BTreeMap<String, String>, key: &str) -> Result<String, String> {
+    optional_input(inputs, key).ok_or_else(|| format!("missing flow input: {key}"))
+}
+
+fn optional_input(inputs: &BTreeMap<String, String>, key: &str) -> Option<String> {
+    inputs
+        .get(key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn list_input(inputs: &BTreeMap<String, String>, key: &str) -> Result<Vec<String>, String> {
+    let value = required_input(inputs, key)?;
+    parse_list_input(&value).map_err(|error| format!("invalid flow input {key}: {error}"))
+}
+
+fn optional_list_input(
+    inputs: &BTreeMap<String, String>,
+    key: &str,
+) -> Result<Vec<String>, String> {
+    optional_input(inputs, key)
+        .map(|value| {
+            parse_list_input(&value).map_err(|error| format!("invalid flow input {key}: {error}"))
+        })
+        .transpose()
+        .map(Option::unwrap_or_default)
+}
+
+fn parse_list_input(value: &str) -> Result<Vec<String>, String> {
+    if value.starts_with('[') {
+        return serde_json::from_str::<Vec<String>>(value).map_err(|error| error.to_string());
+    }
+    Ok(value
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+fn boolean_input(
+    inputs: &BTreeMap<String, String>,
+    key: &str,
+    default: bool,
+) -> Result<bool, String> {
+    match optional_input(inputs, key).as_deref() {
+        None => Ok(default),
+        Some("true") => Ok(true),
+        Some("false") => Ok(false),
+        Some(_) => Err(format!("invalid flow input {key}: expected true or false")),
     }
 }
 
@@ -328,5 +421,45 @@ mod tests {
         }))
         .unwrap();
         assert!(matches!(ssh, GitAuthContext::SshKey { .. }));
+    }
+
+    #[test]
+    fn scans_through_flow_node_contract() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("README.md"), "# Hello").unwrap();
+        let outcome = handle_request(
+            "flow.site.scan",
+            json!({
+                "inputs": { "repo_path": temp.path().to_string_lossy() },
+                "context": {}
+            }),
+        )
+        .unwrap();
+        assert_eq!(outcome["skipped"], false);
+        assert_eq!(outcome["outputs"]["markdownCount"], 1);
+    }
+
+    #[test]
+    fn builds_through_flow_node_contract() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("README.md"), "# Hello").unwrap();
+        let output = temp.path().join("site");
+        let outcome = handle_request(
+            "flow.site.build",
+            json!({
+                "inputs": {
+                    "repo_path": temp.path().to_string_lossy(),
+                    "output_dir": output.to_string_lossy(),
+                    "site_title": "Test",
+                    "include": "[\"README.md\"]",
+                    "with_search": "false"
+                },
+                "context": {}
+            }),
+        )
+        .unwrap();
+        assert_eq!(outcome["skipped"], false);
+        assert_eq!(outcome["outputs"]["pageCount"], 1);
+        assert!(output.join("index.html").is_file());
     }
 }

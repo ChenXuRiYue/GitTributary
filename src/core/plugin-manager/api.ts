@@ -1,8 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { MarketPlugin } from "./types";
+import { EXTENSIONS_CHANGED_EVENT } from "@/extensions/events";
 
-export const EXTENSIONS_CHANGED_EVENT = "gittributary:extensions-changed";
+import type { MarketPlugin } from "./types";
 
 export function listMarketPlugins(): Promise<MarketPlugin[]> {
   return invoke<MarketPlugin[]>("plugin_market_list");

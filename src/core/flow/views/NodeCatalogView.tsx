@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Code2, Database, ListPlus, Search, Split, Workflow } from "lucide-react";
+import { Code2, Database, ListPlus, Package, Search, Split, Workflow } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,16 @@ import { cn } from "@/lib/utils";
 import { Metric, SectionHeader } from "../components/shared";
 import type { FlowNodeDefinition, FlowNodeSpec, FlowRecord } from "../types";
 import { groupNodeDefinitionsByType, nodeMatchesQuery, nodeTypeMeta, nodeTypeText, nodeTypeTone, sortedNodeDefinitions } from "../utils";
+
+function sourceText(definition: FlowNodeDefinition) {
+  return definition.source.kind === "core" ? "Core" : definition.source.name;
+}
+
+function sourceTone(definition: FlowNodeDefinition) {
+  return definition.source.kind === "core"
+    ? "border-slate-200 bg-slate-50 text-slate-700"
+    : "border-cyan-200 bg-cyan-50 text-cyan-700";
+}
 
 export function NodeCatalogView({
   definitions,
@@ -23,11 +33,16 @@ export function NodeCatalogView({
 }) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState("all");
   const [usageFilter, setUsageFilter] = useState("all");
   const [schemaFilter, setSchemaFilter] = useState("all");
   const [selectedUses, setSelectedUses] = useState<string | null>(null);
   const usedUses = useMemo(() => new Set(nodes.map((node) => node.uses)), [nodes]);
   const sortedDefinitions = useMemo(() => sortedNodeDefinitions(definitions), [definitions]);
+  const definitionsByUses = useMemo(
+    () => new Map(definitions.map((definition) => [definition.uses, definition])),
+    [definitions],
+  );
   const nodeTypes = useMemo(
     () => Array.from(new Set(sortedDefinitions.map((definition) => definition.node_type))).sort(),
     [sortedDefinitions],
@@ -36,6 +51,7 @@ export function NodeCatalogView({
     return sortedDefinitions.filter((definition) => {
       if (!nodeMatchesQuery(definition, query)) return false;
       if (typeFilter !== "all" && definition.node_type !== typeFilter) return false;
+      if (sourceFilter !== "all" && definition.source.kind !== sourceFilter) return false;
       if (usageFilter === "used" && !usedUses.has(definition.uses)) return false;
       if (usageFilter === "unused" && usedUses.has(definition.uses)) return false;
       const inputCount = Object.keys(definition.inputs_schema).length;
@@ -45,7 +61,7 @@ export function NodeCatalogView({
       if (schemaFilter === "plain" && (inputCount > 0 || outputCount > 0)) return false;
       return true;
     });
-  }, [query, schemaFilter, sortedDefinitions, typeFilter, usageFilter, usedUses]);
+  }, [query, schemaFilter, sortedDefinitions, sourceFilter, typeFilter, usageFilter, usedUses]);
   const groupedDefinitions = useMemo(() => {
     return Object.entries(groupNodeDefinitionsByType(filteredDefinitions)).sort(([a], [b]) => a.localeCompare(b));
   }, [filteredDefinitions]);
@@ -59,7 +75,9 @@ export function NodeCatalogView({
     0,
   );
   const usedActionCount = definitions.filter((definition) => usedUses.has(definition.uses)).length;
-  const hasActiveFilters = Boolean(query.trim()) || typeFilter !== "all" || usageFilter !== "all" || schemaFilter !== "all";
+  const coreActionCount = definitions.filter((definition) => definition.source.kind === "core").length;
+  const pluginActionCount = definitions.length - coreActionCount;
+  const hasActiveFilters = Boolean(query.trim()) || typeFilter !== "all" || sourceFilter !== "all" || usageFilter !== "all" || schemaFilter !== "all";
 
   useEffect(() => {
     if (!selectedUses) return;
@@ -113,6 +131,11 @@ export function NodeCatalogView({
           {!node.known && (
             <Badge variant="outline" className="h-5 border-red-200 bg-red-50 text-red-700">
               未注册
+            </Badge>
+          )}
+          {definitionsByUses.get(node.uses) && (
+            <Badge variant="outline" className={cn("h-5 border", sourceTone(definitionsByUses.get(node.uses)!))}>
+              {sourceText(definitionsByUses.get(node.uses)!)}
             </Badge>
           )}
         </div>
@@ -173,9 +196,10 @@ export function NodeCatalogView({
             </p>
           </div>
         </div>
-        <div className="grid md:grid-cols-4">
+        <div className="grid md:grid-cols-5">
           <Metric label="动作数量" value={`${definitions.length}`} icon={Split} />
           <Metric label="节点类型" value={`${nodeTypes.length}`} icon={ListPlus} />
+          <Metric label="来源分布" value={`Core ${coreActionCount} / 插件 ${pluginActionCount}`} icon={Package} />
           <Metric label="Schema 字段" value={`${schemaFieldCount}`} icon={Code2} />
           <Metric label="当前 Flow 引用" value={`${usedActionCount}/${definitions.length}`} icon={Workflow} />
         </div>
@@ -202,7 +226,7 @@ export function NodeCatalogView({
       )}
 
       <section className="rounded-md border">
-        <div className="grid gap-3 p-3 xl:grid-cols-[minmax(220px,1fr)_160px_150px_160px_auto]">
+        <div className="grid gap-3 p-3 xl:grid-cols-[minmax(220px,1fr)_150px_150px_150px_150px_auto]">
           <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -222,6 +246,16 @@ export function NodeCatalogView({
             {nodeTypes.map((type) => (
               <option key={type} value={type}>{nodeTypeText(type)}</option>
             ))}
+          </select>
+          <select
+            value={sourceFilter}
+            onChange={(event) => setSourceFilter(event.target.value)}
+            className="h-8 min-w-0 rounded-md border bg-background px-2 text-sm"
+            aria-label="节点来源筛选"
+          >
+            <option value="all">全部来源</option>
+            <option value="core">Core</option>
+            <option value="plugin">插件</option>
           </select>
           <select
             value={usageFilter}
@@ -252,6 +286,7 @@ export function NodeCatalogView({
             onClick={() => {
               setQuery("");
               setTypeFilter("all");
+              setSourceFilter("all");
               setUsageFilter("all");
               setSchemaFilter("all");
               setSelectedUses(null);
@@ -314,6 +349,9 @@ export function NodeCatalogView({
                           <Badge variant="outline" className={cn("h-5 border", nodeTypeTone(definition.node_type))}>
                             {nodeTypeText(definition.node_type)}
                           </Badge>
+                          <Badge variant="outline" className={cn("h-5 border", sourceTone(definition))}>
+                            {sourceText(definition)}
+                          </Badge>
                           {usedUses.has(definition.uses) && (
                             <span className="gt-caption text-muted-foreground">当前已用</span>
                           )}
@@ -336,6 +374,9 @@ export function NodeCatalogView({
                     <Badge variant="outline" className={cn("h-5 border", nodeTypeTone(selectedDefinition.node_type))}>
                       {nodeTypeText(selectedDefinition.node_type)}
                     </Badge>
+                    <Badge variant="outline" className={cn("h-5 border", sourceTone(selectedDefinition))}>
+                      {sourceText(selectedDefinition)}
+                    </Badge>
                     {usedUses.has(selectedDefinition.uses) && (
                       <Badge variant="outline" className="h-5 border-green-200 bg-green-50 text-green-700">
                         当前 Flow 已引用
@@ -343,6 +384,11 @@ export function NodeCatalogView({
                     )}
                   </div>
                   <p className="gt-code mt-1 break-all text-muted-foreground">{selectedDefinition.uses}</p>
+                  <p className="gt-caption mt-1 text-muted-foreground">
+                    来源: {selectedDefinition.source.name}
+                    {selectedDefinition.source.id ? ` · ${selectedDefinition.source.id}` : ""}
+                    {selectedDefinition.source.version ? ` · v${selectedDefinition.source.version}` : ""}
+                  </p>
                 </div>
 
                 <ScrollArea className="min-h-0 flex-1" orientation="both">

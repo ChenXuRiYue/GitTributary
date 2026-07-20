@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   Trash2,
   UserRound,
+  Workflow,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -443,6 +444,25 @@ export function PluginManagerPanel() {
                     <div className="border-t px-4 py-2.5">
                       <p className="gt-label text-muted-foreground">后端运行时</p>
                       <p className="gt-code mt-0.5">{selected.backendRuntime ?? "无后端"}</p>
+                    </div>
+                    <div className="border-t px-4 py-2.5">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <Workflow className="size-4 text-muted-foreground" />
+                          <p className="gt-label text-muted-foreground">Flow 节点</p>
+                        </div>
+                        <span className="gt-caption text-muted-foreground">{selected.flowNodes.length}</span>
+                      </div>
+                      {selected.flowNodes.length > 0 && (
+                        <div className="mt-2 space-y-2">
+                          {selected.flowNodes.map((node) => (
+                            <div key={node.uses}>
+                              <p className="gt-body-strong">{node.name}</p>
+                              <p className="gt-code mt-0.5 break-all text-muted-foreground">{node.uses}</p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </section>
                 </div>

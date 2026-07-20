@@ -105,6 +105,10 @@ export function nodeSearchText(definition: FlowNodeDefinition) {
     nodeTypeText(definition.node_type),
     definition.summary,
     definition.description,
+    definition.source.kind,
+    definition.source.id ?? "",
+    definition.source.name,
+    definition.source.version ?? "",
     ...Object.keys(definition.inputs_schema),
     ...Object.keys(definition.outputs_schema),
   ]

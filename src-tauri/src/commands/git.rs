@@ -8,10 +8,30 @@ use gt_git::{BranchInfo, CommitInfo, FileDiff, FileStatus, GitRepo, LogEntry, Re
 use serde_json::json;
 use tauri::State;
 
-use gt_flow::EventDraft;
+use gt_flow::{EventDraft, FlowNodeDefinition};
 
-use crate::identity::{commit_identity_for_repo_remote, fallback_commit_identity, preferred_commit_remote};
+use crate::identity::{
+    commit_identity_for_repo_remote, fallback_commit_identity, preferred_commit_remote,
+};
 use crate::{publish_flow_event, set_active_repo_state, AppState};
+
+pub(crate) fn flow_node_definitions() -> Vec<FlowNodeDefinition> {
+    vec![FlowNodeDefinition {
+        uses: "gittributary/git/commit-all@v1".to_string(),
+        name: "提交全部变更".to_string(),
+        node_type: "git".to_string(),
+        summary: "暂存并提交指定仓库的全部变更".to_string(),
+        description: "没有变更时返回 skipped，不创建空提交。".to_string(),
+        inputs_schema: std::collections::BTreeMap::from([
+            ("repo".to_string(), "string".to_string()),
+            ("message".to_string(), "string".to_string()),
+        ]),
+        outputs_schema: std::collections::BTreeMap::from([
+            ("commit".to_string(), "string?".to_string()),
+            ("branch".to_string(), "string".to_string()),
+        ]),
+    }]
+}
 
 /// 打开一个 Git 仓库并返回概况
 #[tauri::command]
