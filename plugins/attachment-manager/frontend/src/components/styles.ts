@@ -1,0 +1,1 @@
+export const compactSelectClass = "border-input bg-background gt-body h-7 shrink-0 rounded-md border px-2 outline-none transition-colors focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50";
