@@ -158,7 +158,7 @@ export function parsePlaywrightResult(input) {
 }
 
 export function parseRustOutput(text) {
-  const output = String(text ?? "");
+  const output = stripAnsi(text);
   const nextest = [...output.matchAll(/Summary\s+\[[^\]]+\]\s+(\d+)\s+tests? run:\s+(\d+)\s+passed(?:,\s+(\d+)\s+failed)?(?:,\s+(\d+)\s+skipped)?/gi)];
   let counts;
   let durationMs = 0;
@@ -186,6 +186,10 @@ export function parseRustOutput(text) {
     durationMs,
     details: { runner: nextest.length > 0 ? "nextest" : "cargo", summaries: nextest.length || undefined },
   });
+}
+
+function stripAnsi(text) {
+  return String(text ?? "").replace(/\u001B\[[0-?]*[ -/]*[@-~]/g, "");
 }
 
 export function parsePerformanceResult(input) {

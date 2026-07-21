@@ -139,6 +139,14 @@ test("parseRustOutput reads a nextest summary and includes skipped tests", () =>
   assert.equal(suite.details.runner, "nextest");
 });
 
+test("parseRustOutput ignores nextest ANSI color codes", () => {
+  const suite = parseRustOutput("\u001b[32;1m Summary\u001b[0m [   0.05s] \u001b[1m18\u001b[0m tests run: \u001b[1m18\u001b[0m passed, \u001b[33;1m1\u001b[0m skipped");
+  assert.equal(suite.status, "PASS");
+  assert.deepEqual(suite.counts, { total: 19, passed: 18, failed: 0, skipped: 1 });
+  assert.equal(suite.durationMs, 50);
+  assert.equal(suite.details.runner, "nextest");
+});
+
 test("parseRustOutput recognizes infrastructure failures without test summaries", () => {
   const suite = parseRustOutput("error: could not compile `gt-git` due to 1 previous error");
   assert.equal(suite.status, "INFRA_ERROR");
