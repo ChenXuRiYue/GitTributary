@@ -54,7 +54,7 @@ export function domainLabel(namespace: string): string {
 }
 
 export function repoNameFromUrl(url: string): string {
-  const trimmed = url.trim();
+  const trimmed = url.trim().replace(/\/+$/, "");
   const withoutSuffix = trimmed.endsWith(".git") ? trimmed.slice(0, -4) : trimmed;
   const sshMatch = withoutSuffix.match(/[:/]([^/:]+\/[^/]+)$/);
   if (sshMatch) return sshMatch[1];

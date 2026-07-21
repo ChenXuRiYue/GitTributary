@@ -259,7 +259,6 @@ impl Store {
 
     /// 基于当前 settings 创建 profile 快照
     pub fn create_profile(&mut self, name: &str) -> Result<()> {
-        let profile_path = self.profiles_dir.join(format!("{}.jsonl", name));
         let entries = self.entries("settings");
 
         // 写入 profile 文件

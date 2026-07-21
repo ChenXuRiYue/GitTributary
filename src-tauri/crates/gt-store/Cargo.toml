@@ -15,4 +15,5 @@ whoami = "1"
 git2 = "0.19"
 
 [dev-dependencies]
+proptest = "1.7"
 tempfile = "3"

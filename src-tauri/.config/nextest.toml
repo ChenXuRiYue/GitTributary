@@ -1,0 +1,17 @@
+[store]
+dir = "target/nextest"
+
+[profile.default]
+fail-fast = false
+slow-timeout = { period = "60s", terminate-after = 2 }
+
+[profile.ci]
+fail-fast = false
+retries = 0
+status-level = "fail"
+final-status-level = "slow"
+slow-timeout = { period = "45s", terminate-after = 2 }
+
+[[profile.ci.overrides]]
+filter = "test(/performance|perf/)"
+slow-timeout = { period = "120s", terminate-after = 2 }

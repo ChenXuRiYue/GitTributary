@@ -1,5 +1,5 @@
 use chrono::{DateTime, TimeZone, Utc};
-use git2::{DiffFormat, Sort};
+use git2::Sort;
 use serde::Serialize;
 
 use crate::error::Result;

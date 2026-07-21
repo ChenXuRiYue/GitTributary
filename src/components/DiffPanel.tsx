@@ -296,6 +296,7 @@ export function DiffPanel({ files, fetchDiff, checkable = false, checked, onChec
   const [diffLoading, setDiffLoading] = useState(false);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [leftWidth, setLeftWidth] = useState(220);
+  const diffRequestGenerationRef = useRef(0);
 
   const tree = useMemo(() => buildTree(files), [files]);
   const checkedSet = checked ?? new Set<string>();
@@ -309,14 +310,32 @@ export function DiffPanel({ files, fetchDiff, checkable = false, checked, onChec
   }, [tree]);
 
   // 当 files 变化时清除选中
-  useEffect(() => { setSelectedFile(null); setFileDiff(null); }, [files]);
+  useEffect(() => {
+    diffRequestGenerationRef.current += 1;
+    setSelectedFile(null);
+    setFileDiff(null);
+    setDiffLoading(false);
+  }, [files]);
 
   const selectFile = async (path: string) => {
-    if (selectedFile === path) { setSelectedFile(null); setFileDiff(null); return; }
-    setSelectedFile(path); setDiffLoading(true);
-    try { setFileDiff(await fetchDiff(path)); }
-    catch { setFileDiff(null); }
-    finally { setDiffLoading(false); }
+    const requestGeneration = ++diffRequestGenerationRef.current;
+    if (selectedFile === path) {
+      setSelectedFile(null);
+      setFileDiff(null);
+      setDiffLoading(false);
+      return;
+    }
+    setSelectedFile(path);
+    setFileDiff(null);
+    setDiffLoading(true);
+    try {
+      const nextDiff = await fetchDiff(path);
+      if (requestGeneration === diffRequestGenerationRef.current) setFileDiff(nextDiff);
+    } catch {
+      if (requestGeneration === diffRequestGenerationRef.current) setFileDiff(null);
+    } finally {
+      if (requestGeneration === diffRequestGenerationRef.current) setDiffLoading(false);
+    }
   };
 
   const toggleDir = (dirPath: string) => {

@@ -11,6 +11,11 @@ node_modules
 dist
 dist-ssr
 *.local
+coverage/
+playwright-report/
+test-results/
+test-reports/
+/target/
 
 # Generated plugin artifacts
 plugins/*/frontend/dist/

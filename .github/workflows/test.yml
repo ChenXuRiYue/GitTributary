@@ -1,0 +1,260 @@
+name: Test Suite
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend unit, property, and coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run frontend suites and collect report
+        run: npm run test:report -- --only types,frontend --coverage --output test-reports/frontend
+      - name: Upload frontend coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: coverage/**
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload frontend report fragment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-part-frontend
+          path: test-reports/frontend/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  rust:
+    name: Rust nextest and property tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl file libayatana-appindicator3-dev librsvg2-dev \
+            libssl-dev libwebkit2gtk-4.1-dev libxdo-dev pkg-config wget
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./src-tauri -> target
+            ./plugins/site-publisher/backend -> target
+            ./plugins/attachment-manager/backend -> target
+      - uses: taiki-e/install-action@nextest
+      - name: Run Rust suites and collect report
+        run: >-
+          npm run test:report --
+          --only rust,plugins
+          --rust-runner nextest
+          --output test-reports/rust
+      - name: Upload Rust report fragment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-part-rust
+          path: test-reports/rust/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  rust-coverage:
+    name: Rust coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl file libayatana-appindicator3-dev librsvg2-dev \
+            libssl-dev libwebkit2gtk-4.1-dev libxdo-dev pkg-config wget
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate core workspace coverage
+        run: >-
+          cargo llvm-cov nextest
+          --manifest-path src-tauri/Cargo.toml
+          --workspace
+          --all-features
+          --profile ci
+          --lcov
+          --output-path rust-lcov.info
+      - name: Upload Rust coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: rust-lcov.info
+          if-no-files-found: warn
+          retention-days: 14
+
+  e2e:
+    name: Chromium user journeys
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run browser journeys and collect report
+        run: npm run test:report -- --only e2e --output test-reports/e2e
+      - name: Upload Playwright diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/**
+            test-results/**
+          if-no-files-found: ignore
+          retention-days: 14
+      - name: Upload E2E report fragment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-part-e2e
+          path: test-reports/e2e/**
+          if-no-files-found: warn
+          retention-days: 14
+
+  performance:
+    name: Performance contracts, fixtures, and IPC
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            ./src-tauri -> target
+            ./plugins/site-publisher/backend -> target
+      - run: npm ci
+      - name: Restore main performance baseline
+        id: performance-baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: performance/baselines/ci
+          key: performance-baseline-${{ runner.os }}-${{ runner.arch }}-${{ github.event.pull_request.base.sha || github.sha }}
+          restore-keys: |
+            performance-baseline-${{ runner.os }}-${{ runner.arch }}-
+      - name: Enable compatible baseline candidate
+        shell: bash
+        run: |
+          if [[ -f performance/baselines/ci/metrics.json ]]; then
+            echo "GT_PERF_BASELINE=performance/baselines/ci/metrics.json" >> "$GITHUB_ENV"
+          fi
+      - run: cargo build --manifest-path src-tauri/Cargo.toml -p gt-plugin-host --release
+      - run: cargo build --manifest-path plugins/site-publisher/backend/Cargo.toml --release
+      - name: Run performance suites and collect report
+        run: npm run test:report -- --only performance --output test-reports/performance
+        env:
+          GT_PERF_RUNNER_CLASS: github-hosted-${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04
+      - name: Prepare successful main baseline
+        if: success() && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          mkdir -p performance/baselines/ci
+          cp test-reports/performance/raw/performance/metrics.json performance/baselines/ci/metrics.json
+      - name: Save successful main baseline
+        if: success() && github.ref == 'refs/heads/main' && steps.performance-baseline.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: performance/baselines/ci
+          key: performance-baseline-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+      - name: Upload performance report fragment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-part-performance
+          path: test-reports/performance/**
+          if-no-files-found: warn
+          retention-days: 30
+
+  report:
+    name: Unified test report
+    if: ${{ always() }}
+    needs: [frontend, rust, rust-coverage, e2e, performance]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download report fragments
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: test-report-part-*
+          path: test-report-parts
+      - name: Merge Markdown and HTML reports
+        run: >-
+          node scripts/test/run-report.mjs
+          --profile ci
+          --merge-dir test-report-parts
+          --output test-reports/final
+          --expect types,frontend,rust,plugins-site,plugins-attachment,e2e,performance
+          --job-status types=${{ needs.frontend.result }},frontend=${{ needs.frontend.result }}
+          --job-status rust=${{ needs.rust.result }},plugins-site=${{ needs.rust.result }},plugins-attachment=${{ needs.rust.result }}
+          --job-status e2e=${{ needs.e2e.result }},performance=${{ needs.performance.result }}
+          --external-status rust-coverage=${{ needs['rust-coverage'].result }}
+      - name: Publish test summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f test-reports/final/report.md ]]; then
+            cat test-reports/final/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Unified test report unavailable" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload unified test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            test-reports/final/**
+            test-report-parts/**
+          if-no-files-found: warn
+          retention-days: 30

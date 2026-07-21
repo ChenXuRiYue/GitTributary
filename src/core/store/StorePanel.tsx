@@ -70,6 +70,7 @@ export function StorePanel() {
   const [error, setError] = useState<string | null>(null);
   const selectedNsRef = useRef<string | null>(null);
   const viewModeRef = useRef<ViewMode>(DEFAULT_VIEW_MODE);
+  const initializedRef = useRef(false);
 
   const selectStoreView = useCallback((id: string) => {
     if (id === "detail") setActiveViewId(id);
@@ -216,7 +217,11 @@ export function StorePanel() {
     } catch (e) { setError(String(e)); }
   };
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    if (initializedRef.current) return;
+    initializedRef.current = true;
+    void refresh();
+  }, [refresh]);
 
   const activeEnvironmentValue = activeEnvironment ?? environments[0] ?? "";
   const activeEnvironmentLabel = activeEnvironmentValue || "默认";

@@ -1,0 +1,40 @@
+name: Mutation Testing
+
+on:
+  schedule:
+    - cron: "17 19 * * 6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rust-mutants:
+    name: Rust mutation score
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Tauri system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl file libayatana-appindicator3-dev librsvg2-dev \
+            libssl-dev libwebkit2gtk-4.1-dev libxdo-dev pkg-config wget
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+      - uses: taiki-e/install-action@cargo-mutants
+      - name: Run mutation testing
+        run: cargo mutants --manifest-path src-tauri/Cargo.toml --workspace --jobs 2
+      - name: Upload mutation outcomes
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-mutation-outcomes
+          path: mutants.out/**
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
@@ -69,6 +69,9 @@ impl Namespace {
 
     /// 设置值(写入内存 + 追加到文件)
     pub fn set(&mut self, key: &str, value: Value) -> Result<()> {
+        if value.is_null() {
+            return self.delete(key);
+        }
         let record = Record {
             k: key.to_string(),
             v: value.clone(),
@@ -196,7 +199,11 @@ impl Namespace {
         line.push('\n');
         file.write_all(line.as_bytes())?;
 
-        self.data.insert(key.to_string(), value);
+        if value.is_null() {
+            self.data.remove(key);
+        } else {
+            self.data.insert(key.to_string(), value);
+        }
         Ok(())
     }
 

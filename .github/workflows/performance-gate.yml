@@ -1,10 +1,7 @@
 name: Performance Gate
 
 on:
-  pull_request:
-  push:
-    branches:
-      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -61,7 +58,7 @@ jobs:
         run: cargo build --manifest-path plugins/site-publisher/backend/Cargo.toml --release
 
       - name: Run performance gate
-        run: npm run perf:ci
+        run: npm run test:report -- --only performance --output test-reports/performance
         env:
           GT_PERF_RUNNER_CLASS: github-hosted-${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04
 
@@ -70,7 +67,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p performance/baselines/ci
-          cp performance/reports/latest/metrics.json performance/baselines/ci/metrics.json
+          cp test-reports/performance/raw/performance/metrics.json performance/baselines/ci/metrics.json
 
       - name: Save successful main baseline
         if: success() && github.ref == 'refs/heads/main' && steps.performance-baseline.outputs.cache-hit != 'true'
@@ -83,8 +80,8 @@ jobs:
         if: always()
         shell: bash
         run: |
-          if [[ -f performance/reports/latest/report.md ]]; then
-            cat performance/reports/latest/report.md >> "$GITHUB_STEP_SUMMARY"
+          if [[ -f test-reports/performance/report.md ]]; then
+            cat test-reports/performance/report.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "## Performance report unavailable" >> "$GITHUB_STEP_SUMMARY"
             echo "The performance run ended before report generation completed." >> "$GITHUB_STEP_SUMMARY"
@@ -95,6 +92,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: performance-report-${{ github.run_id }}-${{ github.run_attempt }}
-          path: performance/reports/latest/**
+          path: test-reports/performance/**
           if-no-files-found: warn
           retention-days: 30
