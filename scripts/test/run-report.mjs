@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   applyPerformanceVerdict,
+  buildRustCommandArgs,
   buildReport,
   parseArgs,
   parsePerformanceResult,
@@ -31,6 +32,7 @@ import {
 import { discoverPluginBackends } from "./plugin-backends.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const NEXTEST_CONFIG = "src-tauri/.config/nextest.toml";
 const GROUPS = ["types", "frontend", "rust", "plugins", "e2e", "performance"];
 const PROFILES = {
   quick: ["types", "frontend", "rust"],
@@ -159,11 +161,11 @@ function createTasks(selected, args, outputDir, rustRunner) {
     }));
   }
   if (selected.includes("rust")) {
-    tasks.push(rustTask("rust", "Rust core workspace", "src-tauri/Cargo.toml", ["--workspace", "--all-targets"], rustRunner));
+    tasks.push(rustTask("rust", "Rust core workspace", "src-tauri/Cargo.toml", ["--workspace", "--all-targets"], rustRunner, args.profile));
   }
   if (selected.includes("plugins")) {
     for (const plugin of discoverPluginBackends(ROOT)) {
-      tasks.push(rustTask(plugin.id, plugin.label, plugin.manifest, ["--workspace", "--all-targets"], rustRunner));
+      tasks.push(rustTask(plugin.id, plugin.label, plugin.manifest, ["--workspace", "--all-targets"], rustRunner, args.profile));
     }
   }
   if (selected.includes("e2e")) {
@@ -200,10 +202,14 @@ function commandTask(id, label, command, commandArgs, parser) {
   return { id, label, command, args: commandArgs, parser, env: {} };
 }
 
-function rustTask(id, label, manifest, extraArgs, runner) {
-  const args = runner === "nextest"
-    ? ["nextest", "run", "--manifest-path", manifest, ...extraArgs, ...(process.env.CI ? ["--profile", "ci"] : [])]
-    : ["test", "--manifest-path", manifest, ...extraArgs];
+function rustTask(id, label, manifest, extraArgs, runner, profile) {
+  const args = buildRustCommandArgs({
+    runner,
+    manifest,
+    extraArgs,
+    profile,
+    configFile: NEXTEST_CONFIG,
+  });
   return commandTask(id, label, "cargo", args, ({ output, execution }) => {
     const suite = parseRustOutput(output);
     return withExecutionStatus(suite, execution, "Rust runner produced no test summary");

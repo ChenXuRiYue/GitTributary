@@ -69,9 +69,12 @@ jobs:
             ./plugins/site-publisher/backend -> target
             ./plugins/attachment-manager/backend -> target
       - uses: taiki-e/install-action@nextest
+      - name: Prepare Tauri plugin host sidecar
+        run: npm run plugin:host:prepare
       - name: Run Rust suites and collect report
         run: >-
           npm run test:report --
+          --profile ci
           --only rust,plugins
           --rust-runner nextest
           --output test-reports/rust
@@ -99,11 +102,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
       - uses: taiki-e/install-action@nextest
       - uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Prepare Tauri plugin host sidecar
+        run: npm run plugin:host:prepare
       - name: Generate core workspace coverage
         run: >-
           cargo llvm-cov nextest

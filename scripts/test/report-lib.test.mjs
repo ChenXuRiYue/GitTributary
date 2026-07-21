@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   applyPerformanceVerdict,
+  buildRustCommandArgs,
   buildReport,
   parseArgs,
   parsePerformanceResult,
@@ -70,6 +71,31 @@ test("parseArgs defaults to automatic Rust selection and accepts standard profil
   assert.equal(parseArgs([]).rustRunner, "auto");
   assert.equal(parseArgs(["--profile", "standard"]).profile, "standard");
   assert.match(usage(), /scripts\/test\/run-report\.mjs/);
+});
+
+test("buildRustCommandArgs shares the CI nextest profile across Cargo workspaces", () => {
+  assert.deepEqual(buildRustCommandArgs({
+    runner: "nextest",
+    manifest: "plugins/site-publisher/backend/Cargo.toml",
+    extraArgs: ["--workspace", "--all-targets"],
+    profile: "ci",
+    configFile: "src-tauri/.config/nextest.toml",
+  }), [
+    "nextest", "run",
+    "--manifest-path", "plugins/site-publisher/backend/Cargo.toml",
+    "--workspace", "--all-targets",
+    "--config-file", "src-tauri/.config/nextest.toml",
+    "--profile", "ci",
+  ]);
+
+  assert.deepEqual(buildRustCommandArgs({
+    runner: "cargo",
+    manifest: "src-tauri/Cargo.toml",
+    extraArgs: ["--workspace", "--all-targets"],
+    profile: "ci",
+  }), [
+    "test", "--manifest-path", "src-tauri/Cargo.toml", "--workspace", "--all-targets",
+  ]);
 });
 
 test("parseVitestResult reads the native JSON summary", () => {

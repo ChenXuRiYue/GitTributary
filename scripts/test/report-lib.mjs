@@ -54,6 +54,27 @@ export function parseArgs(argv) {
   return args;
 }
 
+export function buildRustCommandArgs({ runner, manifest, extraArgs = [], profile = "quick", configFile }) {
+  if (runner === "cargo") {
+    return ["test", "--manifest-path", manifest, ...extraArgs];
+  }
+  if (runner !== "nextest") {
+    throw new Error(`Unsupported Rust runner: ${runner}`);
+  }
+  if (!configFile) {
+    throw new Error("A shared Nextest config file is required");
+  }
+
+  const args = [
+    "nextest", "run",
+    "--manifest-path", manifest,
+    ...extraArgs,
+    "--config-file", configFile,
+  ];
+  if (profile === "ci") args.push("--profile", "ci");
+  return args;
+}
+
 export function usage() {
   return `Usage: node scripts/test/run-report.mjs [options]
 
