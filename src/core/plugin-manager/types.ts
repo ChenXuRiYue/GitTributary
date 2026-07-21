@@ -17,6 +17,7 @@ export interface MarketPlugin {
   version: string;
   publisher: string;
   permissions: string[];
+  storeNamespaces: string[];
   views: MarketPluginView[];
   flowNodes: MarketPluginFlowNode[];
   backendRuntime: string | null;

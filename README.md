@@ -154,7 +154,8 @@ Git Tributary 的长期目标不是再造一个封闭笔记软件，而是把 Gi
 - TypeScript
 - Tailwind CSS 4
 - Radix UI primitives
-- Rust crates: `gt-git`, `gt-store`, `gt-flow`, `gt-site`
+- 内部 Rust crates: `gt-git`, `gt-files`, `gt-store`, `gt-flow`（均不可发布）
+- 插件边界: 插件只通过版本化 Extension API/IPC 使用平台能力，不链接内部 crate
 
 ## 开发
 

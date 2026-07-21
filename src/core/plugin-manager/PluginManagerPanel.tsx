@@ -97,6 +97,11 @@ function isUpdateAvailable(plugin: MarketPlugin): boolean {
   return compareSemver(plugin.version, plugin.installedVersion) === 1;
 }
 
+function isReinstallAvailable(plugin: MarketPlugin): boolean {
+  if (plugin.installedVersion === null) return false;
+  return compareSemver(plugin.version, plugin.installedVersion) === 0;
+}
+
 export function PluginManagerPanel() {
   const [plugins, setPlugins] = useState<MarketPlugin[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -104,6 +109,7 @@ export function PluginManagerPanel() {
   const [filter, setFilter] = useState<MarketFilter>("all");
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<"install" | "uninstall" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -148,18 +154,29 @@ export function PluginManagerPanel() {
 
   const handleInstall = useCallback(async (plugin: MarketPlugin) => {
     const updating = isUpdateAvailable(plugin);
+    const reinstalling = isReinstallAvailable(plugin);
+    if (plugin.installedVersion !== null && !updating && !reinstalling) {
+      setError("内置插件版本低于已安装版本，不能通过重新安装执行降级。");
+      return;
+    }
     const permissions = plugin.permissions.length > 0
       ? `GitTributary API 权限：\n${plugin.permissions.map((permission) => `- ${permissionLabel(permission)}`).join("\n")}\n\n`
       : "该插件未申请 GitTributary API 权限。\n\n";
+    const storeNamespaces = plugin.storeNamespaces.length > 0
+      ? `Store 命名空间：\n${plugin.storeNamespaces.map((namespace) => `- ${namespace}`).join("\n")}\n\n`
+      : "";
     const warning = plugin.nativeCode
       ? "该插件包含随应用构建的本机 Rust 后端。\n\n"
       : "";
     const action = updating
       ? `确定将“${plugin.name}”从 ${plugin.installedVersion} 更新到 ${plugin.version} 吗？`
-      : `确定安装“${plugin.name}”吗？`;
-    if (!window.confirm(`${warning}${permissions}${action}`)) return;
+      : reinstalling
+        ? `确定重新安装“${plugin.name}” ${plugin.version} 吗？插件数据会保留。`
+        : `确定安装“${plugin.name}”吗？`;
+    if (!window.confirm(`${warning}${permissions}${storeNamespaces}${action}`)) return;
 
     setBusyId(plugin.id);
+    setBusyAction("install");
     setError(null);
     try {
       await installPlugin(plugin.id);
@@ -169,6 +186,7 @@ export function PluginManagerPanel() {
       setError(marketErrorMessage(nextError));
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   }, [loadPlugins]);
 
@@ -176,6 +194,7 @@ export function PluginManagerPanel() {
     if (!window.confirm(`确定卸载“${plugin.name}”吗？插件贡献的页面将立即从工作台移除。`)) return;
 
     setBusyId(plugin.id);
+    setBusyAction("uninstall");
     setError(null);
     try {
       await uninstallPlugin(plugin.id);
@@ -185,6 +204,7 @@ export function PluginManagerPanel() {
       setError(marketErrorMessage(nextError));
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   }, [loadPlugins]);
 
@@ -345,17 +365,35 @@ export function PluginManagerPanel() {
                       </div>
                     </div>
                     {selected.installedVersion !== null && !isUpdateAvailable(selected) ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => void handleUninstall(selected)}
-                        disabled={busyId !== null}
-                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        {busyId === selected.id ? <LoaderCircle className="animate-spin" /> : <Trash2 />}
-                        {busyId === selected.id ? "卸载中" : "卸载"}
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {isReinstallAvailable(selected) && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => void handleInstall(selected)}
+                            disabled={!selected.available || busyId !== null}
+                          >
+                            {busyId === selected.id && busyAction === "install"
+                              ? <LoaderCircle className="animate-spin" />
+                              : <RefreshCw />}
+                            {busyId === selected.id && busyAction === "install" ? "重新安装中" : "重新安装"}
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => void handleUninstall(selected)}
+                          disabled={busyId !== null}
+                          className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          {busyId === selected.id && busyAction === "uninstall"
+                            ? <LoaderCircle className="animate-spin" />
+                            : <Trash2 />}
+                          {busyId === selected.id && busyAction === "uninstall" ? "卸载中" : "卸载"}
+                        </Button>
+                      </div>
                     ) : (
                       <Button
                         type="button"

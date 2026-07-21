@@ -5,7 +5,7 @@
   "name": "发布",
   "icon": "lucide:send",
   "description": "从仓库文档构建静态站点并发布到 GitHub Pages。",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "publisher": "GitTributary",
   "engines": {
     "gittributary": ">=0.1.3"
@@ -74,7 +74,8 @@
       "flow.site.scan": ["files:read"],
       "flow.site.build": ["files:read"],
       "site.build": ["files:read"],
-      "site.publish": ["files:read", "git:write"]
+      "site.publish.plan": ["files:read"],
+      "site.publish.materialize": ["files:read", "files:write"]
     }
   },
   "activationEvents": [
@@ -83,9 +84,11 @@
   "permissions": [
     "repository:read",
     "files:read",
+    "files:write",
     "git:write",
     "store:read",
     "store:write",
     "shell:open"
-  ]
+  ],
+  "storeNamespaces": ["sites", "ui-state"]
 }

@@ -3,6 +3,7 @@ name = "gt-store"
 version = "0.1.3"
 edition = "2021"
 description = "GitTributary 数据中心 — 统一配置 KV 存储"
+publish = false
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

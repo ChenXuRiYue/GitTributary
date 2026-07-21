@@ -3,6 +3,7 @@ name = "gt-flow"
 version = "0.1.3"
 edition = "2021"
 description = "GitTributary Flow 解析与展示摘要层"
+publish = false
 
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }

@@ -1,12 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use gt_files::{FileKind, FileWorkspace, ScanOptions, HARD_MAX_DEPTH, HARD_MAX_ENTRIES};
+use walkdir::{DirEntry, WalkDir};
 
 use crate::types::{Result, SitePathCandidate, SitePathKind, SiteScanReport};
 use crate::utils::{
-    file_name_lower, is_asset, is_markdown, natural_component_key, path_to_slash, relative_path,
+    canonical_repo, file_name_lower, is_asset, is_markdown, natural_component_key, path_to_slash,
+    relative_path,
 };
+
+const MAX_SCAN_DEPTH: usize = 128;
+const MAX_SCAN_ENTRIES: usize = 100_000;
 
 const DEFAULT_EXCLUDES: &[&str] = &[
     ".git",
@@ -24,8 +28,7 @@ const DEFAULT_EXCLUDES: &[&str] = &[
 ];
 
 pub fn scan_repo(repo_path: impl AsRef<Path>) -> Result<SiteScanReport> {
-    let workspace = FileWorkspace::open(repo_path)?;
-    let repo = workspace.root().to_path_buf();
+    let repo = canonical_repo(repo_path.as_ref())?;
     let repo_name = repo
         .file_name()
         .and_then(|name| name.to_str())
@@ -41,22 +44,25 @@ pub fn scan_repo(repo_path: impl AsRef<Path>) -> Result<SiteScanReport> {
         .collect();
     let mut markdown_files = Vec::new();
     let mut asset_count = 0;
-    let scan = workspace.scan(
-        "",
-        ScanOptions {
-            max_depth: HARD_MAX_DEPTH,
-            max_entries: HARD_MAX_ENTRIES,
-            exclude: DEFAULT_EXCLUDES
-                .iter()
-                .map(|path| (*path).to_string())
-                .collect(),
-        },
-    )?;
-    for entry in scan.entries {
-        if entry.kind != FileKind::File {
+    let mut scanned_entries = 0usize;
+    let walker = WalkDir::new(&repo)
+        .follow_links(false)
+        .max_depth(MAX_SCAN_DEPTH)
+        .into_iter()
+        .filter_entry(|entry| should_visit(&repo, entry));
+    for entry in walker {
+        let entry = entry?;
+        if entry.depth() == 0 || entry.file_type().is_symlink() {
             continue;
         }
-        let path = repo.join(&entry.path);
+        scanned_entries += 1;
+        if scanned_entries > MAX_SCAN_ENTRIES {
+            break;
+        }
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let path = entry.into_path();
         if is_markdown(&path) {
             markdown_files.push(path);
         } else if is_asset(&path) {
@@ -162,6 +168,19 @@ pub fn scan_repo(repo_path: impl AsRef<Path>) -> Result<SiteScanReport> {
             .to_string_lossy()
             .to_string(),
     })
+}
+
+fn should_visit(repo: &Path, entry: &DirEntry) -> bool {
+    if entry.depth() == 0 {
+        return true;
+    }
+    let Ok(relative) = entry.path().strip_prefix(repo) else {
+        return false;
+    };
+    let relative = path_to_slash(relative);
+    !DEFAULT_EXCLUDES
+        .iter()
+        .any(|excluded| relative == *excluded || relative.starts_with(&format!("{excluded}/")))
 }
 
 fn upsert_candidate(

@@ -5,13 +5,13 @@ use std::process::Command;
 use git2::{Direction, FetchOptions, PushOptions, Remote};
 use serde::Serialize;
 
-use crate::error::{GitError, Result};
 use crate::commit::CommitIdentity;
+use crate::error::{GitError, Result};
 use crate::remote::{build_callbacks, AuthMethod};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PagesPublishGitReport {
+pub struct PathUpdateReport {
     pub target_repo_path: String,
     pub branch: String,
     pub remote_name: String,
@@ -21,18 +21,7 @@ pub struct PagesPublishGitReport {
 }
 
 #[derive(Debug, Clone)]
-pub struct PagesPublishGitOptions {
-    pub target_local_path: PathBuf,
-    pub branch: String,
-    pub remote_name: String,
-    pub publish_pathspec: String,
-    pub commit_message: String,
-    pub commit_identity: CommitIdentity,
-    pub auth: AuthMethod,
-}
-
-#[derive(Debug, Clone)]
-pub struct PagesPrepareGitOptions {
+pub struct PreparePathUpdateOptions {
     pub target_local_path: PathBuf,
     pub branch: String,
     pub remote_name: String,
@@ -41,11 +30,11 @@ pub struct PagesPrepareGitOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct PagesCommitGitOptions {
+pub struct CommitPathUpdateOptions {
     pub target_local_path: PathBuf,
     pub branch: String,
     pub remote_name: String,
-    pub publish_pathspec: String,
+    pub pathspec: String,
     pub commit_message: String,
     pub commit_identity: CommitIdentity,
     pub auth: AuthMethod,
@@ -55,20 +44,20 @@ pub fn resolve_repo_root(path: impl AsRef<Path>) -> Result<PathBuf> {
     let path = path.as_ref();
     if !path.exists() {
         return Err(GitError::Internal(format!(
-            "发布仓库路径不存在: {}",
+            "仓库路径不存在: {}",
             path.display()
         )));
     }
     if !path.is_dir() {
         return Err(GitError::Internal(format!(
-            "发布仓库路径不是目录: {}",
+            "仓库路径不是目录: {}",
             path.display()
         )));
     }
     let output = run_git(path, &["rev-parse", "--show-toplevel"])
         .map_err(|_| GitError::NotARepo(path.to_path_buf()))?;
     let root = PathBuf::from(output.trim());
-    canonical_existing_dir(&root, "发布仓库")
+    canonical_existing_dir(&root, "仓库")
 }
 
 pub fn normalize_git_name(value: &str, label: &str) -> Result<String> {
@@ -76,7 +65,11 @@ pub fn normalize_git_name(value: &str, label: &str) -> Result<String> {
     if value.is_empty() {
         return Err(GitError::Internal(format!("{label}不能为空")));
     }
-    if value.starts_with('-') || value.chars().any(|ch| ch.is_control() || ch.is_whitespace()) {
+    if value.starts_with('-')
+        || value
+            .chars()
+            .any(|ch| ch.is_control() || ch.is_whitespace())
+    {
         return Err(GitError::Internal(format!("{label}不合法: {value}")));
     }
     Ok(value.to_string())
@@ -99,7 +92,7 @@ pub fn ensure_clean_repo(repo: impl AsRef<Path>) -> Result<()> {
         .collect::<Vec<_>>()
         .join("\n");
     Err(GitError::Internal(format!(
-        "发布仓库工作区有未提交变更,请先处理: {preview}"
+        "仓库工作区有未提交变更,请先处理: {preview}"
     )))
 }
 
@@ -112,7 +105,13 @@ pub fn ensure_clean_repo_except(repo: impl AsRef<Path>, allowed_pathspec: &str) 
 
     let allowed_status = run_git(
         repo,
-        &["status", "--porcelain", "--untracked-files=all", "--", allowed_pathspec],
+        &[
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--",
+            allowed_pathspec,
+        ],
     )?;
     let blocked = all_status
         .lines()
@@ -136,7 +135,7 @@ pub fn ensure_clean_repo_except(repo: impl AsRef<Path>, allowed_pathspec: &str) 
         .collect::<Vec<_>>()
         .join("\n");
     Err(GitError::Internal(format!(
-        "发布仓库工作区有发布目录之外的未提交变更,请先处理: {preview}"
+        "仓库工作区在允许路径之外有未提交变更,请先处理: {preview}"
     )))
 }
 
@@ -144,56 +143,39 @@ pub fn ensure_remote_exists(repo: impl AsRef<Path>, remote_name: &str) -> Result
     run_git(repo.as_ref(), &["remote", "get-url", remote_name]).map(|_| ())
 }
 
-pub fn prepare_pages_git(options: PagesPrepareGitOptions) -> Result<PathBuf> {
+pub fn prepare_path_update(options: PreparePathUpdateOptions) -> Result<PathBuf> {
     let target_root = resolve_repo_root(&options.target_local_path)?;
     let branch = normalize_git_name(&options.branch, "目标分支")?;
-    let remote_name = normalize_git_name(&options.remote_name, "发布远程")?;
+    let remote_name = normalize_git_name(&options.remote_name, "远程")?;
     validate_branch_name(&target_root, &branch)?;
     ensure_remote_exists(&target_root, &remote_name)?;
     if let Some(pathspec) = options.allowed_dirty_pathspec.as_deref() {
+        validate_pathspec(pathspec)?;
         ensure_clean_repo_except(&target_root, pathspec)?;
         discard_pathspec_changes(&target_root, pathspec)?;
     } else {
         ensure_clean_repo(&target_root)?;
     }
-    prepare_publish_branch(&target_root, &remote_name, &branch, &options.auth)?;
+    prepare_target_branch(&target_root, &remote_name, &branch, &options.auth)?;
     Ok(target_root)
 }
 
-pub fn publish_pages_git(options: PagesPublishGitOptions) -> Result<PagesPublishGitReport> {
-    prepare_pages_git(PagesPrepareGitOptions {
-        target_local_path: options.target_local_path.clone(),
-        branch: options.branch.clone(),
-        remote_name: options.remote_name.clone(),
-        allowed_dirty_pathspec: None,
-        auth: options.auth.clone(),
-    })?;
-    commit_pages_git(PagesCommitGitOptions {
-        target_local_path: options.target_local_path,
-        branch: options.branch,
-        remote_name: options.remote_name,
-        publish_pathspec: options.publish_pathspec,
-        commit_message: options.commit_message,
-        commit_identity: options.commit_identity,
-        auth: options.auth,
-    })
-}
-
-pub fn commit_pages_git(options: PagesCommitGitOptions) -> Result<PagesPublishGitReport> {
+pub fn commit_path_update(options: CommitPathUpdateOptions) -> Result<PathUpdateReport> {
     let target_root = resolve_repo_root(&options.target_local_path)?;
     let branch = normalize_git_name(&options.branch, "目标分支")?;
-    let remote_name = normalize_git_name(&options.remote_name, "发布远程")?;
+    let remote_name = normalize_git_name(&options.remote_name, "远程")?;
     validate_branch_name(&target_root, &branch)?;
     ensure_remote_exists(&target_root, &remote_name)?;
+    validate_pathspec(&options.pathspec)?;
     ensure_current_branch(&target_root, &branch)?;
-    ensure_clean_repo_except(&target_root, &options.publish_pathspec)?;
-    run_git(&target_root, &["add", "-A", "--", &options.publish_pathspec])?;
-    let changed_count = status_count(&target_root, &options.publish_pathspec)?;
+    ensure_clean_repo_except(&target_root, &options.pathspec)?;
+    run_git(&target_root, &["add", "-A", "--", &options.pathspec])?;
+    let changed_count = status_count(&target_root, &options.pathspec)?;
     let commit = if changed_count > 0 {
         run_git_commit(
             &target_root,
             &options.commit_message,
-            &options.publish_pathspec,
+            &options.pathspec,
             &options.commit_identity,
         )?;
         Some(current_commit(&target_root)?)
@@ -208,7 +190,7 @@ pub fn commit_pages_git(options: PagesCommitGitOptions) -> Result<PagesPublishGi
         false
     };
 
-    Ok(PagesPublishGitReport {
+    Ok(PathUpdateReport {
         target_repo_path: target_root.to_string_lossy().to_string(),
         branch,
         remote_name,
@@ -218,7 +200,30 @@ pub fn commit_pages_git(options: PagesCommitGitOptions) -> Result<PagesPublishGi
     })
 }
 
-pub fn verify_pages_push_access(
+fn validate_pathspec(pathspec: &str) -> Result<()> {
+    if pathspec == "." {
+        return Ok(());
+    }
+    let path = Path::new(pathspec);
+    if pathspec.is_empty()
+        || path.is_absolute()
+        || pathspec.contains('\\')
+        || pathspec.starts_with(':')
+        || pathspec
+            .chars()
+            .any(|character| character.is_control() || matches!(character, '*' | '?' | '[' | ']'))
+        || path
+            .components()
+            .any(|component| !matches!(component, std::path::Component::Normal(_)))
+    {
+        return Err(GitError::Internal(format!(
+            "Git 路径范围不合法: {pathspec}"
+        )));
+    }
+    Ok(())
+}
+
+pub fn verify_push_access(
     target_local_path: impl AsRef<Path>,
     remote_name: &str,
     branch: &str,
@@ -226,7 +231,7 @@ pub fn verify_pages_push_access(
 ) -> Result<()> {
     let target_root = resolve_repo_root(target_local_path)?;
     let branch = normalize_git_name(branch, "目标分支")?;
-    let remote_name = normalize_git_name(remote_name, "发布远程")?;
+    let remote_name = normalize_git_name(remote_name, "远程")?;
     validate_branch_name(&target_root, &branch)?;
     ensure_remote_exists(&target_root, &remote_name)?;
     if !has_head(&target_root) {
@@ -257,7 +262,7 @@ fn discard_pathspec_changes(repo: &Path, pathspec: &str) -> Result<()> {
     Ok(())
 }
 
-fn prepare_publish_branch(
+fn prepare_target_branch(
     repo: &Path,
     remote_name: &str,
     branch: &str,
@@ -267,7 +272,7 @@ fn prepare_publish_branch(
     let remote_ref = format!("refs/remotes/{remote_name}/{branch}");
     let remote_exists = remote_branch_exists(repo, remote_name, branch, auth)?;
     if remote_exists {
-        fetch_pages_branch(repo, remote_name, branch, auth)?;
+        fetch_target_branch(repo, remote_name, branch, auth)?;
     }
 
     if ref_exists(repo, &local_ref) {
@@ -310,7 +315,12 @@ fn remote_branch_exists(
     Ok(exists)
 }
 
-fn fetch_pages_branch(repo: &Path, remote_name: &str, branch: &str, auth: &AuthMethod) -> Result<()> {
+fn fetch_target_branch(
+    repo: &Path,
+    remote_name: &str,
+    branch: &str,
+    auth: &AuthMethod,
+) -> Result<()> {
     let repo = git2::Repository::open(repo)?;
     let mut remote = remote_for_direction(&repo, remote_name, Direction::Fetch)?;
     let mut fetch_opts = FetchOptions::new();
@@ -360,7 +370,9 @@ fn push_head_with_token_askpass(
     dry_run: bool,
 ) -> Result<()> {
     let AuthMethod::Token(token) = auth else {
-        return Err(GitError::Internal("系统 Git 兜底推送需要 Token 认证".to_string()));
+        return Err(GitError::Internal(
+            "系统 Git 兜底推送需要 Token 认证".to_string(),
+        ));
     };
     let askpass_path = std::env::temp_dir().join(format!(
         "gittributary-askpass-{}-{}.sh",
@@ -506,9 +518,18 @@ fn normalize_network_url(url: &str) -> String {
 fn status_count(repo: &Path, pathspec: &str) -> Result<usize> {
     let status = run_git(
         repo,
-        &["status", "--porcelain", "--untracked-files=all", "--", pathspec],
+        &[
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--",
+            pathspec,
+        ],
     )?;
-    Ok(status.lines().filter(|line| !line.trim().is_empty()).count())
+    Ok(status
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .count())
 }
 
 fn run_git_commit(
@@ -555,9 +576,9 @@ fn canonical_existing_dir(path: &Path, label: &str) -> Result<PathBuf> {
             path.display()
         )));
     }
-    let path = path.canonicalize().map_err(|err| {
-        GitError::Internal(format!("读取{label}路径失败: {}", err))
-    })?;
+    let path = path
+        .canonicalize()
+        .map_err(|err| GitError::Internal(format!("读取{label}路径失败: {}", err)))?;
     if !path.is_dir() {
         return Err(GitError::Internal(format!(
             "{label}不是目录: {}",
@@ -614,7 +635,7 @@ mod tests {
 
     #[test]
     fn normalize_git_name_accepts_plain_names() {
-        assert_eq!(normalize_git_name(" gh-pages ", "分支").unwrap(), "gh-pages");
+        assert_eq!(normalize_git_name(" feature ", "分支").unwrap(), "feature");
         assert_eq!(normalize_git_name("origin", "远程").unwrap(), "origin");
     }
 
@@ -624,6 +645,17 @@ mod tests {
         assert!(normalize_git_name("-bad", "分支").is_err());
         assert!(normalize_git_name("bad branch", "分支").is_err());
         assert!(normalize_git_name("bad\nbranch", "分支").is_err());
+    }
+
+    #[test]
+    fn pathspec_rejects_absolute_and_parent_paths() {
+        assert!(validate_pathspec("docs").is_ok());
+        assert!(validate_pathspec(".").is_ok());
+        assert!(validate_pathspec("../docs").is_err());
+        assert!(validate_pathspec("/tmp/docs").is_err());
+        assert!(validate_pathspec("docs\\site").is_err());
+        assert!(validate_pathspec(":(top)docs").is_err());
+        assert!(validate_pathspec("docs/**").is_err());
     }
 
     #[test]
@@ -646,11 +678,11 @@ mod tests {
         std::fs::write(dir.path().join("README.md"), "outside").unwrap();
 
         let err = ensure_clean_repo_except(dir.path(), "site").unwrap_err();
-        assert!(err.to_string().contains("发布目录之外"));
+        assert!(err.to_string().contains("允许路径之外"));
     }
 
     #[test]
-    fn pages_commit_uses_explicit_identity() {
+    fn path_commit_uses_explicit_identity() {
         let dir = tempfile::tempdir().unwrap();
         run_git(dir.path(), &["init"]).unwrap();
         run_git(dir.path(), &["config", "user.name", "Repo Config"]).unwrap();
@@ -660,7 +692,7 @@ mod tests {
 
         run_git_commit(
             dir.path(),
-            "test: pages explicit identity",
+            "test: path update explicit identity",
             ".",
             &CommitIdentity {
                 name: "Remote Config".to_string(),

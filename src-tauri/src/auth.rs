@@ -6,7 +6,7 @@
 //! 也不该让 `gt-store` 关心怎么用凭证做 Git 认证。
 //!
 //! 优先级链(项目 token → 全局 token → SSH key → SSH agent → None)
-//! 目前在 `resolve_auth` / `resolve_auth_for_publish_target` /
+//! 目前在 `resolve_auth` / `resolve_auth_for_remote` /
 //! `credential_summary_for_remote` 三处独立实现,是已知的重复,
 //! 后续如果认证策略变复杂,值得抽成一个共享的决策函数。这次重构
 //! 只做“搬文件”,不改变这三处各自的行为。
@@ -17,7 +17,7 @@ use gt_store::Store;
 use crate::keys::project_token_key_for_path;
 use crate::AppState;
 
-/// 面向发布目标(Pages 等)的认证解析结果,比 `AuthMethod` 多了
+/// 面向指定远程仓库的认证解析结果,比 `AuthMethod` 多了
 /// 可展示的 `mode` 和 `credential_ref`,用于前端展示"用了哪种凭证"。
 #[derive(Debug, Clone)]
 pub(crate) struct ResolvedAuth {
@@ -64,7 +64,7 @@ pub(crate) fn resolve_auth(state: &AppState) -> AuthMethod {
     AuthMethod::Agent
 }
 
-pub(crate) fn resolve_auth_for_publish_target(
+pub(crate) fn resolve_auth_for_remote(
     state: &AppState,
     repo_path: &std::path::Path,
     remote_url: Option<&str>,
@@ -316,7 +316,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_auth_for_publish_target_prefers_repo_credential_ref() {
+    fn resolve_auth_for_remote_prefers_repo_credential_ref() {
         let (dir, state) = temp_app_state();
         let repo_path = dir.path().display().to_string();
         {
@@ -331,7 +331,7 @@ mod tests {
             store.set_git_token("global-token").unwrap();
         }
 
-        let resolved = resolve_auth_for_publish_target(
+        let resolved = resolve_auth_for_remote(
             &state,
             dir.path(),
             Some("https://github.com/a/b.git"),
@@ -345,27 +345,19 @@ mod tests {
     }
 
     #[test]
-    fn resolve_auth_for_publish_target_uses_ssh_agent_for_ssh_url_without_key() {
+    fn resolve_auth_for_remote_uses_ssh_agent_for_ssh_url_without_key() {
         let (dir, state) = temp_app_state();
-        let resolved = resolve_auth_for_publish_target(
-            &state,
-            dir.path(),
-            Some("git@github.com:a/b.git"),
-            None,
-        );
+        let resolved =
+            resolve_auth_for_remote(&state, dir.path(), Some("git@github.com:a/b.git"), None);
         assert_eq!(resolved.mode, "ssh_agent");
         assert!(matches!(resolved.method, AuthMethod::Agent));
     }
 
     #[test]
-    fn resolve_auth_for_publish_target_falls_back_to_system_for_https_without_credentials() {
+    fn resolve_auth_for_remote_falls_back_to_system_for_https_without_credentials() {
         let (dir, state) = temp_app_state();
-        let resolved = resolve_auth_for_publish_target(
-            &state,
-            dir.path(),
-            Some("https://github.com/a/b.git"),
-            None,
-        );
+        let resolved =
+            resolve_auth_for_remote(&state, dir.path(), Some("https://github.com/a/b.git"), None);
         assert_eq!(resolved.mode, "system");
         assert!(matches!(resolved.method, AuthMethod::None));
     }

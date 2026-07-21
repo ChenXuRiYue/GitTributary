@@ -1361,6 +1361,7 @@ dependencies = [
  "gt-git",
  "gt-plugin-protocol",
  "gt-store",
+ "semver",
  "serde",
  "serde_json",
  "tauri",

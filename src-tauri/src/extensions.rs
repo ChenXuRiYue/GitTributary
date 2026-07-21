@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
+use std::time::{Duration, Instant};
 
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -10,10 +11,14 @@ use serde_json::{json, Value};
 use tauri::http::{header, Request, Response, StatusCode};
 use tauri::State;
 
+use gt_files::replace_tree;
 use gt_flow::FlowNodeDefinition;
-use gt_git::{resolve_repo_root, AuthMethod, GitRepo};
+use gt_git::{
+    commit_path_update, prepare_path_update, resolve_repo_root, verify_push_access,
+    CommitPathUpdateOptions, GitRepo, PreparePathUpdateOptions,
+};
 
-use crate::auth::resolve_auth_for_publish_target;
+use crate::auth::resolve_auth_for_remote;
 use crate::commands::files::{files_list, files_read_text, files_scan, files_search};
 use crate::commands::flow::flow_records_from_store;
 use crate::commands::remote::{get_remote_configs, remote_url_for};
@@ -45,6 +50,8 @@ pub struct ExtensionManifest {
     pub backend: Option<ExtensionBackend>,
     #[serde(default)]
     pub permissions: Vec<String>,
+    #[serde(default)]
+    pub store_namespaces: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -126,6 +133,20 @@ struct BackendMethodSnapshot {
     permissions: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+struct PathUpdateOperation {
+    plugin_id: String,
+    repository_path: PathBuf,
+    branch: String,
+    remote_name: String,
+    pathspec: String,
+    credential_ref: Option<String>,
+    materialized: bool,
+    created_at: Instant,
+}
+
+const PATH_UPDATE_OPERATION_TTL: Duration = Duration::from_secs(15 * 60);
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct PluginFlowNodeBindingSnapshot {
     plugin_id: String,
@@ -139,6 +160,8 @@ pub struct ExtensionRegistry {
     installed: Arc<RwLock<BTreeMap<String, InstalledExtension>>>,
     lifecycle: Arc<Mutex<()>>,
     next_generation: Arc<AtomicU64>,
+    path_update_operations: Arc<Mutex<BTreeMap<String, PathUpdateOperation>>>,
+    next_path_update_operation: Arc<AtomicU64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -316,6 +339,71 @@ impl ExtensionRegistry {
                     .iter()
                     .any(|item| item == permission)
             })
+    }
+
+    fn has_store_namespace(&self, plugin_id: &str, namespace: &str) -> bool {
+        self.installed
+            .read()
+            .unwrap()
+            .get(plugin_id)
+            .is_some_and(|extension| {
+                extension
+                    .manifest
+                    .store_namespaces
+                    .iter()
+                    .any(|declared| declared == namespace)
+            })
+    }
+
+    fn begin_path_update(&self, operation: PathUpdateOperation) -> String {
+        let id = format!(
+            "path-update-{}",
+            self.next_path_update_operation
+                .fetch_add(1, Ordering::Relaxed)
+                + 1
+        );
+        let mut operations = self.path_update_operations.lock().unwrap();
+        operations.retain(|_, value| value.created_at.elapsed() < PATH_UPDATE_OPERATION_TTL);
+        operations.insert(id.clone(), operation);
+        id
+    }
+
+    fn path_update(
+        &self,
+        plugin_id: &str,
+        operation_id: &str,
+        require_materialized: bool,
+    ) -> Result<PathUpdateOperation, String> {
+        let mut operations = self.path_update_operations.lock().unwrap();
+        let Some(operation) = operations.get(operation_id) else {
+            return Err("path_update_operation_not_found".to_string());
+        };
+        if operation.created_at.elapsed() >= PATH_UPDATE_OPERATION_TTL {
+            operations.remove(operation_id);
+            return Err("path_update_operation_expired".to_string());
+        }
+        if operation.plugin_id != plugin_id || (require_materialized && !operation.materialized) {
+            return Err("path_update_operation_denied".to_string());
+        }
+        Ok(operation.clone())
+    }
+
+    fn mark_path_update_materialized(&self, operation_id: &str) {
+        if let Some(operation) = self
+            .path_update_operations
+            .lock()
+            .unwrap()
+            .get_mut(operation_id)
+        {
+            operation.materialized = true;
+        }
+    }
+
+    fn finish_path_update(&self, operation_id: &str) {
+        self.path_update_operations
+            .lock()
+            .unwrap()
+            .remove(operation_id);
     }
 
     fn resolve_asset(&self, plugin_id: &str, relative: &str) -> Result<PathBuf, String> {
@@ -507,12 +595,12 @@ pub async fn extension_call(
             Ok(Value::Array(flows))
         }
         "store.get" => {
-            let namespace = extension_store_namespace(&plugin_id, &payload)?;
+            let namespace = extension_store_namespace(&state.extensions, &plugin_id, &payload)?;
             let key = payload_field::<String>(&payload, "key")?;
             Ok(store_get(namespace, key, state).unwrap_or(Value::Null))
         }
         "store.set" => {
-            let namespace = extension_store_namespace(&plugin_id, &payload)?;
+            let namespace = extension_store_namespace(&state.extensions, &plugin_id, &payload)?;
             let key = payload_field::<String>(&payload, "key")?;
             let value = payload
                 .get("value")
@@ -522,7 +610,7 @@ pub async fn extension_call(
             Ok(Value::Null)
         }
         "store.delete" => {
-            let namespace = extension_store_namespace(&plugin_id, &payload)?;
+            let namespace = extension_store_namespace(&state.extensions, &plugin_id, &payload)?;
             let key = payload_field::<String>(&payload, "key")?;
             store_delete(namespace, key, state)?;
             Ok(Value::Null)
@@ -552,6 +640,24 @@ pub async fn extension_call(
             let max_bytes = payload_optional_field(&payload, "maxBytes")?;
             serialize_value(files_read_text(root, path, max_bytes)?)
         }
+        "files.replaceTree" => {
+            if !state.extensions.has_permission(&plugin_id, "git:write") {
+                return Err("permission_denied".to_string());
+            }
+            let operation_id = payload_field::<String>(&payload, "operationId")?;
+            let operation = state
+                .extensions
+                .path_update(&plugin_id, &operation_id, false)?;
+            let source = extension_source_directory(&state, &payload)?;
+            let report = replace_tree(source, &operation.repository_path, &operation.pathspec)
+                .map_err(|error| error.to_string())?;
+            state
+                .extensions
+                .mark_path_update_materialized(&operation_id);
+            serialize_value(report)
+        }
+        "git.pathUpdate.prepare" => extension_prepare_path_update(&state, &plugin_id, &payload),
+        "git.pathUpdate.commit" => extension_commit_path_update(&state, &plugin_id, &payload),
         "repositories.configs" => serialize_value(get_remote_configs(state)?),
         "workspace.info" => serialize_value(get_workspace_info(state)),
         "shell.openPath" => {
@@ -578,24 +684,7 @@ pub async fn extension_call(
                 .and_then(Value::as_str)
                 .ok_or_else(|| "invalid_backend_method".to_string())?
                 .to_string();
-            let mut backend_payload = payload.get("payload").cloned().unwrap_or(Value::Null);
-            if let Some(request) = payload
-                .get("hostServices")
-                .and_then(|services| services.get("gitPublishContext"))
-            {
-                if !expected_snapshot
-                    .permissions
-                    .iter()
-                    .any(|permission| permission == "git:write")
-                {
-                    return Err("permission_denied".to_string());
-                }
-                let context = extension_git_publish_context(&state, request)?;
-                backend_payload
-                    .as_object_mut()
-                    .ok_or_else(|| "backend_payload_must_be_object".to_string())?
-                    .insert("gitContext".to_string(), context);
-            }
+            let backend_payload = payload.get("payload").cloned().unwrap_or(Value::Null);
             let extensions = state.extensions.clone();
             let plugin_host = Arc::clone(&state.plugin_host);
             tauri::async_runtime::spawn_blocking(move || {
@@ -683,6 +772,7 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
         "git:read",
         "flow:read",
         "files:read",
+        "files:write",
         "git:write",
         "store:read",
         "store:write",
@@ -695,6 +785,16 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
         .any(|permission| !allowed_permissions.contains(&permission.as_str()))
     {
         return Err("插件声明了不支持的权限".to_string());
+    }
+    if manifest.store_namespaces.iter().any(|namespace| {
+        namespace.is_empty()
+            || namespace.starts_with("private.")
+            || namespace == "workspace"
+            || !namespace
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    }) {
+        return Err("插件声明了不安全的存储命名空间".to_string());
     }
     let mut view_ids = BTreeSet::new();
     for view in &manifest.contributes.views {
@@ -841,6 +941,8 @@ fn required_permission(method: &str) -> Option<&'static str> {
         "git.overview" | "git.log" => Some("git:read"),
         "flow.list" => Some("flow:read"),
         "files.list" | "files.scan" | "files.search" | "files.readText" => Some("files:read"),
+        "files.replaceTree" => Some("files:write"),
+        "git.pathUpdate.prepare" | "git.pathUpdate.commit" => Some("git:write"),
         "store.get" => Some("store:read"),
         "store.set" | "store.delete" => Some("store:write"),
         "shell.openPath" | "shell.revealPath" | "shell.openUrl" => Some("shell:open"),
@@ -872,56 +974,141 @@ fn serialize_value<T: Serialize>(value: T) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|error| format!("serialization_failed:{error}"))
 }
 
-fn extension_auth_context(auth: AuthMethod) -> Value {
-    match auth {
-        AuthMethod::Token(token) => json!({ "kind": "token", "token": token }),
-        AuthMethod::SshKey {
-            private_key,
-            passphrase,
-        } => json!({
-            "kind": "ssh_key",
-            "privateKey": private_key,
-            "passphrase": passphrase,
-        }),
-        AuthMethod::Agent => json!({ "kind": "agent" }),
-        AuthMethod::None => json!({ "kind": "none" }),
-    }
+fn extension_git_operation_context(
+    state: &AppState,
+    repository_path: &Path,
+    branch: &str,
+    remote_name: &str,
+    credential_ref: Option<&str>,
+) -> Result<(PathBuf, String, String, crate::auth::ResolvedAuth), String> {
+    let target_root = resolve_repo_root(&repository_path).map_err(|error| error.to_string())?;
+    let target_repo = GitRepo::open(&target_root).map_err(|error| error.to_string())?;
+    let remote_url = remote_url_for(&target_repo, remote_name)?;
+    let auth = resolve_auth_for_remote(state, &target_root, Some(&remote_url), credential_ref);
+    Ok((
+        target_root,
+        branch.to_string(),
+        remote_name.to_string(),
+        auth,
+    ))
 }
 
-fn extension_git_publish_context(state: &AppState, request: &Value) -> Result<Value, String> {
-    let target_local_path = payload_field::<String>(request, "targetLocalPath")?;
-    let remote_name = payload_field::<String>(request, "remoteName")?;
-    let credential_ref = payload_optional_field::<String>(request, "credentialRef")?;
-    let target_root = resolve_repo_root(&target_local_path).map_err(|error| error.to_string())?;
-    let target_repo = GitRepo::open(&target_root).map_err(|error| error.to_string())?;
-    let remote_url = remote_url_for(&target_repo, &remote_name)?;
-    let auth = resolve_auth_for_publish_target(
+fn extension_prepare_path_update(
+    state: &AppState,
+    plugin_id: &str,
+    payload: &Value,
+) -> Result<Value, String> {
+    let repository_path = payload_field::<String>(payload, "repositoryPath")?;
+    let branch = payload_field::<String>(payload, "branch")?;
+    let remote_name = payload_field::<String>(payload, "remoteName")?;
+    let pathspec = payload_field::<String>(payload, "pathspec")?;
+    let credential_ref = payload_optional_field::<String>(payload, "credentialRef")?;
+    let (target_root, branch, remote_name, auth) = extension_git_operation_context(
         state,
-        &target_root,
-        Some(&remote_url),
+        Path::new(&repository_path),
+        &branch,
+        &remote_name,
         credential_ref.as_deref(),
-    );
-    let commit_identity =
-        commit_identity_for_repo_remote(state, &target_root.to_string_lossy(), Some(&remote_name));
+    )?;
+    authorize_path_update_repository(state, &target_root)?;
+    prepare_path_update(PreparePathUpdateOptions {
+        target_local_path: target_root.clone(),
+        branch: branch.clone(),
+        remote_name: remote_name.clone(),
+        allowed_dirty_pathspec: Some(pathspec.clone()),
+        auth: auth.method.clone(),
+    })
+    .map_err(|error| error.to_string())?;
+    verify_push_access(&target_root, &remote_name, &branch, &auth.method)
+        .map_err(|error| error.to_string())?;
+    let operation_id = state.extensions.begin_path_update(PathUpdateOperation {
+        plugin_id: plugin_id.to_string(),
+        repository_path: target_root.clone(),
+        branch: branch.clone(),
+        remote_name: remote_name.clone(),
+        pathspec: pathspec.clone(),
+        credential_ref: credential_ref.clone(),
+        materialized: false,
+        created_at: Instant::now(),
+    });
     Ok(json!({
-        "targetRoot": target_root,
+        "operationId": operation_id,
+        "repositoryPath": target_root,
+        "branch": branch,
         "remoteName": remote_name,
-        "remoteUrl": remote_url,
-        "auth": extension_auth_context(auth.method),
-        "mode": auth.mode,
+        "pathspec": pathspec,
+        "credentialMode": auth.mode,
         "credentialRef": auth.credential_ref,
-        "commitIdentity": {
-            "name": commit_identity.name,
-            "email": commit_identity.email,
-        }
     }))
 }
 
-fn extension_store_namespace(plugin_id: &str, payload: &Value) -> Result<String, String> {
+fn extension_commit_path_update(
+    state: &AppState,
+    plugin_id: &str,
+    payload: &Value,
+) -> Result<Value, String> {
+    let operation_id = payload_field::<String>(payload, "operationId")?;
+    let commit_message = payload_field::<String>(payload, "commitMessage")?;
+    let operation = state
+        .extensions
+        .path_update(plugin_id, &operation_id, true)?;
+    let (target_root, branch, remote_name, auth) = extension_git_operation_context(
+        state,
+        &operation.repository_path,
+        &operation.branch,
+        &operation.remote_name,
+        operation.credential_ref.as_deref(),
+    )?;
+    let commit_identity =
+        commit_identity_for_repo_remote(state, &target_root.to_string_lossy(), Some(&remote_name));
+    let report = commit_path_update(CommitPathUpdateOptions {
+        target_local_path: target_root,
+        branch,
+        remote_name,
+        pathspec: operation.pathspec,
+        commit_message,
+        commit_identity,
+        auth: auth.method,
+    })
+    .map_err(|error| error.to_string())?;
+    state.extensions.finish_path_update(&operation_id);
+    let mut value = serde_json::to_value(report).map_err(|error| error.to_string())?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "serialization_failed".to_string())?;
+    object.insert("credentialMode".to_string(), Value::String(auth.mode));
+    object.insert(
+        "credentialRef".to_string(),
+        auth.credential_ref
+            .map(Value::String)
+            .unwrap_or(Value::Null),
+    );
+    Ok(value)
+}
+
+fn authorize_path_update_repository(state: &AppState, repository: &Path) -> Result<(), String> {
+    let store = state.store.lock().unwrap();
+    let allowed = store
+        .active_repo()
+        .into_iter()
+        .chain(store.recent_repos())
+        .chain(store.bound_repos())
+        .filter_map(|path| PathBuf::from(path).canonicalize().ok())
+        .any(|known| known == repository);
+    if allowed {
+        Ok(())
+    } else {
+        Err("git_repository_denied".to_string())
+    }
+}
+
+fn extension_store_namespace(
+    registry: &ExtensionRegistry,
+    plugin_id: &str,
+    payload: &Value,
+) -> Result<String, String> {
     let requested = payload_field::<String>(payload, "namespace")?;
-    if plugin_id == "dev.gittributary.site-publisher"
-        && matches!(requested.as_str(), "sites" | "ui-state")
-    {
+    if registry.has_store_namespace(plugin_id, &requested) {
         return Ok(requested);
     }
     let scoped = format!("plugin.{plugin_id}");
@@ -929,6 +1116,27 @@ fn extension_store_namespace(plugin_id: &str, payload: &Value) -> Result<String,
         return Ok(requested);
     }
     Err("store_namespace_denied".to_string())
+}
+
+fn extension_source_directory(state: &AppState, payload: &Value) -> Result<PathBuf, String> {
+    let requested = payload_field::<String>(payload, "sourceRoot")?;
+    let requested = PathBuf::from(requested)
+        .canonicalize()
+        .map_err(|_| "file_root_missing".to_string())?;
+    if !requested.is_dir() {
+        return Err("file_root_not_directory".to_string());
+    }
+    let store = state.store.lock().unwrap();
+    let allowed = store
+        .active_repo()
+        .into_iter()
+        .chain(store.recent_repos())
+        .filter_map(|path| PathBuf::from(path).canonicalize().ok())
+        .any(|root| requested.starts_with(root));
+    if !allowed {
+        return Err("file_root_denied".to_string());
+    }
+    Ok(requested)
 }
 
 fn extension_file_root(state: &AppState, payload: &Value) -> Result<String, String> {
@@ -1071,6 +1279,21 @@ fn native_library_name(library: &str) -> String {
 mod tests {
     use super::*;
     use std::io::Write;
+    use std::process::Command;
+
+    fn run_git(directory: &Path, args: &[&str]) {
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(directory)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 
     #[test]
     fn validates_extension_ids() {
@@ -1092,27 +1315,55 @@ mod tests {
         assert_eq!(required_permission("git.log"), Some("git:read"));
         assert_eq!(required_permission("store.set"), Some("store:write"));
         assert_eq!(required_permission("files.search"), Some("files:read"));
+        assert_eq!(
+            required_permission("files.replaceTree"),
+            Some("files:write")
+        );
+        assert_eq!(
+            required_permission("git.pathUpdate.commit"),
+            Some("git:write")
+        );
         assert_eq!(required_permission("shell.openPath"), Some("shell:open"));
         assert_eq!(required_permission("flow.run"), None);
     }
 
     #[test]
     fn scopes_extension_store_namespaces() {
+        let registry = ExtensionRegistry::default();
+        let manifest: ExtensionManifest = serde_json::from_value(json!({
+            "schemaVersion": 1,
+            "id": "dev.gittributary.site-publisher",
+            "name": "Site",
+            "version": "1.0.0",
+            "storeNamespaces": ["sites"]
+        }))
+        .unwrap();
+        registry.installed.write().unwrap().insert(
+            manifest.id.clone(),
+            InstalledExtension {
+                manifest,
+                root: PathBuf::new(),
+                generation: 1,
+            },
+        );
         let site_payload = json!({ "namespace": "sites" });
         assert_eq!(
-            extension_store_namespace("dev.gittributary.site-publisher", &site_payload).unwrap(),
+            extension_store_namespace(&registry, "dev.gittributary.site-publisher", &site_payload)
+                .unwrap(),
             "sites"
         );
 
         let scoped_payload = json!({ "namespace": "plugin.com.example.demo.settings" });
         assert_eq!(
-            extension_store_namespace("com.example.demo", &scoped_payload).unwrap(),
+            extension_store_namespace(&registry, "com.example.demo", &scoped_payload).unwrap(),
             "plugin.com.example.demo.settings"
         );
-        assert!(
-            extension_store_namespace("com.example.demo", &json!({ "namespace": "sites" }))
-                .is_err()
-        );
+        assert!(extension_store_namespace(
+            &registry,
+            "com.example.demo",
+            &json!({ "namespace": "sites" })
+        )
+        .is_err());
     }
 
     #[test]
@@ -1148,22 +1399,102 @@ mod tests {
     }
 
     #[test]
-    fn serializes_git_auth_for_plugin_backends() {
-        assert_eq!(
-            extension_auth_context(AuthMethod::Token("secret".to_string())),
-            json!({ "kind": "token", "token": "secret" })
+    fn host_capabilities_replace_commit_and_push_a_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let target = temp.path().join("target");
+        let remote = temp.path().join("remote.git");
+        let store_directory = temp.path().join("store");
+        fs::create_dir_all(source.join("artifact")).unwrap();
+        fs::create_dir_all(&target).unwrap();
+        fs::write(source.join("artifact/index.html"), "<h1>Hello</h1>").unwrap();
+        run_git(temp.path(), &["init", "--bare", remote.to_str().unwrap()]);
+        run_git(&target, &["init", "-b", "main"]);
+        fs::write(target.join("README.md"), "seed").unwrap();
+        run_git(&target, &["add", "README.md"]);
+        run_git(
+            &target,
+            &[
+                "-c",
+                "user.name=GitTributary Test",
+                "-c",
+                "user.email=test@local",
+                "commit",
+                "-m",
+                "seed",
+            ],
         );
-        assert_eq!(
-            extension_auth_context(AuthMethod::SshKey {
-                private_key: "/tmp/id_ed25519".to_string(),
-                passphrase: None,
-            }),
-            json!({
-                "kind": "ssh_key",
-                "privateKey": "/tmp/id_ed25519",
-                "passphrase": null,
+        run_git(
+            &target,
+            &["remote", "add", "origin", remote.to_str().unwrap()],
+        );
+        run_git(&target, &["push", "-u", "origin", "main"]);
+
+        let mut store = gt_store::Store::open(&store_directory).unwrap();
+        store.init_workspace().unwrap();
+        store
+            .sync_workspace(Some(&source.to_string_lossy()), Some("main"))
+            .unwrap();
+        store.bind_repo(&target.to_string_lossy()).unwrap();
+        let state = AppState {
+            repo: std::sync::Mutex::new(None),
+            store: std::sync::Mutex::new(store),
+            event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
+            node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
+            flow_execution: std::sync::Mutex::new(()),
+            extensions: ExtensionRegistry::default(),
+            plugin_host: std::sync::Arc::new(crate::plugin_host::PluginHostSupervisor::default()),
+        };
+        let operation = json!({
+            "repositoryPath": target,
+            "branch": "main",
+            "remoteName": "origin",
+            "pathspec": "docs"
+        });
+        let prepared = extension_prepare_path_update(&state, "test.plugin", &operation).unwrap();
+        let operation_id = prepared["operationId"].as_str().unwrap();
+        assert!(extension_commit_path_update(
+            &state,
+            "test.plugin",
+            &json!({
+                "operationId": operation_id,
+                "commitMessage": "must materialize first"
             })
-        );
+        )
+        .is_err());
+        let bound = state
+            .extensions
+            .path_update("test.plugin", operation_id, false)
+            .unwrap();
+        let source_root =
+            extension_source_directory(&state, &json!({ "sourceRoot": source.join("artifact") }))
+                .unwrap();
+        replace_tree(source_root, &bound.repository_path, &bound.pathspec).unwrap();
+        state.extensions.mark_path_update_materialized(operation_id);
+        let report = extension_commit_path_update(
+            &state,
+            "test.plugin",
+            &json!({
+                "operationId": operation_id,
+                "commitMessage": "publish artifact"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(report["pushed"], true);
+        assert!(target.join("docs/index.html").is_file());
+        run_git(&target, &["fetch", "origin", "main"]);
+        let remote_head = Command::new("git")
+            .args(["rev-parse", "origin/main"])
+            .current_dir(&target)
+            .output()
+            .unwrap();
+        let local_head = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(&target)
+            .output()
+            .unwrap();
+        assert_eq!(remote_head.stdout, local_head.stdout);
     }
 
     #[test]

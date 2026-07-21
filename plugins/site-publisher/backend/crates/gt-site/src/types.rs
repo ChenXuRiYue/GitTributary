@@ -23,8 +23,8 @@ pub enum SiteError {
     Io(#[from] std::io::Error),
     #[error("JSON 错误: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("文件管理错误: {0}")]
-    Files(#[from] gt_files::FileError),
+    #[error("目录扫描错误: {0}")]
+    WalkDir(#[from] walkdir::Error),
 }
 
 pub type Result<T> = std::result::Result<T, SiteError>;
@@ -98,8 +98,9 @@ pub struct SiteBuildReport {
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SitePublishOutput {
+pub struct SitePublishArtifact {
     pub build: SiteBuildReport,
+    pub artifact_path: String,
     pub source_repo_path: String,
     pub target_repo_path: String,
     pub publish_dir: String,
@@ -107,7 +108,7 @@ pub struct SitePublishOutput {
     pub publish_pathspec: String,
     pub pages_url: String,
     pub commit_message: String,
-    pub copied_file_count: usize,
+    pub artifact_file_count: usize,
     pub duration_ms: u128,
 }
 

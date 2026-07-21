@@ -9,7 +9,7 @@ pub mod commit;
 pub mod diff;
 pub mod error;
 pub mod log;
-pub mod pages;
+pub mod path_update;
 pub mod remote;
 pub mod repo;
 pub mod status;
@@ -19,11 +19,10 @@ pub use commit::{CommitIdentity, CommitInfo};
 pub use diff::FileDiff;
 pub use error::{GitError, Result};
 pub use log::LogEntry;
-pub use pages::{
-    commit_pages_git, ensure_clean_repo, ensure_clean_repo_except, ensure_remote_exists,
-    normalize_git_name, prepare_pages_git, publish_pages_git, resolve_repo_root,
-    validate_branch_name, PagesCommitGitOptions, PagesPrepareGitOptions, PagesPublishGitOptions,
-    PagesPublishGitReport, verify_pages_push_access,
+pub use path_update::{
+    commit_path_update, ensure_clean_repo, ensure_clean_repo_except, ensure_remote_exists,
+    normalize_git_name, prepare_path_update, resolve_repo_root, validate_branch_name,
+    verify_push_access, CommitPathUpdateOptions, PathUpdateReport, PreparePathUpdateOptions,
 };
 pub use remote::{
     check_remote_access, clone_remote_repo, clone_remote_repo_into_parent, repo_dir_name_from_url,

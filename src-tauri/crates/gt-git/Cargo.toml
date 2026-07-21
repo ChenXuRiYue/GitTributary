@@ -3,6 +3,7 @@ name = "gt-git"
 version = "0.1.3"
 edition = "2021"
 description = "GitTributary Git 基础能力层"
+publish = false
 
 [dependencies]
 git2 = "0.19"

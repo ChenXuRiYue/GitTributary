@@ -6,9 +6,12 @@ mod types;
 mod utils;
 
 pub use builder::build_site;
-pub use publish::{plan_publish_target, prepare_publish_output};
+pub use publish::{build_publish_artifact, plan_publish_target};
 pub use scan::scan_repo;
-pub use types::{BrokenLink, SiteBuildConfig, SiteBuildReport, SiteBuildWarning, SiteError, SiteIgnoredPath, SitePathCandidate, SitePathKind, SitePublishOutput, SitePublishTargetPlan, SiteScanReport};
+pub use types::{
+    BrokenLink, SiteBuildConfig, SiteBuildReport, SiteBuildWarning, SiteError, SiteIgnoredPath,
+    SitePathCandidate, SitePathKind, SitePublishArtifact, SitePublishTargetPlan, SiteScanReport,
+};
 
 #[cfg(test)]
 mod tests {
@@ -219,9 +222,18 @@ mod tests {
 
     #[test]
     fn publish_dir_normalization_is_repo_relative() {
-        assert_eq!(publish_dir_display(&normalize_publish_dir("/").unwrap()), "/");
-        assert_eq!(publish_dir_display(&normalize_publish_dir("docs").unwrap()), "docs");
-        assert_eq!(publish_dir_display(&normalize_publish_dir("/docs/site").unwrap()), "docs/site");
+        assert_eq!(
+            publish_dir_display(&normalize_publish_dir("/").unwrap()),
+            "/"
+        );
+        assert_eq!(
+            publish_dir_display(&normalize_publish_dir("docs").unwrap()),
+            "docs"
+        );
+        assert_eq!(
+            publish_dir_display(&normalize_publish_dir("/docs/site").unwrap()),
+            "docs/site"
+        );
     }
 
     #[test]

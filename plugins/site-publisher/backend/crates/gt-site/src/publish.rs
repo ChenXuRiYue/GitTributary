@@ -3,16 +3,18 @@ use std::path::{Component, Path, PathBuf};
 use std::time::Instant;
 
 use crate::builder::build_site;
-use crate::types::{Result, SiteBuildConfig, SiteError, SitePublishOutput, SitePublishTargetPlan};
+use crate::types::{
+    Result, SiteBuildConfig, SiteError, SitePublishArtifact, SitePublishTargetPlan,
+};
 use crate::utils::{canonical_repo, normalize_output_dir, path_to_slash};
 
-pub fn prepare_publish_output(
+pub fn build_publish_artifact(
     build_config: SiteBuildConfig,
     target_repo: impl AsRef<Path>,
     publish_dir: &str,
     pages_url: &str,
     commit_message: &str,
-) -> Result<SitePublishOutput> {
+) -> Result<SitePublishArtifact> {
     let started = Instant::now();
     let mut build_config = build_config;
     let target_plan = plan_publish_target(&build_config, target_repo, publish_dir)?;
@@ -24,16 +26,13 @@ pub fn prepare_publish_output(
     if !index_html.exists() {
         return Err(SiteError::MissingIndexHtml(build.index_html.clone()));
     }
-    let publish_path = PathBuf::from(&target_plan.publish_path);
-    ensure_publish_paths_do_not_overlap(&build_output, &publish_path)?;
+    ensure_publish_paths_do_not_overlap(&build_output, Path::new(&target_plan.publish_path))?;
+    fs::write(build_output.join(".nojekyll"), "")?;
+    let artifact_file_count = count_files(&build_output)?;
 
-    let preserve_git = target_plan.publish_pathspec == ".";
-    clear_publish_dir(&publish_path, preserve_git)?;
-    let copied_file_count = copy_site_output(&build_output, &publish_path)?;
-    fs::write(publish_path.join(".nojekyll"), "")?;
-
-    Ok(SitePublishOutput {
+    Ok(SitePublishArtifact {
         build,
+        artifact_path: build_output.to_string_lossy().to_string(),
         source_repo_path: target_plan.source_repo_path,
         target_repo_path: target_plan.target_repo_path,
         publish_dir: target_plan.publish_dir,
@@ -41,7 +40,7 @@ pub fn prepare_publish_output(
         publish_pathspec: target_plan.publish_pathspec,
         pages_url: pages_url.trim().to_string(),
         commit_message: default_commit_message(commit_message),
-        copied_file_count,
+        artifact_file_count,
         duration_ms: started.elapsed().as_millis(),
     })
 }
@@ -193,66 +192,21 @@ fn canonical_candidate(path: &Path) -> Result<PathBuf> {
     Ok(candidate)
 }
 
-fn clear_publish_dir(dir: &Path, preserve_git: bool) -> Result<()> {
-    if dir.exists() && !dir.is_dir() {
-        return Err(SiteError::UnsafePublishDir(dir.to_string_lossy().to_string()));
-    }
-    if !dir.exists() {
-        fs::create_dir_all(dir)?;
-        return Ok(());
-    }
-
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        if preserve_git && entry.file_name() == ".git" {
-            continue;
-        }
-        let path = entry.path();
-        if path.is_dir() {
-            fs::remove_dir_all(path)?;
-        } else {
-            fs::remove_file(path)?;
-        }
-    }
-    Ok(())
-}
-
-fn copy_site_output(source: &Path, target: &Path) -> Result<usize> {
-    fs::create_dir_all(target)?;
-    let mut copied = 0;
-    copy_site_output_inner(source, source, target, &mut copied)?;
-    Ok(copied)
-}
-
-fn copy_site_output_inner(
-    root: &Path,
-    current: &Path,
-    target_root: &Path,
-    copied: &mut usize,
-) -> Result<()> {
-    let mut entries = fs::read_dir(current)?.collect::<std::result::Result<Vec<_>, _>>()?;
-    entries.sort_by_key(|entry| entry.path());
-    for entry in entries {
-        let path = entry.path();
-        let rel = path
-            .strip_prefix(root)
-            .map_err(|_| SiteError::PathOutsideRepo(path.to_string_lossy().to_string()))?;
-        if rel == Path::new(".gittributary-site") {
-            continue;
-        }
-        let target = target_root.join(rel);
-        if path.is_dir() {
-            fs::create_dir_all(&target)?;
-            copy_site_output_inner(root, &path, target_root, copied)?;
-        } else if path.is_file() {
-            if let Some(parent) = target.parent() {
-                fs::create_dir_all(parent)?;
+fn count_files(root: &Path) -> Result<usize> {
+    let mut count = 0usize;
+    let mut pending = vec![root.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        for entry in fs::read_dir(directory)? {
+            let entry = entry?;
+            let metadata = entry.metadata()?;
+            if metadata.is_dir() {
+                pending.push(entry.path());
+            } else if metadata.is_file() {
+                count += 1;
             }
-            fs::copy(&path, &target)?;
-            *copied += 1;
         }
     }
-    Ok(())
+    Ok(count)
 }
 
 fn default_commit_message(value: &str) -> String {

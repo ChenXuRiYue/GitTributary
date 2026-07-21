@@ -2,7 +2,7 @@
 name = "gt-files"
 version = "0.1.0"
 edition = "2021"
-description = "Root-confined read-only filesystem primitives for GitTributary"
+description = "Root-confined filesystem primitives for GitTributary"
 publish = false
 
 [dependencies]

@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
+use semver::Version;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::commands::flow::refresh_flow_node_registry;
@@ -27,6 +28,7 @@ pub struct PluginMarketItem {
     pub version: String,
     pub publisher: String,
     pub permissions: Vec<String>,
+    pub store_namespaces: Vec<String>,
     pub views: Vec<PluginMarketView>,
     pub flow_nodes: Vec<PluginMarketFlowNode>,
     pub backend_runtime: Option<String>,
@@ -89,6 +91,10 @@ pub fn plugin_install(
     let (source, manifest) =
         plugin_source(&catalog_root, &plugin_id).ok_or_else(|| "plugin_not_found".to_string())?;
     validate_project_plugin(&manifest, &source)?;
+    ensure_install_version_allowed(
+        &manifest.version,
+        state.extensions.installed_version(&manifest.id).as_deref(),
+    )?;
 
     let plugins_root = plugins_root();
     let staging_root = plugins_root.join(".staging");
@@ -329,6 +335,7 @@ fn market_item(manifest: &ExtensionManifest, state: &AppState) -> PluginMarketIt
         version: manifest.version.clone(),
         publisher: manifest.publisher.clone(),
         permissions: manifest.permissions.clone(),
+        store_namespaces: manifest.store_namespaces.clone(),
         views: manifest
             .contributes
             .views
@@ -483,6 +490,19 @@ fn operation_token() -> String {
     format!("{}-{nanos}", std::process::id())
 }
 
+fn ensure_install_version_allowed(candidate: &str, installed: Option<&str>) -> Result<(), String> {
+    let candidate = Version::parse(candidate).map_err(|_| "plugin_version_invalid".to_string())?;
+    let Some(installed) = installed else {
+        return Ok(());
+    };
+    let installed =
+        Version::parse(installed).map_err(|_| "installed_plugin_version_invalid".to_string())?;
+    if candidate < installed {
+        return Err("plugin_downgrade_denied".to_string());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -548,13 +568,28 @@ mod tests {
     }
 
     #[test]
+    fn allows_upgrade_and_same_version_reinstall_but_rejects_downgrade() {
+        assert!(ensure_install_version_allowed("0.1.3", None).is_ok());
+        assert!(ensure_install_version_allowed("0.1.3", Some("0.1.2")).is_ok());
+        assert!(ensure_install_version_allowed("0.1.3", Some("0.1.3")).is_ok());
+        assert_eq!(
+            ensure_install_version_allowed("0.1.2", Some("0.1.3")).unwrap_err(),
+            "plugin_downgrade_denied"
+        );
+        assert_eq!(
+            ensure_install_version_allowed("1.0.0-beta.1", Some("1.0.0")).unwrap_err(),
+            "plugin_downgrade_denied"
+        );
+    }
+
+    #[test]
     fn discovers_site_publisher_from_project_plugins() {
         let root = plugin_catalog_root_for_mode(true, Path::new(env!("CARGO_MANIFEST_DIR")), None)
             .unwrap();
-        let plugins = plugin_sources(&root);
-        assert!(plugins.iter().any(|source| {
-            read_manifest(source)
-                .is_ok_and(|manifest| manifest.id == "dev.gittributary.site-publisher")
-        }));
+        let (_, manifest) = plugin_source(&root, "dev.gittributary.site-publisher").unwrap();
+        assert!(manifest.store_namespaces.contains(&"sites".to_string()));
+        assert!(manifest
+            .store_namespaces
+            .contains(&"ui-state".to_string()));
     }
 }
