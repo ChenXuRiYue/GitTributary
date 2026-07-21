@@ -23,6 +23,10 @@ src-tauri/resources/.plugins-staging/
 # Standalone Cargo crate outputs
 src-tauri/crates/*/target/
 
+# Generated performance reports
+performance/reports/
+performance/baselines/ci/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

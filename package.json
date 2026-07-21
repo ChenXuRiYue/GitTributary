@@ -22,13 +22,17 @@
     "tauri": "tauri",
     "plugin:host:build": "cargo build --manifest-path src-tauri/Cargo.toml -p gt-plugin-host",
     "plugin:host:prepare": "node scripts/prepare_plugin_host.mjs",
-    "plugin:build": "node scripts/build_plugins.mjs",
+    "plugin:boundary": "node scripts/check_plugin_core_boundary.mjs",
+    "plugin:build": "npm run plugin:boundary && node scripts/build_plugins.mjs",
     "plugin:bundle:prepare": "npm run plugin:build && node scripts/prepare_plugins.mjs",
     "plugin:mvp:build": "npm run plugin:host:prepare && npm run plugin:build",
     "perf:contract": "node scripts/check_git_performance_contract.mjs",
     "perf:rust": "cargo test --manifest-path src-tauri/Cargo.toml -p gt-git --release --test performance_test -- --ignored --nocapture --test-threads=1",
     "perf:attachments": "cargo test --manifest-path plugins/attachment-manager/backend/Cargo.toml --release classifies_large_link_inventory_within_budget -- --ignored --nocapture --test-threads=1",
-    "perf:check": "npm run perf:contract && npm run perf:rust && npm run perf:attachments"
+    "perf:ipc": "node scripts/perf/run-ipc.mjs --output performance/reports/latest/metrics.json",
+    "perf:report": "node scripts/perf/render-report.mjs --input performance/reports/latest/metrics.json --model performance/model.json --output performance/reports/latest",
+    "perf:check": "npm run perf:contract && npm run perf:rust && npm run perf:attachments",
+    "perf:ci": "node scripts/perf/run-all.mjs"
   },
   "dependencies": {
     "@radix-ui/react-scroll-area": "^1.2.12",

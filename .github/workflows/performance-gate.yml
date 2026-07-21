@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   performance:
-    name: Contracts and Git fixtures
+    name: Contracts, fixtures, and IPC
     runs-on: ubuntu-22.04
     timeout-minutes: 20
 
@@ -31,10 +31,70 @@ jobs:
       - name: Cache Rust
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: "./src-tauri -> target"
+          workspaces: |
+            ./src-tauri -> target
+            ./plugins/site-publisher/backend -> target
 
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Restore main performance baseline
+        id: performance-baseline
+        uses: actions/cache/restore@v4
+        with:
+          path: performance/baselines/ci
+          key: performance-baseline-${{ runner.os }}-${{ runner.arch }}-${{ github.event.pull_request.base.sha || github.sha }}
+          restore-keys: |
+            performance-baseline-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Enable compatible baseline candidate
+        shell: bash
+        run: |
+          if [[ -f performance/baselines/ci/metrics.json ]]; then
+            echo "GT_PERF_BASELINE=performance/baselines/ci/metrics.json" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build plugin host
+        run: cargo build --manifest-path src-tauri/Cargo.toml -p gt-plugin-host --release
+
+      - name: Build site publisher plugin
+        run: cargo build --manifest-path plugins/site-publisher/backend/Cargo.toml --release
+
       - name: Run performance gate
-        run: npm run perf:check
+        run: npm run perf:ci
+        env:
+          GT_PERF_RUNNER_CLASS: github-hosted-${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04
+
+      - name: Prepare successful main baseline
+        if: success() && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          mkdir -p performance/baselines/ci
+          cp performance/reports/latest/metrics.json performance/baselines/ci/metrics.json
+
+      - name: Save successful main baseline
+        if: success() && github.ref == 'refs/heads/main' && steps.performance-baseline.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: performance/baselines/ci
+          key: performance-baseline-${{ runner.os }}-${{ runner.arch }}-${{ github.sha }}
+
+      - name: Publish performance summary
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f performance/reports/latest/report.md ]]; then
+            cat performance/reports/latest/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Performance report unavailable" >> "$GITHUB_STEP_SUMMARY"
+            echo "The performance run ended before report generation completed." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload performance report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: performance/reports/latest/**
+          if-no-files-found: warn
+          retention-days: 30

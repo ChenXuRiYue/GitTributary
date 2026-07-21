@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schemaVersion": 1,
+  "modelVersion": "2026.07.1",
+  "title": "GitTributary application performance model",
+  "description": "A layered desktop application model combining RAIL user experience, RED request health, USE resource health, and desktop lifecycle measurements.",
+  "frameworks": {
+    "RAIL": {
+      "label": "RAIL 交互体验",
+      "description": "Response, Animation, Idle and Load budgets for user-visible responsiveness.",
+      "color": "#2563eb"
+    },
+    "RED": {
+      "label": "RED 请求健康",
+      "description": "Rate, Errors and Duration for IPC and application operations.",
+      "color": "#dc2626"
+    },
+    "USE": {
+      "label": "USE 资源健康",
+      "description": "Utilization, Saturation and Errors for processes, queues and operating-system resources.",
+      "color": "#059669"
+    },
+    "DESKTOP": {
+      "label": "桌面生命周期",
+      "description": "Cold start, warm start, plugin activation, steady state, backgrounding and shutdown.",
+      "color": "#7c3aed"
+    }
+  },
+  "environmentMatch": [
+    "platform",
+    "arch",
+    "cpu",
+    "buildProfile",
+    "osVersion",
+    "nodeVersion",
+    "rustcVersion",
+    "runnerClass",
+    "ipcFixtureVersion",
+    "gitFixtureVersion",
+    "attachmentFixtureVersion",
+    "budgetVersion"
+  ],
+  "regression": {
+    "latencyPercent": 20,
+    "throughputPercent": 10,
+    "resourcePercent": 15,
+    "errorRateAbsolutePoints": 0.1,
+    "minimumAbsoluteDelta": {
+      "ms": 1,
+      "bytes": 1048576,
+      "percent": 0.1,
+      "count": 1,
+      "req/s": 1
+    }
+  },
+  "measurement": {
+    "warmups": 1,
+    "minimumSamples": 20,
+    "referenceSamples": 30,
+    "percentileMethod": "nearest-rank",
+    "noiseCvWarningPercent": 10,
+    "requiredStatistics": ["p50", "p95", "p99", "max"]
+  },
+  "budgets": [
+    { "id": "rail.response.feedback", "framework": "RAIL", "scenario": "interaction", "label": "点击或输入视觉反馈", "statistic": "p95", "operator": "<=", "value": 100, "unit": "ms", "regressionClass": "latency" },
+    { "id": "rail.animation.long_task", "framework": "RAIL", "scenario": "render", "label": "前端主线程 Long Task", "statistic": "max", "operator": "<", "value": 50, "unit": "ms", "regressionClass": "latency" },
+    { "id": "rail.load.warm_view", "framework": "RAIL", "scenario": "view-warm", "label": "热缓存视图可用", "statistic": "p95", "operator": "<=", "value": 300, "unit": "ms", "regressionClass": "latency" },
+    { "id": "rail.load.cold_view", "framework": "RAIL", "scenario": "view-cold", "label": "普通仓库冷加载", "statistic": "p95", "operator": "<=", "value": 1000, "unit": "ms", "regressionClass": "latency" },
+    { "id": "rail.load.large_view", "framework": "RAIL", "scenario": "view-large", "label": "大型仓库冷加载", "statistic": "p95", "operator": "<=", "value": 2000, "unit": "ms", "regressionClass": "latency" },
+
+    { "id": "red.ipc.end_to_end", "framework": "RED", "scenario": "ipc-noop", "label": "插件 IPC 热态端到端", "statistic": "p95", "operator": "<=", "value": 20, "unit": "ms", "regressionClass": "latency" },
+    { "id": "red.ipc.end_to_end_p99", "framework": "RED", "scenario": "ipc-noop", "label": "插件 IPC 热态尾延迟", "statistic": "p99", "operator": "<=", "value": 50, "unit": "ms", "regressionClass": "latency" },
+    { "id": "red.ipc.stdio", "framework": "RED", "scenario": "host-ping", "label": "Plugin Host stdio 往返", "statistic": "p95", "operator": "<=", "value": 2, "unit": "ms", "regressionClass": "latency" },
+    { "id": "red.ipc.abi", "framework": "RED", "scenario": "abi-noop", "label": "动态库 C ABI 空调用", "statistic": "p95", "operator": "<=", "value": 2, "unit": "ms", "regressionClass": "latency" },
+    { "id": "red.ipc.throughput", "framework": "RED", "scenario": "ipc-noop", "label": "插件 IPC 热态吞吐", "statistic": "value", "operator": ">=", "value": 200, "unit": "req/s", "regressionClass": "throughput" },
+    { "id": "red.transport.error_rate", "framework": "RED", "scenario": "reliability", "label": "传输超时或崩溃率", "statistic": "value", "operator": "<", "value": 0.1, "unit": "percent", "regressionClass": "error" },
+
+    { "id": "use.queue.p0_wait", "framework": "USE", "scenario": "contention", "label": "P0 请求排队", "statistic": "p95", "operator": "<=", "value": 50, "unit": "ms", "regressionClass": "latency" },
+    { "id": "use.queue.depth", "framework": "USE", "scenario": "contention", "label": "插件请求队列深度", "statistic": "max", "operator": "<=", "value": 32, "unit": "count", "regressionClass": "resource" },
+    { "id": "use.payload.default", "framework": "USE", "scenario": "capacity", "label": "默认 IPC 结果体积", "statistic": "max", "operator": "<=", "value": 262144, "unit": "bytes", "regressionClass": "resource" },
+    { "id": "use.payload.hard_limit", "framework": "USE", "scenario": "capacity", "label": "IPC 结果硬上限", "statistic": "max", "operator": "<=", "value": 1048576, "unit": "bytes", "regressionClass": "resource" },
+    { "id": "use.steady.rss_growth", "framework": "USE", "scenario": "steady-30m", "label": "30 分钟 RSS 增长", "statistic": "value", "operator": "<=", "value": 10, "unit": "percent", "regressionClass": "resource" },
+    { "id": "use.steady.handle_growth", "framework": "USE", "scenario": "steady-30m", "label": "30 分钟线程/句柄净增长", "statistic": "value", "operator": "<=", "value": 0, "unit": "count", "regressionClass": "resource" },
+
+    { "id": "desktop.host.cold_ready", "framework": "DESKTOP", "scenario": "cold-start", "label": "Plugin Host 冷启动 ready", "statistic": "p95", "operator": "<=", "value": 100, "unit": "ms", "regressionClass": "latency" },
+    { "id": "desktop.plugin.library_load", "framework": "DESKTOP", "scenario": "plugin-activation", "label": "插件动态库冷加载", "statistic": "p95", "operator": "<=", "value": 20, "unit": "ms", "regressionClass": "latency" },
+    { "id": "desktop.plugin.bridge_ready", "framework": "DESKTOP", "scenario": "plugin-activation", "label": "iframe bridge ready", "statistic": "p95", "operator": "<=", "value": 300, "unit": "ms", "regressionClass": "latency" },
+    { "id": "desktop.shutdown", "framework": "DESKTOP", "scenario": "shutdown", "label": "Plugin Host 正常关闭", "statistic": "p95", "operator": "<=", "value": 500, "unit": "ms", "regressionClass": "latency" }
+  ]
+}
