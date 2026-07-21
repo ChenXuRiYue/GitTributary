@@ -14,9 +14,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
+    "types": ["vitest/globals", "@testing-library/jest-dom"],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["../../../src/*"]
+      "@/*": ["../../../src/*"],
+      "@gittributary/plugin-testkit": ["../../../packages/plugin-testkit/src/index.ts"]
     }
   },
   "include": ["src"]

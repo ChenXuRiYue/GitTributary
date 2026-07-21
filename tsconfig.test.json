@@ -8,6 +8,7 @@
     "tests",
     "e2e",
     "vitest.config.ts",
+    "vitest.host.config.ts",
     "playwright.config.ts"
   ],
   "exclude": []

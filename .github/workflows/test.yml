@@ -25,6 +25,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Test report infrastructure
+        run: npm run test:report:self
       - name: Run frontend suites and collect report
         run: npm run test:report -- --only types,frontend --coverage --output test-reports/frontend
       - name: Upload frontend coverage

@@ -28,6 +28,7 @@ import {
   usage,
   validateOutputPath,
 } from "./report-lib.mjs";
+import { discoverPluginBackends } from "./plugin-backends.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const GROUPS = ["types", "frontend", "rust", "plugins", "e2e", "performance"];
@@ -161,8 +162,9 @@ function createTasks(selected, args, outputDir, rustRunner) {
     tasks.push(rustTask("rust", "Rust core workspace", "src-tauri/Cargo.toml", ["--workspace", "--all-targets"], rustRunner));
   }
   if (selected.includes("plugins")) {
-    tasks.push(rustTask("plugins-site", "Site publisher plugins", "plugins/site-publisher/backend/Cargo.toml", ["--workspace", "--all-targets"], rustRunner));
-    tasks.push(rustTask("plugins-attachment", "Attachment manager plugin", "plugins/attachment-manager/backend/Cargo.toml", ["--all-targets"], rustRunner));
+    for (const plugin of discoverPluginBackends(ROOT)) {
+      tasks.push(rustTask(plugin.id, plugin.label, plugin.manifest, ["--workspace", "--all-targets"], rustRunner));
+    }
   }
   if (selected.includes("e2e")) {
     const jsonPath = path.join(outputDir, "raw", "playwright.json");

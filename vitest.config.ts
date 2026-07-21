@@ -1,24 +1,12 @@
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
-const root = path.dirname(fileURLToPath(import.meta.url));
-
 export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      "@": path.resolve(root, "src"),
-    },
-  },
   test: {
-    environment: "jsdom",
-    globals: true,
-    setupFiles: ["./tests/setup.ts"],
-    include: ["src/**/*.test.{ts,tsx}"],
-    exclude: ["e2e/**", "node_modules/**", "dist/**"],
+    projects: [
+      "./vitest.host.config.ts",
+      "./packages/*/vitest.config.ts",
+      "./plugins/*/frontend/vitest.config.ts",
+    ],
     allowOnly: false,
     restoreMocks: true,
     clearMocks: true,
@@ -28,13 +16,20 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "json-summary", "lcov"],
       reportsDirectory: "coverage",
-      include: ["src/**/*.{ts,tsx}"],
+      include: [
+        "src/**/*.{ts,tsx}",
+        "packages/plugin-testkit/src/**/*.ts",
+        "plugins/*/frontend/src/**/*.{ts,tsx}",
+      ],
       exclude: [
-        "src/**/*.d.ts",
-        "src/**/types.ts",
-        "src/**/types/**",
+        "**/*.d.ts",
+        "**/*.test.{ts,tsx}",
+        "**/types.ts",
+        "**/types/**",
+        "**/main.tsx",
+        "**/test/**",
+        "packages/plugin-testkit/src/setup.ts",
         "src/shared/ui/**",
-        "src/main.tsx",
       ],
       thresholds: {
         statements: 27,
@@ -74,6 +69,30 @@ export default defineConfig({
         "src/platform/extensions/ExtensionFrame.tsx": {
           statements: 85,
           branches: 80,
+          functions: 90,
+          lines: 90,
+        },
+        "plugins/attachment-manager/frontend/src/features/{inventory,domains}/model.ts": {
+          statements: 90,
+          branches: 85,
+          functions: 90,
+          lines: 90,
+        },
+        "plugins/attachment-manager/frontend/src/features/github-images/model.ts": {
+          statements: 90,
+          branches: 80,
+          functions: 90,
+          lines: 90,
+        },
+        "plugins/attachment-manager/frontend/src/tauri-core.ts": {
+          statements: 90,
+          branches: 80,
+          functions: 90,
+          lines: 90,
+        },
+        "packages/plugin-testkit/src/{host-method-cases,mock-host}.ts": {
+          statements: 90,
+          branches: 85,
           functions: 90,
           lines: 90,
         },

@@ -1,0 +1,339 @@
+{
+  "apiVersion": 1,
+  "methods": [
+    {
+      "method": "workspace.info",
+      "permission": "repository:read",
+      "description": "读取当前工作区和最近仓库信息。",
+      "cases": [
+        {
+          "id": "workspace.info.active",
+          "kind": "success",
+          "payload": {},
+          "result": {
+            "active_repo": "/fixtures/notes",
+            "recent_repos": ["/fixtures/notes"],
+            "device_id": "device-test",
+            "device_name": "Test Device"
+          }
+        },
+        {
+          "id": "workspace.info.closed",
+          "kind": "success",
+          "payload": {},
+          "result": {
+            "active_repo": null,
+            "recent_repos": [],
+            "device_id": null,
+            "device_name": null
+          }
+        }
+      ]
+    },
+    {
+      "method": "repositories.active",
+      "permission": "repository:read",
+      "description": "读取当前仓库概览。",
+      "cases": [
+        {
+          "id": "repositories.active.ready",
+          "kind": "success",
+          "payload": {},
+          "result": {
+            "repositoryId": "active",
+            "displayName": "notes",
+            "currentBranch": "main",
+            "isDirty": false,
+            "changedCount": 0,
+            "hasRemote": true
+          }
+        },
+        {
+          "id": "repositories.active.closed",
+          "kind": "error",
+          "payload": {},
+          "error": "repository_not_open"
+        }
+      ]
+    },
+    {
+      "method": "repositories.configs",
+      "permission": "repository:read",
+      "description": "读取宿主维护的远程仓库配置。",
+      "cases": [
+        {
+          "id": "repositories.configs.empty",
+          "kind": "success",
+          "payload": {},
+          "result": []
+        }
+      ]
+    },
+    {
+      "method": "repositories.addRemote",
+      "permission": "git:write",
+      "description": "通过 Git 模块向当前仓库新增远程并绑定项目凭证。",
+      "cases": [
+        {
+          "id": "repositories.addRemote.created",
+          "kind": "success",
+          "payload": {
+            "name": "image-cloud",
+            "url": "https://github.com/octocat/images.git",
+            "token": "test-token",
+            "commitName": null,
+            "commitEmail": null
+          },
+          "result": null
+        }
+      ]
+    },
+    {
+      "method": "git.overview",
+      "permission": "git:read",
+      "description": "读取当前 Git 仓库概览。",
+      "cases": [
+        {
+          "id": "git.overview.clean",
+          "kind": "success",
+          "payload": {},
+          "result": {
+            "repositoryId": "active",
+            "displayName": "notes",
+            "currentBranch": "main",
+            "isDirty": false,
+            "changedCount": 0,
+            "hasRemote": true
+          }
+        }
+      ]
+    },
+    {
+      "method": "git.log",
+      "permission": "git:read",
+      "description": "读取最近提交，limit 会被限制在 1 到 100。",
+      "cases": [
+        {
+          "id": "git.log.default",
+          "kind": "success",
+          "payload": { "limit": 20 },
+          "result": []
+        }
+      ]
+    },
+    {
+      "method": "flow.list",
+      "permission": "flow:read",
+      "description": "读取可用 Flow 摘要。",
+      "cases": [
+        {
+          "id": "flow.list.empty",
+          "kind": "success",
+          "payload": {},
+          "result": []
+        }
+      ]
+    },
+    {
+      "method": "store.get",
+      "permission": "store:read",
+      "description": "读取插件声明或私有命名空间中的 JSON 值。",
+      "cases": [
+        {
+          "id": "store.get.value",
+          "kind": "success",
+          "payload": { "namespace": "plugin.dev.example.settings", "key": "theme" },
+          "result": "dark"
+        },
+        {
+          "id": "store.get.missing",
+          "kind": "success",
+          "payload": { "namespace": "plugin.dev.example.settings", "key": "missing" },
+          "result": null
+        },
+        {
+          "id": "store.get.invalid",
+          "kind": "error",
+          "payload": { "namespace": "plugin.dev.example.settings" },
+          "error": "missing_payload_field:key"
+        }
+      ]
+    },
+    {
+      "method": "store.set",
+      "permission": "store:write",
+      "description": "写入插件声明或私有命名空间中的 JSON 值。",
+      "cases": [
+        {
+          "id": "store.set.value",
+          "kind": "success",
+          "payload": { "namespace": "plugin.dev.example.settings", "key": "theme", "value": "dark" },
+          "result": null
+        }
+      ]
+    },
+    {
+      "method": "store.delete",
+      "permission": "store:write",
+      "description": "删除插件命名空间中的键。",
+      "cases": [
+        {
+          "id": "store.delete.value",
+          "kind": "success",
+          "payload": { "namespace": "plugin.dev.example.settings", "key": "theme" },
+          "result": null
+        }
+      ]
+    },
+    {
+      "method": "files.list",
+      "permission": "files:read",
+      "description": "列出工作区目录内容。",
+      "cases": [
+        {
+          "id": "files.list.root",
+          "kind": "success",
+          "payload": { "root": "workspace", "relativeDir": "", "options": null },
+          "result": { "entries": [] }
+        }
+      ]
+    },
+    {
+      "method": "files.scan",
+      "permission": "files:read",
+      "description": "递归扫描工作区文件。",
+      "cases": [
+        {
+          "id": "files.scan.markdown",
+          "kind": "success",
+          "payload": { "root": "workspace", "relativeDir": "", "options": { "extensions": ["md"] } },
+          "result": { "entries": [], "skippedEntries": 0 }
+        }
+      ]
+    },
+    {
+      "method": "files.search",
+      "permission": "files:read",
+      "description": "在工作区文件中搜索文本。",
+      "cases": [
+        {
+          "id": "files.search.no-match",
+          "kind": "success",
+          "payload": { "root": "workspace", "relativeDir": "", "query": "missing", "options": null },
+          "result": { "matches": [] }
+        }
+      ]
+    },
+    {
+      "method": "files.readText",
+      "permission": "files:read",
+      "description": "读取工作区中的 UTF-8 文本文件。",
+      "cases": [
+        {
+          "id": "files.readText.markdown",
+          "kind": "success",
+          "payload": { "root": "workspace", "path": "README.md", "maxBytes": 1048576 },
+          "result": { "path": "README.md", "content": "# Notes", "truncated": false }
+        }
+      ]
+    },
+    {
+      "method": "git.pathUpdate.prepare",
+      "permission": "git:write",
+      "description": "为受限 pathspec 创建 Git 更新操作。",
+      "cases": [
+        {
+          "id": "git.pathUpdate.prepare.publish",
+          "kind": "success",
+          "payload": { "repositoryPath": "/fixtures/site", "branch": "pages", "remoteName": "origin", "pathspec": "docs" },
+          "result": { "operationId": "operation-test" }
+        }
+      ]
+    },
+    {
+      "method": "files.replaceTree",
+      "permission": "files:write",
+      "description": "在已准备的 Git 操作范围内替换目录树，同时要求 git:write。",
+      "cases": [
+        {
+          "id": "files.replaceTree.publish",
+          "kind": "success",
+          "payload": { "operationId": "operation-test", "sourceRoot": "/fixtures/artifact" },
+          "result": { "copiedFileCount": 3 }
+        }
+      ]
+    },
+    {
+      "method": "git.pathUpdate.commit",
+      "permission": "git:write",
+      "description": "提交并可选推送已物化的 pathspec 更新。",
+      "cases": [
+        {
+          "id": "git.pathUpdate.commit.local",
+          "kind": "success",
+          "payload": { "operationId": "operation-test", "commitMessage": "docs: publish" },
+          "result": { "changedCount": 3, "commit": "0123456789abcdef", "pushed": false }
+        }
+      ]
+    },
+    {
+      "method": "shell.openPath",
+      "permission": "shell:open",
+      "description": "使用系统应用打开本地路径。",
+      "cases": [
+        {
+          "id": "shell.openPath.file",
+          "kind": "success",
+          "payload": { "path": "/fixtures/notes/README.md" },
+          "result": null
+        }
+      ]
+    },
+    {
+      "method": "shell.revealPath",
+      "permission": "shell:open",
+      "description": "在文件管理器中定位本地路径。",
+      "cases": [
+        {
+          "id": "shell.revealPath.file",
+          "kind": "success",
+          "payload": { "path": "/fixtures/notes/README.md" },
+          "result": null
+        }
+      ]
+    },
+    {
+      "method": "shell.openUrl",
+      "permission": "shell:open",
+      "description": "使用系统浏览器打开 URL。",
+      "cases": [
+        {
+          "id": "shell.openUrl.docs",
+          "kind": "success",
+          "payload": { "url": "https://example.com/docs" },
+          "result": null
+        }
+      ]
+    },
+    {
+      "method": "backend.invoke",
+      "permission": null,
+      "permissionSource": "backend.methods",
+      "description": "调用当前插件清单声明的原生后端方法。",
+      "cases": [
+        {
+          "id": "backend.invoke.echo",
+          "kind": "success",
+          "payload": { "method": "example.echo", "payload": { "message": "hello" } },
+          "result": { "message": "hello" }
+        },
+        {
+          "id": "backend.invoke.invalid",
+          "kind": "error",
+          "payload": {},
+          "error": "invalid_backend_method"
+        }
+      ]
+    }
+  ]
+}
