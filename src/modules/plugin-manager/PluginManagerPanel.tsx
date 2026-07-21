@@ -37,7 +37,16 @@ import type { MarketFilter, MarketPlugin } from "./types";
 const PERMISSION_LABELS: Record<string, string> = {
   "repository:read": "读取当前仓库信息",
   "git:read": "读取 Git 状态与历史",
+  "git:write": "修改 Git 远程与仓库状态",
+  "git:credential": "在插件后端使用 Git 凭证",
   "flow:read": "读取 Flow 定义",
+  "files:read": "读取仓库文件",
+  "files:write": "修改仓库文件",
+  "store:read": "读取插件配置",
+  "store:write": "保存插件配置",
+  "shell:open": "打开本地文件与网页",
+  "network:read": "加载远程资源",
+  "network:write": "向远程服务写入数据",
 };
 
 function permissionLabel(permission: string): string {

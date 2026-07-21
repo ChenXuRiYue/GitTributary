@@ -15,7 +15,7 @@ use gt_data::validate_namespace_name;
 use gt_files::replace_tree;
 use gt_flow::FlowNodeDefinition;
 use gt_git::{
-    commit_path_update, prepare_path_update, resolve_repo_root, verify_push_access,
+    commit_path_update, prepare_path_update, resolve_repo_root, verify_push_access, AuthMethod,
     CommitPathUpdateOptions, GitRepo, PreparePathUpdateOptions,
 };
 
@@ -25,7 +25,7 @@ use crate::application::files::commands::{files_list, files_read_text, files_sca
 use crate::application::flow::commands::flow_records_from_data;
 use crate::application::git::auth::resolve_auth_for_remote;
 use crate::application::git::identity::commit_identity_for_repo_remote;
-use crate::application::git::remote::{get_remote_configs, remote_url_for};
+use crate::application::git::remote::{add_remote, get_remote_configs, remote_url_for};
 use crate::AppState;
 
 const DEFAULT_API_VERSION: &str = "1";
@@ -562,7 +562,12 @@ pub async fn extension_call(
             .and_then(Value::as_str)
             .ok_or_else(|| "invalid_backend_method".to_string())?
             .to_string();
-        let backend_payload = payload.get("payload").cloned().unwrap_or(Value::Null);
+        let backend_payload = enrich_backend_payload(
+            &plugin_id,
+            &backend_method,
+            payload.get("payload").cloned().unwrap_or(Value::Null),
+            &state,
+        )?;
         let extensions = state.extensions.clone();
         let plugin_host = Arc::clone(&state.plugin_host);
         return tauri::async_runtime::spawn_blocking(move || {
@@ -724,6 +729,15 @@ pub async fn extension_call(
         "git.pathUpdate.prepare" => extension_prepare_path_update(&state, &plugin_id, &payload),
         "git.pathUpdate.commit" => extension_commit_path_update(&state, &plugin_id, &payload),
         "repositories.configs" => serialize_value(get_remote_configs(state.clone())?),
+        "repositories.addRemote" => {
+            let name = payload_field::<String>(&payload, "name")?;
+            let url = payload_field::<String>(&payload, "url")?;
+            let token = payload_optional_field::<String>(&payload, "token")?;
+            let commit_name = payload_optional_field::<String>(&payload, "commitName")?;
+            let commit_email = payload_optional_field::<String>(&payload, "commitEmail")?;
+            add_remote(name, url, token, commit_name, commit_email, state.clone())?;
+            Ok(Value::Null)
+        }
         "workspace.info" => serialize_value(get_workspace_info(state.clone())),
         "shell.openPath" => {
             let path = payload_field::<String>(&payload, "path")?;
@@ -814,6 +828,7 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
     let allowed_permissions = [
         "repository:read",
         "git:read",
+        "git:credential",
         "flow:read",
         "files:read",
         "files:write",
@@ -822,6 +837,7 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
         "store:write",
         "shell:open",
         "network:read",
+        "network:write",
     ];
     if manifest
         .permissions
@@ -983,7 +999,9 @@ fn required_permission(method: &str) -> Option<&'static str> {
         "flow.list" => Some("flow:read"),
         "files.list" | "files.scan" | "files.search" | "files.readText" => Some("files:read"),
         "files.replaceTree" => Some("files:write"),
-        "git.pathUpdate.prepare" | "git.pathUpdate.commit" => Some("git:write"),
+        "git.pathUpdate.prepare" | "git.pathUpdate.commit" | "repositories.addRemote" => {
+            Some("git:write")
+        }
         "store.get" => Some("store:read"),
         "store.set" | "store.delete" => Some("store:write"),
         "shell.openPath" | "shell.revealPath" | "shell.openUrl" => Some("shell:open"),
@@ -1167,6 +1185,90 @@ fn extension_store_namespace(
         return Ok(requested);
     }
     Err("store_namespace_denied".to_string())
+}
+
+fn enrich_backend_payload(
+    plugin_id: &str,
+    method: &str,
+    mut payload: Value,
+    state: &AppState,
+) -> Result<Value, String> {
+    if plugin_id != "dev.gittributary.attachment-manager"
+        || !matches!(
+            method,
+            "attachments.checkGithubImageConfig" | "attachments.migrateGithubImages"
+        )
+    {
+        return Ok(payload);
+    }
+
+    let config = payload
+        .get_mut("config")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| "github_image_config_missing".to_string())?;
+    let remote = config
+        .get("remote")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "github_remote_binding_missing".to_string())?;
+    let repo_path = remote
+        .get("repoPath")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "github_remote_repo_path_missing".to_string())?;
+    let remote_name = remote
+        .get("name")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "github_remote_name_missing".to_string())?;
+    let requested_url = remote
+        .get("url")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "github_remote_url_missing".to_string())?;
+
+    let repo = GitRepo::open(repo_path).map_err(|_| "github_remote_repo_missing".to_string())?;
+    let configured_url = remote_url_for(&repo, remote_name)
+        .map_err(|_| "github_remote_binding_stale".to_string())?;
+    if configured_url.trim() != requested_url {
+        return Err("github_remote_binding_stale".to_string());
+    }
+    let (owner, repository) = github_repository_parts(&configured_url)?;
+    let resolved =
+        resolve_auth_for_remote(state, Path::new(repo_path), Some(&configured_url), None);
+    let token = match resolved.method {
+        AuthMethod::Token(token) if !token.trim().is_empty() => token,
+        _ => return Err("github_remote_token_unavailable".to_string()),
+    };
+
+    config.insert("owner".to_string(), Value::String(owner));
+    config.insert("repository".to_string(), Value::String(repository));
+    config.insert("token".to_string(), Value::String(token));
+    Ok(payload)
+}
+
+fn github_repository_parts(remote_url: &str) -> Result<(String, String), String> {
+    let trimmed = remote_url.trim().trim_end_matches('/');
+    let prefix = "https://github.com/";
+    if !trimmed.to_ascii_lowercase().starts_with(prefix) {
+        return Err("github_remote_url_unsupported".to_string());
+    }
+    let path = &trimmed[prefix.len()..];
+    if path.contains('?') || path.contains('#') {
+        return Err("github_remote_url_unsupported".to_string());
+    }
+    let parts = path.split('/').collect::<Vec<_>>();
+    if parts.len() != 2 {
+        return Err("github_remote_url_unsupported".to_string());
+    }
+    let owner = parts[0].trim();
+    let repository = parts[1].trim().trim_end_matches(".git");
+    if owner.is_empty() || repository.is_empty() {
+        return Err("github_remote_url_unsupported".to_string());
+    }
+    Ok((owner.to_string(), repository.to_string()))
 }
 
 fn is_private_plugin_namespace(plugin_id: &str, namespace: &str) -> bool {
@@ -1381,8 +1483,104 @@ mod tests {
             required_permission("git.pathUpdate.commit"),
             Some("git:write")
         );
+        assert_eq!(
+            required_permission("repositories.addRemote"),
+            Some("git:write")
+        );
         assert_eq!(required_permission("shell.openPath"), Some("shell:open"));
         assert_eq!(required_permission("flow.run"), None);
+    }
+
+    #[test]
+    fn validates_network_write_for_backend_methods() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir_all(directory.path().join("web")).unwrap();
+        fs::write(directory.path().join("web/index.html"), "upload").unwrap();
+        let manifest = |permissions: Value| -> ExtensionManifest {
+            serde_json::from_value(json!({
+                "schemaVersion": 1,
+                "apiVersion": "1",
+                "id": "com.example.uploader",
+                "name": "Uploader",
+                "version": "1.0.0",
+                "contributes": {
+                    "views": [{ "id": "main", "title": "Upload", "entry": "web/index.html" }]
+                },
+                "backend": {
+                    "runtime": "rust-cdylib",
+                    "entry": "backend",
+                    "library": "uploader",
+                    "methods": { "images.upload": ["network:write"] }
+                },
+                "permissions": permissions
+            }))
+            .unwrap()
+        };
+
+        assert!(validate_manifest(&manifest(json!(["network:write"])), directory.path()).is_ok());
+        assert!(validate_manifest(&manifest(json!([])), directory.path()).is_err());
+    }
+
+    #[test]
+    fn parses_supported_github_remote_urls() {
+        assert_eq!(
+            github_repository_parts("https://github.com/octocat/images.git").unwrap(),
+            ("octocat".to_string(), "images".to_string())
+        );
+        assert_eq!(
+            github_repository_parts("HTTPS://GITHUB.COM/Team/image-cloud/").unwrap(),
+            ("Team".to_string(), "image-cloud".to_string())
+        );
+        assert!(github_repository_parts("git@github.com:octocat/images.git").is_err());
+        assert!(github_repository_parts("https://github.com/octocat/images/tree/main").is_err());
+    }
+
+    #[test]
+    fn injects_git_remote_token_only_for_the_attachment_backend() {
+        let store_directory = tempfile::tempdir().unwrap();
+        let repository = tempfile::tempdir().unwrap();
+        let repo = GitRepo::init(repository.path()).unwrap();
+        repo.add_remote("image-cloud", "https://github.com/octocat/images.git")
+            .unwrap();
+        let repo_path = repo.workdir().unwrap().to_string_lossy().to_string();
+        let mut data = gt_data::DataHub::open(store_directory.path()).unwrap();
+        data.credentials_mut()
+            .set_project_token(&repo_path, "project-token")
+            .unwrap();
+        let state = AppState {
+            repo: std::sync::Mutex::new(None),
+            data: std::sync::Mutex::new(data),
+            event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
+            node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
+            flow_execution: std::sync::Mutex::new(()),
+            extensions: ExtensionRegistry::default(),
+            plugin_host: std::sync::Arc::new(
+                crate::application::plugins::host::PluginHostSupervisor::default(),
+            ),
+        };
+        let payload = json!({
+            "config": {
+                "remote": {
+                    "repoPath": repo_path,
+                    "name": "image-cloud",
+                    "url": "https://github.com/octocat/images.git"
+                },
+                "branch": "main",
+                "directory": "images"
+            }
+        });
+
+        let enriched = enrich_backend_payload(
+            "dev.gittributary.attachment-manager",
+            "attachments.migrateGithubImages",
+            payload,
+            &state,
+        )
+        .unwrap();
+
+        assert_eq!(enriched["config"]["owner"], "octocat");
+        assert_eq!(enriched["config"]["repository"], "images");
+        assert_eq!(enriched["config"]["token"], "project-token");
     }
 
     #[test]
