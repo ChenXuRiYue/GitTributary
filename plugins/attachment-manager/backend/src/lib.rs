@@ -1,23 +1,31 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::{CStr, CString};
 use std::fs;
+use std::io::Write;
 use std::os::raw::c_char;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
-use std::time::{Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use percent_encoding::percent_decode_str;
 use regex::Regex;
+use reqwest::blocking::Client;
+use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use url::Url;
 use walkdir::{DirEntry, WalkDir};
 
 pub const PLUGIN_ABI_VERSION: u32 = 1;
 const MAX_NOTE_BYTES: u64 = 4 * 1024 * 1024;
 const MAX_PREVIEW_BYTES: u64 = 24 * 1024 * 1024;
+const MAX_UPLOAD_BYTES: u64 = 50 * 1024 * 1024;
+const MAX_MIGRATION_IMAGES: usize = 500;
+static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -102,6 +110,74 @@ struct PreviewRequest {
     path: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitHubImageConfig {
+    owner: String,
+    repository: String,
+    branch: String,
+    directory: String,
+    token: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitHubMigrationRequest {
+    repo_path: String,
+    image_paths: Vec<String>,
+    config: GitHubImageConfig,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct GitHubConfigCheckRequest {
+    config: GitHubImageConfig,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitHubConfigCheck {
+    repository: String,
+    default_branch: String,
+    #[serde(rename = "private")]
+    is_private: bool,
+    can_push: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitHubMigrationItem {
+    local_path: String,
+    remote_path: String,
+    url: String,
+    uploaded: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct GitHubMigrationFailure {
+    path: String,
+    error: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GitHubMigrationReport {
+    migrated: Vec<GitHubMigrationItem>,
+    failed: Vec<GitHubMigrationFailure>,
+    failed_notes: Vec<GitHubMigrationFailure>,
+    changed_notes: usize,
+    replaced_references: usize,
+    duration_ms: u128,
+}
+
+struct PreparedImage {
+    local_path: String,
+    remote_path: String,
+    url: String,
+    bytes: Vec<u8>,
+    name: String,
+}
+
 pub fn handle_request(method: &str, payload: Value) -> Result<Value, String> {
     match method {
         "attachments.scan" => {
@@ -111,6 +187,14 @@ pub fn handle_request(method: &str, payload: Value) -> Result<Value, String> {
         "attachments.preview" => {
             let request = deserialize::<PreviewRequest>(payload)?;
             serialize(read_preview(&request.repo_path, &request.path)?)
+        }
+        "attachments.checkGithubImageConfig" => {
+            let request = deserialize::<GitHubConfigCheckRequest>(payload)?;
+            serialize(check_github_config(request.config)?)
+        }
+        "attachments.migrateGithubImages" => {
+            let request = deserialize::<GitHubMigrationRequest>(payload)?;
+            serialize(migrate_github_images(request)?)
         }
         _ => Err(format!("unsupported method: {method}")),
     }
@@ -293,6 +377,566 @@ fn read_preview(repo_path: &str, relative: &str) -> Result<AttachmentPreview, St
         data_url: format!("data:{mime_type};base64,{}", BASE64.encode(bytes)),
         mime_type,
     })
+}
+
+fn migrate_github_images(request: GitHubMigrationRequest) -> Result<GitHubMigrationReport, String> {
+    let client = github_client(Duration::from_secs(120))?;
+    migrate_github_images_with(request, |config, image| {
+        upload_github_image(&client, config, image)
+    })
+}
+
+fn github_client(timeout: Duration) -> Result<Client, String> {
+    Client::builder()
+        .connect_timeout(Duration::from_secs(15))
+        .timeout(timeout)
+        .user_agent("GitTributary/attachment-manager")
+        .build()
+        .map_err(|error| format!("github_client_failed:{error}"))
+}
+
+fn check_github_config(mut config: GitHubImageConfig) -> Result<GitHubConfigCheck, String> {
+    normalize_github_config(&mut config)?;
+    let client = github_client(Duration::from_secs(30))?;
+    let repository_endpoint = github_repository_url(&config)?;
+    let response = github_request(client.get(repository_endpoint), &config)
+        .send()
+        .map_err(|error| format!("github_request_failed:{error}"))?;
+    let status = response.status();
+    let body = response.text().unwrap_or_default();
+    if !status.is_success() {
+        return Err(github_response_error(status, &body));
+    }
+    let repository = serde_json::from_str::<Value>(&body)
+        .map_err(|error| format!("github_response_invalid:{error}"))?;
+    let can_push = repository
+        .pointer("/permissions/push")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if !can_push {
+        return Err("github_permission_denied".to_string());
+    }
+
+    let branch_endpoint = github_branch_url(&config)?;
+    let branch_response = github_request(client.get(branch_endpoint), &config)
+        .send()
+        .map_err(|error| format!("github_request_failed:{error}"))?;
+    let branch_status = branch_response.status();
+    if !branch_status.is_success() {
+        if branch_status == StatusCode::NOT_FOUND {
+            return Err("github_branch_not_found".to_string());
+        }
+        let body = branch_response.text().unwrap_or_default();
+        return Err(github_response_error(branch_status, &body));
+    }
+
+    Ok(GitHubConfigCheck {
+        repository: format!("{}/{}", config.owner, config.repository),
+        default_branch: repository
+            .get("default_branch")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        is_private: repository
+            .get("private")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+        can_push,
+    })
+}
+
+fn github_request(
+    request: reqwest::blocking::RequestBuilder,
+    config: &GitHubImageConfig,
+) -> reqwest::blocking::RequestBuilder {
+    request
+        .bearer_auth(&config.token)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+}
+
+fn migrate_github_images_with<F>(
+    mut request: GitHubMigrationRequest,
+    mut upload: F,
+) -> Result<GitHubMigrationReport, String>
+where
+    F: FnMut(&GitHubImageConfig, &PreparedImage) -> Result<bool, String>,
+{
+    let started = Instant::now();
+    let root = canonical_root(&request.repo_path)?;
+    normalize_github_config(&mut request.config)?;
+    let selected = request
+        .image_paths
+        .into_iter()
+        .filter(|path| !path.trim().is_empty())
+        .collect::<BTreeSet<_>>();
+    if selected.is_empty() {
+        return Err("migration_images_empty".to_string());
+    }
+    if selected.len() > MAX_MIGRATION_IMAGES {
+        return Err("migration_images_too_many".to_string());
+    }
+
+    let mut migrated = Vec::new();
+    let mut failed = Vec::new();
+    let mut replacements = HashMap::<String, String>::new();
+    let mut uploaded_paths = HashMap::<String, String>::new();
+
+    for local_path in selected {
+        let image = match prepare_image(&root, &local_path, &request.config) {
+            Ok(image) => image,
+            Err(error) => {
+                failed.push(GitHubMigrationFailure {
+                    path: local_path,
+                    error,
+                });
+                continue;
+            }
+        };
+        if let Some(url) = uploaded_paths.get(&image.remote_path) {
+            replacements.insert(image.local_path.clone(), url.clone());
+            migrated.push(GitHubMigrationItem {
+                local_path: image.local_path,
+                remote_path: image.remote_path,
+                url: url.clone(),
+                uploaded: false,
+            });
+            continue;
+        }
+        match upload(&request.config, &image) {
+            Ok(uploaded) => {
+                replacements.insert(image.local_path.clone(), image.url.clone());
+                uploaded_paths.insert(image.remote_path.clone(), image.url.clone());
+                migrated.push(GitHubMigrationItem {
+                    local_path: image.local_path,
+                    remote_path: image.remote_path,
+                    url: image.url,
+                    uploaded,
+                });
+            }
+            Err(error) => failed.push(GitHubMigrationFailure {
+                path: image.local_path,
+                error,
+            }),
+        }
+    }
+
+    let (changed_notes, replaced_references, failed_notes) =
+        rewrite_repository_notes(&root, &replacements)?;
+    Ok(GitHubMigrationReport {
+        migrated,
+        failed,
+        failed_notes,
+        changed_notes,
+        replaced_references,
+        duration_ms: started.elapsed().as_millis(),
+    })
+}
+
+fn normalize_github_config(config: &mut GitHubImageConfig) -> Result<(), String> {
+    config.owner = config.owner.trim().to_string();
+    config.repository = config
+        .repository
+        .trim()
+        .trim_end_matches(".git")
+        .to_string();
+    config.branch = config.branch.trim().to_string();
+    config.directory = normalize_remote_directory(&config.directory)?;
+    config.token = config.token.trim().to_string();
+
+    if !valid_github_slug(&config.owner) {
+        return Err("github_owner_invalid".to_string());
+    }
+    if !valid_github_slug(&config.repository) {
+        return Err("github_repository_invalid".to_string());
+    }
+    if !valid_github_branch(&config.branch) {
+        return Err("github_branch_invalid".to_string());
+    }
+    if config.token.is_empty() {
+        return Err("github_token_missing".to_string());
+    }
+    Ok(())
+}
+
+fn valid_github_branch(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 255
+        && value != "@"
+        && value != "HEAD"
+        && !value.starts_with('-')
+        && !value.starts_with('/')
+        && !value.ends_with('/')
+        && !value.ends_with('.')
+        && !value.contains("//")
+        && !value.contains("..")
+        && !value.contains("@{")
+        && value.split('/').all(|segment| {
+            !segment.is_empty()
+                && !segment.starts_with('.')
+                && !segment.ends_with(".lock")
+                && segment.bytes().all(|byte| {
+                    !byte.is_ascii_control()
+                        && !matches!(byte, b' ' | b'~' | b'^' | b':' | b'?' | b'*' | b'[' | b'\\')
+                })
+        })
+}
+
+fn valid_github_slug(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 100
+        && value != "."
+        && value != ".."
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+}
+
+fn normalize_remote_directory(value: &str) -> Result<String, String> {
+    if value.contains('\\') {
+        return Err("github_directory_invalid".to_string());
+    }
+    let trimmed = value.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return Ok(String::new());
+    }
+    let segments = trimmed.split('/').collect::<Vec<_>>();
+    if segments.iter().any(|segment| {
+        segment.is_empty()
+            || matches!(*segment, "." | "..")
+            || segment.len() > 100
+            || segment.chars().any(char::is_control)
+    }) {
+        return Err("github_directory_invalid".to_string());
+    }
+    Ok(segments.join("/"))
+}
+
+fn prepare_image(
+    root: &Path,
+    local_path: &str,
+    config: &GitHubImageConfig,
+) -> Result<PreparedImage, String> {
+    let path = resolve_existing_file(root, local_path)?;
+    let extension = extension(&path);
+    if attachment_kind(&extension) != Some(AttachmentKind::Image) {
+        return Err("migration_file_not_image".to_string());
+    }
+    let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
+    if metadata.len() > MAX_UPLOAD_BYTES {
+        return Err("migration_image_too_large".to_string());
+    }
+    let bytes = fs::read(&path).map_err(|error| error.to_string())?;
+    let hash = format!("{:x}", Sha256::digest(&bytes));
+    let file_name = format!("{}.{}", &hash[..20], extension);
+    let remote_path = if config.directory.is_empty() {
+        file_name
+    } else {
+        format!("{}/{}", config.directory, file_name)
+    };
+    Ok(PreparedImage {
+        local_path: relative_path(root, &path)?,
+        url: raw_github_url(config, &remote_path)?,
+        remote_path,
+        bytes,
+        name: path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("image")
+            .to_string(),
+    })
+}
+
+fn github_content_url(config: &GitHubImageConfig, remote_path: &str) -> Result<Url, String> {
+    let mut url = github_repository_url(config)?;
+    let mut segments = url
+        .path_segments_mut()
+        .map_err(|_| "github_url_invalid".to_string())?;
+    segments.push("contents");
+    segments.extend(remote_path.split('/'));
+    drop(segments);
+    Ok(url)
+}
+
+fn github_repository_url(config: &GitHubImageConfig) -> Result<Url, String> {
+    let mut url = Url::parse("https://api.github.com/").map_err(|error| error.to_string())?;
+    let mut segments = url
+        .path_segments_mut()
+        .map_err(|_| "github_url_invalid".to_string())?;
+    segments.extend(["repos", &config.owner, &config.repository]);
+    drop(segments);
+    Ok(url)
+}
+
+fn github_branch_url(config: &GitHubImageConfig) -> Result<Url, String> {
+    let mut url = github_repository_url(config)?;
+    let mut segments = url
+        .path_segments_mut()
+        .map_err(|_| "github_url_invalid".to_string())?;
+    segments.extend(["branches", &config.branch]);
+    drop(segments);
+    Ok(url)
+}
+
+fn raw_github_url(config: &GitHubImageConfig, remote_path: &str) -> Result<String, String> {
+    let mut url =
+        Url::parse("https://raw.githubusercontent.com/").map_err(|error| error.to_string())?;
+    let mut segments = url
+        .path_segments_mut()
+        .map_err(|_| "github_url_invalid".to_string())?;
+    segments.extend([&config.owner, &config.repository]);
+    segments.extend(config.branch.split('/'));
+    segments.extend(remote_path.split('/'));
+    drop(segments);
+    Ok(url.into())
+}
+
+fn upload_github_image(
+    client: &Client,
+    config: &GitHubImageConfig,
+    image: &PreparedImage,
+) -> Result<bool, String> {
+    let endpoint = github_content_url(config, &image.remote_path)?;
+    let response = github_request(client.put(endpoint.clone()), config)
+        .json(&json!({
+            "message": format!("chore(images): upload {}", image.name),
+            "content": BASE64.encode(&image.bytes),
+            "branch": config.branch,
+        }))
+        .send()
+        .map_err(|error| format!("github_request_failed:{error}"))?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(true);
+    }
+    let body = response.text().unwrap_or_default();
+    if matches!(
+        status,
+        StatusCode::CONFLICT | StatusCode::UNPROCESSABLE_ENTITY
+    ) {
+        let existing = github_request(client.get(endpoint), config)
+            .query(&[("ref", &config.branch)])
+            .send()
+            .map_err(|error| format!("github_request_failed:{error}"))?;
+        if existing.status().is_success() {
+            return Ok(false);
+        }
+    }
+    Err(github_response_error(status, &body))
+}
+
+fn github_response_error(status: StatusCode, body: &str) -> String {
+    if status == StatusCode::TOO_MANY_REQUESTS
+        || (status == StatusCode::FORBIDDEN && body.to_ascii_lowercase().contains("rate limit"))
+    {
+        return "github_rate_limited".to_string();
+    }
+    match status {
+        StatusCode::UNAUTHORIZED => "github_auth_failed".to_string(),
+        StatusCode::FORBIDDEN => "github_permission_denied".to_string(),
+        StatusCode::NOT_FOUND => "github_repository_or_branch_not_found".to_string(),
+        _ => {
+            let message = serde_json::from_str::<Value>(body)
+                .ok()
+                .and_then(|value| value.get("message")?.as_str().map(str::to_string))
+                .unwrap_or_else(|| "unknown response".to_string());
+            format!("github_upload_failed:{}:{}", status.as_u16(), message)
+        }
+    }
+}
+
+fn rewrite_repository_notes(
+    root: &Path,
+    replacements: &HashMap<String, String>,
+) -> Result<(usize, usize, Vec<GitHubMigrationFailure>), String> {
+    if replacements.is_empty() {
+        return Ok((0, 0, Vec::new()));
+    }
+    let mut by_name = HashMap::<String, Option<String>>::new();
+    for entry in WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(included_entry)
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry.file_type().is_file()
+                && attachment_kind(&extension(entry.path())) == Some(AttachmentKind::Image)
+        })
+    {
+        let path = relative_path(root, entry.path())?;
+        let Some(name) = entry.file_name().to_str() else {
+            continue;
+        };
+        by_name
+            .entry(name.to_string())
+            .and_modify(|value| *value = None)
+            .or_insert(Some(path));
+    }
+
+    let mut markdown_paths = WalkDir::new(root)
+        .follow_links(false)
+        .into_iter()
+        .filter_entry(included_entry)
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry.file_type().is_file()
+                && matches!(extension(entry.path()).as_str(), "md" | "markdown")
+        })
+        .map(|entry| entry.into_path())
+        .collect::<Vec<_>>();
+    markdown_paths.sort();
+
+    let mut changed_notes = 0;
+    let mut replaced_references = 0;
+    let mut failed_notes = Vec::new();
+    for note_path in markdown_paths {
+        let note_relative = relative_path(root, &note_path)?;
+        let metadata = match fs::metadata(&note_path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                failed_notes.push(GitHubMigrationFailure {
+                    path: note_relative,
+                    error: error.to_string(),
+                });
+                continue;
+            }
+        };
+        if metadata.len() > MAX_NOTE_BYTES {
+            failed_notes.push(GitHubMigrationFailure {
+                path: note_relative,
+                error: "note_too_large".to_string(),
+            });
+            continue;
+        }
+        let content = match fs::read_to_string(&note_path) {
+            Ok(content) => content,
+            Err(error) => {
+                failed_notes.push(GitHubMigrationFailure {
+                    path: note_relative,
+                    error: error.to_string(),
+                });
+                continue;
+            }
+        };
+        let (next, count) =
+            rewrite_markdown_links(&note_relative, &content, replacements, &by_name)?;
+        if count == 0 {
+            continue;
+        }
+        if let Err(error) = atomic_write(&note_path, &next, metadata.permissions()) {
+            failed_notes.push(GitHubMigrationFailure {
+                path: note_relative,
+                error,
+            });
+            continue;
+        }
+        changed_notes += 1;
+        replaced_references += count;
+    }
+    Ok((changed_notes, replaced_references, failed_notes))
+}
+
+fn rewrite_markdown_links(
+    note_path: &str,
+    content: &str,
+    replacements: &HashMap<String, String>,
+    by_name: &HashMap<String, Option<String>>,
+) -> Result<(String, usize), String> {
+    static MARKDOWN: OnceLock<Regex> = OnceLock::new();
+    static WIKI: OnceLock<Regex> = OnceLock::new();
+    static HTML: OnceLock<Regex> = OnceLock::new();
+    let markdown = MARKDOWN.get_or_init(|| {
+        Regex::new(r#"(!?)\[[^\]]*\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+[\"'][^\"']*[\"'])?\s*\)"#)
+            .expect("valid markdown attachment regex")
+    });
+    let wiki = WIKI.get_or_init(|| {
+        Regex::new(r#"(!?)\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]"#)
+            .expect("valid wiki attachment regex")
+    });
+    let html = HTML.get_or_init(|| {
+        Regex::new(r#"(?i)\b(src|href)\s*=\s*[\"']([^\"']+)[\"']"#)
+            .expect("valid HTML attachment regex")
+    });
+    let searchable = mask_fenced_code(content);
+    let mut edits = BTreeMap::<(usize, usize), String>::new();
+
+    for captures in markdown.captures_iter(&searchable) {
+        if let Some(target) = captures.get(2).or_else(|| captures.get(3)) {
+            collect_link_edit(note_path, target, replacements, by_name, &mut edits);
+        }
+    }
+    for captures in wiki.captures_iter(&searchable) {
+        if let Some(target) = captures.get(2) {
+            collect_link_edit(note_path, target, replacements, by_name, &mut edits);
+        }
+    }
+    for captures in html.captures_iter(&searchable) {
+        if let Some(target) = captures.get(2) {
+            collect_link_edit(note_path, target, replacements, by_name, &mut edits);
+        }
+    }
+
+    let count = edits.len();
+    let mut rewritten = content.to_string();
+    for ((start, end), value) in edits.into_iter().rev() {
+        rewritten.replace_range(start..end, &value);
+    }
+    Ok((rewritten, count))
+}
+
+fn collect_link_edit(
+    note_path: &str,
+    target: regex::Match<'_>,
+    replacements: &HashMap<String, String>,
+    by_name: &HashMap<String, Option<String>>,
+    edits: &mut BTreeMap<(usize, usize), String>,
+) {
+    let Some(resolved) = resolve_reference(note_path, target.as_str()) else {
+        return;
+    };
+    let matched_path = if replacements.contains_key(&resolved) {
+        Some(resolved)
+    } else {
+        Path::new(&resolved)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .and_then(|name| by_name.get(name))
+            .and_then(Clone::clone)
+    };
+    let Some(url) = matched_path.and_then(|path| replacements.get(&path)) else {
+        return;
+    };
+    edits.insert((target.start(), target.end()), url.clone());
+}
+
+fn atomic_write(path: &Path, content: &str, permissions: fs::Permissions) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| "note_parent_missing".to_string())?;
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| "note_name_invalid".to_string())?;
+    let sequence = TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let temporary = parent.join(format!(
+        ".{file_name}.gittributary-{}-{sequence}",
+        std::process::id()
+    ));
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)
+        .map_err(|error| error.to_string())?;
+    if let Err(error) = file
+        .write_all(content.as_bytes())
+        .and_then(|_| file.sync_all())
+        .and_then(|_| fs::set_permissions(&temporary, permissions))
+        .and_then(|_| fs::rename(&temporary, path))
+    {
+        let _ = fs::remove_file(&temporary);
+        return Err(error.to_string());
+    }
+    Ok(())
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -724,6 +1368,16 @@ pub unsafe extern "C" fn gittributary_plugin_free_string(value: *mut c_char) {
 mod tests {
     use super::*;
 
+    fn github_config() -> GitHubImageConfig {
+        GitHubImageConfig {
+            owner: "example".to_string(),
+            repository: "images".to_string(),
+            branch: "main".to_string(),
+            directory: "notes/images".to_string(),
+            token: "test-token".to_string(),
+        }
+    }
+
     #[test]
     fn scans_attachments_and_resolves_markdown_references() {
         let directory = tempfile::tempdir().unwrap();
@@ -987,6 +1641,170 @@ mod tests {
         assert_eq!(references[0].target, "https://example.com/outside");
         assert_eq!(references[0].line, 1);
         assert_eq!(references[0].role, ReferenceRole::Navigation);
+    }
+
+    #[test]
+    fn migrates_uploaded_images_and_rewrites_supported_links() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir_all(directory.path().join("notes")).unwrap();
+        fs::create_dir_all(directory.path().join("assets")).unwrap();
+        fs::write(directory.path().join("assets/photo.png"), b"png-image").unwrap();
+        fs::write(
+            directory.path().join("notes/demo.md"),
+            concat!(
+                "![markdown](../assets/photo.png)\n",
+                "[navigation](../assets/photo.png)\n",
+                "![[../assets/photo.png|wiki]]\n",
+                "<img src='../assets/photo.png'>\n",
+                "```md\n",
+                "![example](../assets/photo.png)\n",
+                "```\n",
+            ),
+        )
+        .unwrap();
+
+        let request = GitHubMigrationRequest {
+            repo_path: directory.path().to_string_lossy().to_string(),
+            image_paths: vec!["assets/photo.png".to_string()],
+            config: github_config(),
+        };
+        let report = migrate_github_images_with(request, |config, image| {
+            assert_eq!(config.token, "test-token");
+            assert_eq!(image.bytes, b"png-image");
+            assert!(image.remote_path.starts_with("notes/images/"));
+            Ok(true)
+        })
+        .unwrap();
+
+        assert_eq!(report.migrated.len(), 1);
+        assert!(report.migrated[0].uploaded);
+        assert_eq!(report.changed_notes, 1);
+        assert_eq!(report.replaced_references, 4);
+        assert!(report.failed.is_empty());
+        assert!(report.failed_notes.is_empty());
+        let rewritten = fs::read_to_string(directory.path().join("notes/demo.md")).unwrap();
+        assert_eq!(rewritten.matches(&report.migrated[0].url).count(), 4);
+        assert!(rewritten.contains("![example](../assets/photo.png)"));
+        assert!(directory.path().join("assets/photo.png").is_file());
+    }
+
+    #[test]
+    fn leaves_failed_image_references_unchanged() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("photo.png"), b"png-image").unwrap();
+        fs::write(directory.path().join("note.md"), "![photo](photo.png)\n").unwrap();
+        let request = GitHubMigrationRequest {
+            repo_path: directory.path().to_string_lossy().to_string(),
+            image_paths: vec!["photo.png".to_string()],
+            config: github_config(),
+        };
+
+        let report =
+            migrate_github_images_with(request, |_, _| Err("github_auth_failed".to_string()))
+                .unwrap();
+
+        assert!(report.migrated.is_empty());
+        assert_eq!(report.failed.len(), 1);
+        assert_eq!(report.changed_notes, 0);
+        assert_eq!(report.replaced_references, 0);
+        assert_eq!(
+            fs::read_to_string(directory.path().join("note.md")).unwrap(),
+            "![photo](photo.png)\n"
+        );
+    }
+
+    #[test]
+    fn reuses_one_remote_object_for_identical_images() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("first.png"), b"same-image").unwrap();
+        fs::write(directory.path().join("second.png"), b"same-image").unwrap();
+        fs::write(
+            directory.path().join("note.md"),
+            "![first](first.png)\n![second](second.png)\n",
+        )
+        .unwrap();
+        let request = GitHubMigrationRequest {
+            repo_path: directory.path().to_string_lossy().to_string(),
+            image_paths: vec!["first.png".to_string(), "second.png".to_string()],
+            config: github_config(),
+        };
+        let mut upload_count = 0;
+
+        let report = migrate_github_images_with(request, |_, _| {
+            upload_count += 1;
+            Ok(true)
+        })
+        .unwrap();
+
+        assert_eq!(upload_count, 1);
+        assert_eq!(report.migrated.len(), 2);
+        assert_eq!(report.migrated[0].url, report.migrated[1].url);
+        assert_eq!(report.replaced_references, 2);
+    }
+
+    #[test]
+    fn does_not_guess_ambiguous_image_names_during_rewrite() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::create_dir_all(directory.path().join("a")).unwrap();
+        fs::create_dir_all(directory.path().join("b")).unwrap();
+        fs::write(directory.path().join("a/photo.png"), b"first").unwrap();
+        fs::write(directory.path().join("b/photo.png"), b"second").unwrap();
+        fs::write(directory.path().join("note.md"), "![photo](photo.png)\n").unwrap();
+        let request = GitHubMigrationRequest {
+            repo_path: directory.path().to_string_lossy().to_string(),
+            image_paths: vec!["a/photo.png".to_string()],
+            config: github_config(),
+        };
+
+        let report = migrate_github_images_with(request, |_, _| Ok(true)).unwrap();
+
+        assert_eq!(report.migrated.len(), 1);
+        assert_eq!(report.replaced_references, 0);
+        assert_eq!(
+            fs::read_to_string(directory.path().join("note.md")).unwrap(),
+            "![photo](photo.png)\n"
+        );
+    }
+
+    #[test]
+    fn validates_github_configuration_and_encodes_remote_paths() {
+        let mut config = github_config();
+        config.directory = " /image cloud/notes/ ".to_string();
+        normalize_github_config(&mut config).unwrap();
+        assert_eq!(config.directory, "image cloud/notes");
+        assert_eq!(
+            raw_github_url(&config, "image cloud/notes/photo.png").unwrap(),
+            "https://raw.githubusercontent.com/example/images/main/image%20cloud/notes/photo.png"
+        );
+
+        config.branch = "feature/images".to_string();
+        normalize_github_config(&mut config).unwrap();
+        assert_eq!(
+            github_branch_url(&config).unwrap().as_str(),
+            "https://api.github.com/repos/example/images/branches/feature%2Fimages"
+        );
+        assert_eq!(
+            raw_github_url(&config, "notes/photo.png").unwrap(),
+            "https://raw.githubusercontent.com/example/images/feature/images/notes/photo.png"
+        );
+
+        for invalid in [
+            "HEAD",
+            "-draft",
+            "/main",
+            "main/",
+            ".hidden",
+            "release..next",
+            "topic.lock",
+            "bad branch",
+        ] {
+            config.branch = invalid.to_string();
+            assert_eq!(
+                normalize_github_config(&mut config).unwrap_err(),
+                "github_branch_invalid",
+                "{invalid}"
+            );
+        }
     }
 
     #[test]

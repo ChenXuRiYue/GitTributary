@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Globe2, LoaderCircle, RefreshCw, ScanSearch } from "lucide-react";
+import { AlertTriangle, Globe2, Images, LoaderCircle, RefreshCw, ScanSearch } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { DomainTrail } from "@/shared/components/DomainTrail";
@@ -16,6 +16,7 @@ import {
   filterAndSortDomains,
   type DomainSort,
 } from "./features/domains/model";
+import { GitHubImagePanel } from "./features/github-images/GitHubImagePanel";
 import { AttachmentDetailPanel } from "./features/inventory/AttachmentDetailPanel";
 import { ImagePreviewDialog } from "./features/inventory/AttachmentPreview";
 import { InventoryPanel } from "./features/inventory/InventoryPanel";
@@ -47,11 +48,12 @@ import type {
   WorkspaceInfo,
 } from "./types";
 
-type Module = "inventory" | "domains";
+type Module = "inventory" | "domains" | "github";
 
 const modules = [
   { id: "inventory", name: "扫描盘点", icon: ScanSearch },
   { id: "domains", name: "域名统计", icon: Globe2 },
+  { id: "github", name: "图库", icon: Images },
 ];
 
 const EMPTY_ATTACHMENTS: AttachmentItem[] = [];
@@ -215,11 +217,17 @@ export function App() {
     setDetailWidth(Math.min(value, 480, Math.max(240, available)));
   }, [activeModule, inventoryWidth]);
 
-  const moduleLabel = activeModule === "inventory" ? "扫描盘点" : "域名统计";
+  const moduleLabel = activeModule === "inventory"
+    ? "扫描盘点"
+    : activeModule === "domains"
+      ? "域名统计"
+      : "图库";
   const domainResourceCount = domainStats.reduce((sum, item) => sum + item.total, 0);
   const headerStats = activeModule === "inventory"
     ? [`附件:${attachments.length}`, `笔记:${report?.notesScanned ?? 0}`]
-    : [`域名:${domainStats.length}`, `资源:${domainResourceCount}`];
+    : activeModule === "domains"
+      ? [`域名:${domainStats.length}`, `资源:${domainResourceCount}`]
+      : [];
   const trailItems = [
     { id: "attachments", label: "附件" },
     { id: activeModule, label: moduleLabel },
@@ -265,7 +273,7 @@ export function App() {
         </div>
       </header>
 
-      {error ? (
+      {error && activeModule !== "github" ? (
         <div className="flex min-h-0 flex-1 items-center justify-center p-6">
           <div className="flex max-w-sm flex-col items-center text-center">
             <AlertTriangle className="text-destructive mb-3 size-6" />
@@ -332,7 +340,9 @@ export function App() {
               />
             ) : (
               <div className="gt-thin-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 [scrollbar-gutter:stable]">
-                {loading && !report ? (
+                {activeModule === "github" ? (
+                  <GitHubImagePanel report={report} onCompleted={scan} />
+                ) : loading && !report ? (
                   <div className="text-muted-foreground flex h-full items-center justify-center gap-2">
                     <LoaderCircle className="size-4 animate-spin" />
                     <span className="gt-body">正在扫描附件</span>
