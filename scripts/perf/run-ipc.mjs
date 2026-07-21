@@ -306,7 +306,7 @@ function environmentInfo() {
     ipcFixtureVersion: "ipc-v1",
     gitFixtureVersion: "git-fixtures-v1",
     attachmentFixtureVersion: "attachment-links-v1",
-    budgetVersion: "2026.07.1",
+    budgetVersion: "2026.07.2",
     runnerClass: process.env.GT_PERF_RUNNER_CLASS
       ?? process.env.RUNNER_ENVIRONMENT
       ?? (process.env.CI ? "ci-unspecified" : "local"),

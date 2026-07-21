@@ -140,10 +140,15 @@ function regressionLimit(model, budget, unit) {
     : type === "resource"
       ? model.regression.resourcePercent
       : model.regression.latencyPercent;
+  const minimumBudgetDeltaPercent = finite(model.regression.minimumBudgetDeltaPercent) ?? 0;
+  const budgetValue = finite(budget?.value);
+  const budgetScaledDelta = budgetValue === null
+    ? 0
+    : Math.abs(budgetValue) * minimumBudgetDeltaPercent / 100;
   return {
     type,
     percent,
-    absolute: model.regression.minimumAbsoluteDelta[unit] ?? 0,
+    absolute: Math.max(model.regression.minimumAbsoluteDelta[unit] ?? 0, budgetScaledDelta),
   };
 }
 
@@ -168,16 +173,20 @@ function evaluate(model, result, baseline) {
       changePercent = baselineValue === 0
         ? (actual === 0 ? 0 : null)
         : ((actual - baselineValue) / Math.abs(baselineValue)) * 100;
-      const limit = regressionLimit(model, budget, unit);
-      const absoluteChange = actual - baselineValue;
-      const meaningful = Math.abs(absoluteChange) >= limit.absolute;
-      if (!meaningful) regressionPass = true;
-      else if (limit.type === "throughput" || budget?.operator?.startsWith(">")) {
-        regressionPass = changePercent === null || changePercent >= -limit.percent;
-      } else if (limit.type === "error" && unit === "percent") {
-        regressionPass = absoluteChange <= model.regression.errorRateAbsolutePoints;
-      } else {
-        regressionPass = changePercent === null || changePercent <= limit.percent;
+      // Baseline-only observations remain visible as trends. A metric becomes a
+      // regression gate only after the performance model assigns it a budget.
+      if (budget) {
+        const limit = regressionLimit(model, budget, unit);
+        const absoluteChange = actual - baselineValue;
+        const meaningful = Math.abs(absoluteChange) >= limit.absolute;
+        if (!meaningful) regressionPass = true;
+        else if (limit.type === "throughput" || budget.operator?.startsWith(">")) {
+          regressionPass = changePercent === null || changePercent >= -limit.percent;
+        } else if (limit.type === "error" && unit === "percent") {
+          regressionPass = absoluteChange <= model.regression.errorRateAbsolutePoints;
+        } else {
+          regressionPass = changePercent === null || changePercent <= limit.percent;
+        }
       }
     }
     const measurementFailed = Boolean(metric.error)

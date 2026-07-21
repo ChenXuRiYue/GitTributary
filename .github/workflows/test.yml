@@ -62,6 +62,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: npm ci
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: |
@@ -71,6 +72,8 @@ jobs:
       - uses: taiki-e/install-action@nextest
       - name: Prepare Tauri plugin host sidecar
         run: npm run plugin:host:prepare
+      - name: Prepare bundled plugin resources
+        run: npm run plugin:bundle:prepare
       - name: Run Rust suites and collect report
         run: >-
           npm run test:report --
@@ -105,6 +108,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - run: npm ci
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
@@ -112,6 +116,8 @@ jobs:
       - uses: taiki-e/install-action@cargo-llvm-cov
       - name: Prepare Tauri plugin host sidecar
         run: npm run plugin:host:prepare
+      - name: Prepare bundled plugin resources
+        run: npm run plugin:bundle:prepare
       - name: Generate core workspace coverage
         run: >-
           cargo llvm-cov nextest
