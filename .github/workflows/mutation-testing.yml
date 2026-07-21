@@ -24,10 +24,18 @@ jobs:
             build-essential curl file libayatana-appindicator3-dev librsvg2-dev \
             libssl-dev libwebkit2gtk-4.1-dev libxdo-dev pkg-config wget
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
       - uses: taiki-e/install-action@cargo-mutants
+      - name: Prepare Tauri plugin host sidecar
+        run: npm run plugin:host:prepare
+      - name: Prepare bundled plugin resources
+        run: npm run plugin:bundle:prepare
       - name: Run mutation testing
         run: cargo mutants --manifest-path src-tauri/Cargo.toml --workspace --jobs 2
       - name: Upload mutation outcomes
