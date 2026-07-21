@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@/shared/ui/badge";
 import {
   CheckCircle2,
   ExternalLink,
@@ -12,8 +12,8 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { Button } from "@/shared/ui/button";
+import { cn } from "@/shared/lib/utils";
 
 import { credentialLabel } from "../publish";
 import { formatDuration, shortPath } from "../state";

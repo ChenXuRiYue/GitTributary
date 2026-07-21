@@ -11,11 +11,11 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openPath, revealItemInDir } from "@tauri-apps/plugin-opener";
 
-import { Button } from "@/components/ui/button";
-import { IconNav, type NavItem } from "@/components/IconNav";
-import { DomainTrail, type DomainTrailItem } from "@/components/DomainTrail";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
+import { Button } from "@/shared/ui/button";
+import { IconNav, type NavItem } from "@/shared/components/IconNav";
+import { DomainTrail, type DomainTrailItem } from "@/shared/components/DomainTrail";
+import { ScrollArea } from "@/shared/ui/scroll-area";
+import { cn } from "@/shared/lib/utils";
 import { isPluginHostRuntime } from "../bridge";
 
 import {

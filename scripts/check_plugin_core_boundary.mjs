@@ -8,7 +8,6 @@ const forbiddenPackages = [
   "gt-git",
   "gt-files",
   "gt-data",
-  "gt-store",
   "gt-flow",
   "gt-plugin-host",
   "gt-plugin-protocol",

@@ -387,7 +387,7 @@ crates/gt-git/
 gt-git 本身是纯 Rust crate。Tauri 层做薄胶水:
 
 ```rust
-// src-tauri/src/commands/git.rs
+// src-tauri/src/application/git/commands.rs
 
 #[tauri::command]
 async fn open_repo(path: String, state: State<'_, AppState>) -> Result<RepoOverview, String> {

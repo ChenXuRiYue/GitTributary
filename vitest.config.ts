@@ -33,7 +33,7 @@ export default defineConfig({
         "src/**/*.d.ts",
         "src/**/types.ts",
         "src/**/types/**",
-        "src/components/ui/**",
+        "src/shared/ui/**",
         "src/main.tsx",
       ],
       thresholds: {
@@ -41,31 +41,37 @@ export default defineConfig({
         branches: 27,
         functions: 27,
         lines: 27,
-        "src/components/{DiffPanel,DiffViewer,FileTree,IconNav,ResizeHandle}.tsx": {
+        "src/shared/components/{FileTree,IconNav,ResizeHandle}.tsx": {
           statements: 80,
           branches: 75,
           functions: 85,
           lines: 85,
         },
-        "src/core/flow/utils/*.ts": {
+        "src/modules/git/components/{DiffPanel,DiffViewer}.tsx": {
+          statements: 80,
+          branches: 75,
+          functions: 85,
+          lines: 85,
+        },
+        "src/modules/flow/utils/*.ts": {
           statements: 95,
           branches: 90,
           functions: 95,
           lines: 95,
         },
-        "src/core/store/utils.ts": {
+        "src/modules/data/utils.ts": {
           statements: 95,
           branches: 85,
           functions: 100,
           lines: 95,
         },
-        "src/extensions/{api,bridge}.ts": {
+        "src/platform/extensions/{api,bridge}.ts": {
           statements: 90,
           branches: 85,
           functions: 100,
           lines: 95,
         },
-        "src/extensions/ExtensionFrame.tsx": {
+        "src/platform/extensions/ExtensionFrame.tsx": {
           statements: 85,
           branches: 80,
           functions: 90,

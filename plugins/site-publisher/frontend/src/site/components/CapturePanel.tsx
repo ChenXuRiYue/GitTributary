@@ -1,9 +1,9 @@
 import { FolderTree, List, ListChecks, RotateCcw, Save, Search, SlidersHorizontal } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
+import { cn } from "@/shared/lib/utils";
 
 import { CaptureListItem, CapturePreviewTree, CaptureTree } from "../capture";
 import type { CaptureFilterState, CaptureTreeNode, CaptureViewMode, SitePathCandidate, SiteScanReport } from "../types";

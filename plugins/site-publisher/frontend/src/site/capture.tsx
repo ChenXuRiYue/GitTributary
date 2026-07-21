@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { ChevronDown, ChevronRight, FileText, Folder } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
+import { Badge } from "@/shared/ui/badge";
 
 import { pathCollator } from "./state";
 import type { CaptureTreeNode, SitePathCandidate } from "./types";

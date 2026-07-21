@@ -27,12 +27,12 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 
-import { Button } from "@/components/ui/button";
-import { DomainTrail } from "@/components/DomainTrail";
-import { IconNav } from "@/components/IconNav";
-import { Input } from "@/components/ui/input";
-import { ResizeHandle } from "@/components/ResizeHandle";
-import { cn } from "@/lib/utils";
+import { Button } from "@/shared/ui/button";
+import { DomainTrail } from "@/shared/components/DomainTrail";
+import { IconNav } from "@/shared/components/IconNav";
+import { Input } from "@/shared/ui/input";
+import { ResizeHandle } from "@/shared/components/ResizeHandle";
+import { cn } from "@/shared/lib/utils";
 
 import { markPluginReady } from "./bridge";
 import type {

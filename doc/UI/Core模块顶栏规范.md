@@ -42,7 +42,7 @@
 `DomainTrail` 是工作台顶栏最左侧的标准定位组件，路径为:
 
 ```text
-src/components/DomainTrail.tsx
+src/shared/components/DomainTrail.tsx
 ```
 
 它接收一个从粗到细的域数组:

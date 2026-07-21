@@ -13,11 +13,11 @@ import {
   TriangleAlert,
 } from "lucide-react";
 
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
-import { cn } from "@/lib/utils";
+import { Badge } from "@/shared/ui/badge";
+import { Button } from "@/shared/ui/button";
+import { Input } from "@/shared/ui/input";
+import { Switch } from "@/shared/ui/switch";
+import { cn } from "@/shared/lib/utils";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 import { shortPath } from "../state";

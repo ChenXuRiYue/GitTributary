@@ -10,9 +10,9 @@
 | 项 | 选择 | 说明 |
 | --- | --- | --- |
 | CSS 引擎 | **Tailwind CSS v4** | 通过 `@tailwindcss/vite` 插件接入，无需 `tailwind.config.js`，token 写在 CSS 里。 |
-| 组件库 | **shadcn/ui**（`new-york` 风格） | 组件源码复制进仓库（`src/components/ui/`），完全可改 —— 契合「基于 AI 替换组件、保留细节、控制发展」。 |
+| 组件库 | **shadcn/ui**（`new-york` 风格） | 组件源码复制进仓库（`src/shared/ui/`），完全可改 —— 契合「基于 AI 替换组件、保留细节、控制发展」。 |
 | 图标 | **lucide-react** | 线性图标，风格统一、体量轻。 |
-| 工具函数 | `cn()`（`clsx` + `tailwind-merge`） | 位于 `src/lib/utils.ts`，所有组件合并 className 用它。 |
+| 工具函数 | `cn()`（`clsx` + `tailwind-merge`） | 位于 `src/shared/lib/utils.ts`，所有组件合并 className 用它。 |
 
 **理念**：先做出 macOS 质感；跨平台不是现在的目标，但不锁死后路。组件源码在手，未来可按平台分叉或让 AI 替换。
 
@@ -217,9 +217,9 @@ GitTributary 是桌面操作型 App，不采用网页营销页的大字号体系
 
 ## 五、组件使用约定
 
-1. **优先用 shadcn 组件**：Button、Input、ScrollArea、Separator、Tooltip、Card、Dialog 等，统一从 `@/components/ui/*` 引入。
-2. **新增组件**：用 `npx shadcn@latest add <name>` 拉取到 `src/components/ui/`，再按需微调。
-3. **业务组件**放 `src/components/`，插件面板放对应插件目录。
+1. **优先用 shadcn 组件**：Button、Input、ScrollArea、Separator、Tooltip、Card、Dialog 等，统一从 `@/shared/ui/*` 引入。
+2. **新增组件**：用 `npx shadcn@latest add <name>` 拉取到 `src/shared/ui/`，再按需微调。
+3. **组件归属**：单一模块使用的组件放 `src/modules/<module>/components/`；跨模块复用的组件才放 `src/shared/components/`；插件面板放对应插件目录。
 4. **className 合并**一律用 `cn(...)`。
 5. **图标**统一 lucide-react，尺寸默认 16/18/20，跟随文字色（`text-*`）。
 6. **不引入**第二套组件库或额外 CSS 框架，避免风格割裂。
@@ -247,9 +247,11 @@ GitTributary 是桌面操作型 App，不采用网页营销页的大字号体系
 | 文件 | 作用 |
 | --- | --- |
 | `src/index.css` | 全局 token、明暗模式、`glass` 工具类、base 样式 |
-| `src/lib/utils.ts` | `cn()` className 合并 |
+| `src/shared/lib/utils.ts` | `cn()` className 合并 |
 | `components.json` | shadcn/ui 配置（new-york / lucide / 别名） |
-| `src/components/ui/` | shadcn 组件源码（可改） |
+| `src/shared/ui/` | shadcn 组件源码（可改） |
+| `src/shared/components/` | 跨模块复用的工作台组件 |
+| `src/modules/` | 按用户功能组织的 Core 前端模块 |
 | `vite.config.ts` | Tailwind 插件 + `@` 路径别名 |
 
 ---

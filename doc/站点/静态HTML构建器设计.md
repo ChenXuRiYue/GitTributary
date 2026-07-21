@@ -645,7 +645,7 @@ entry: "frontend/dist/index.html"
 ```text
 plugins/site-publisher/manifest.json                     插件与页面声明
 plugins/site-publisher/frontend/src/site/SitePanel.tsx   发布主面板
-src-tauri/src/extensions.rs                              Extension API 映射
+src-tauri/src/application/plugins/registry.rs                              Extension API 映射
 plugins/site-publisher/backend/src/lib.rs                sidecar ABI 与方法分发
 plugins/site-publisher/backend/crates/gt-site/           扫描、构建与发布能力
 ```

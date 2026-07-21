@@ -5,11 +5,11 @@ import ts from "typescript";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const FILES = {
-  shell: "src/core/git/GitPanel.tsx",
-  changes: "src/core/git/views/ChangesView.tsx",
-  history: "src/core/git/views/HistoryView.tsx",
-  branches: "src/core/git/views/BranchesView.tsx",
-  remote: "src/core/git/views/RemoteView.tsx",
+  shell: "src/modules/git/GitPanel.tsx",
+  changes: "src/modules/git/views/ChangesView.tsx",
+  history: "src/modules/git/views/HistoryView.tsx",
+  branches: "src/modules/git/views/BranchesView.tsx",
+  remote: "src/modules/git/views/RemoteView.tsx",
 };
 const HISTORY_FIRST_PAGE_MAX = 100;
 
