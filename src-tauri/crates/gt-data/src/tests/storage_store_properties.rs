@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use gt_store::Store;
+use crate::storage::Store;
 use proptest::prelude::*;
 use serde_json::{Number, Value};
 

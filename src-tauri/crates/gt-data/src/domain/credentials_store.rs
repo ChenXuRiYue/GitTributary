@@ -6,8 +6,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use crate::error::Result;
-use crate::store::Store;
+use crate::storage::error::Result;
+use crate::storage::store::Store;
 
 /// private 命名空间(仅本地,永不同步)
 const NS_PRIVATE: &str = "private.credentials";
@@ -63,23 +63,29 @@ pub struct DataCenterConfigCredentialStatus {
 impl Store {
     /// 获取 Git 凭证信息(脱敏后的视图)
     pub fn get_git_credentials(&self) -> GitCredentials {
-        let username = self.get(NS_SETTINGS, "git.username")
+        let username = self
+            .get(NS_SETTINGS, "git.username")
             .and_then(|v| v.as_str().map(|s| s.to_string()));
-        let email = self.get(NS_SETTINGS, "git.email")
+        let email = self
+            .get(NS_SETTINGS, "git.email")
             .and_then(|v| v.as_str().map(|s| s.to_string()));
-        let remote_url = self.get(NS_LOCAL, "git.default_remote_url")
+        let remote_url = self
+            .get(NS_LOCAL, "git.default_remote_url")
             .or_else(|| self.get(NS_SETTINGS, "git.default_remote_url"))
             .and_then(|v| v.as_str().map(|s| s.to_string()));
 
-        let token_raw = self.get(NS_PRIVATE, "git.access_token")
+        let token_raw = self
+            .get(NS_PRIVATE, "git.access_token")
             .and_then(|v| v.as_str().map(|s| s.to_string()));
         let has_token = token_raw.is_some();
         // L0 绝对机密:完全掩码,不露任何字符
         let token_masked = token_raw.map(|_| "••••••••".to_string());
 
-        let ssh_key_path = self.get(NS_PRIVATE, "git.ssh_key_path")
+        let ssh_key_path = self
+            .get(NS_PRIVATE, "git.ssh_key_path")
             .and_then(|v| v.as_str().map(|s| s.to_string()));
-        let has_ssh_passphrase = self.get(NS_PRIVATE, "git.ssh_passphrase")
+        let has_ssh_passphrase = self
+            .get(NS_PRIVATE, "git.ssh_passphrase")
             .map(|v| !v.is_null() && v.as_str().map(|s| !s.is_empty()).unwrap_or(false))
             .unwrap_or(false);
 
@@ -182,9 +188,11 @@ impl Store {
 
     /// 获取 SSH 密钥路径(内部使用)
     pub fn get_git_ssh_key(&self) -> Option<(String, Option<String>)> {
-        let path = self.get(NS_PRIVATE, "git.ssh_key_path")
+        let path = self
+            .get(NS_PRIVATE, "git.ssh_key_path")
             .and_then(|v| v.as_str().map(|s| s.to_string()))?;
-        let passphrase = self.get(NS_PRIVATE, "git.ssh_passphrase")
+        let passphrase = self
+            .get(NS_PRIVATE, "git.ssh_passphrase")
             .and_then(|v| v.as_str().map(|s| s.to_string()));
         Some((path, passphrase))
     }

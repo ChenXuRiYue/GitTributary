@@ -195,8 +195,8 @@ pub(crate) fn checkout_branch(name: String, state: State<'_, AppState>) -> Resul
     repo.checkout_branch(&name).map_err(|e| e.to_string())?;
     // 同步分支状态到 store
     drop(lock);
-    let mut store = state.store.lock().unwrap();
-    let _ = store.sync_workspace(None, Some(&name));
+    let mut data = state.data.lock().unwrap();
+    let _ = data.workspace_mut().sync(None, Some(&name));
     Ok(())
 }
 

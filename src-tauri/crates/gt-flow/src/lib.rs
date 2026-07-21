@@ -27,8 +27,11 @@ pub use node::{
     compile_flow_nodes, FlowNodeDefinition, FlowNodeOwner, FlowNodeRegistry, FlowNodeSpec,
 };
 pub use runner::{
-    run_flow_with_executor, DryRunActionExecutor, FlowActionExecutor, FlowActionOutcome,
-    FlowExecutionContext, FlowJobRun, FlowNodeRun, FlowRunReport, FlowRunRequest, FlowRunStatus,
+    resolve_run_id, run_flow_with_executor, run_flow_with_executor_and_observer,
+    run_flow_with_executor_for_run_id, run_flow_with_executor_for_run_id_and_observer,
+    DryRunActionExecutor, FlowActionExecutor, FlowActionOutcome, FlowExecutionContext, FlowJobRun,
+    FlowLifecycleEvent, FlowLifecycleEventKind, FlowNodeRun, FlowRunObserver, FlowRunReport,
+    FlowRunRequest, FlowRunStatus,
 };
 
 pub const FLOW_NAMESPACE: &str = "flows";

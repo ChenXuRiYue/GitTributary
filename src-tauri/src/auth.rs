@@ -1,9 +1,9 @@
 //! Git 认证解析。
 //!
-//! 这段逻辑同时需要知道 `gt-store` 的凭证存储结构(项目级 token 存哪个 key、
+//! 这段逻辑通过 `gt-data` 的凭证 Repository 读取认证配置，
 //! 全局 token、SSH key 配置)和 `gt-git` 的认证接口(`AuthMethod`),
 //! 因此天然只能待在胶水层:既不该让 `gt-git` 关心凭证存在哪里,
-//! 也不该让 `gt-store` 关心怎么用凭证做 Git 认证。
+//! 也不该让物理 storage 关心怎么用凭证做 Git 认证。
 //!
 //! 优先级链(项目 token → 全局 token → SSH key → SSH agent → None)
 //! 目前在 `resolve_auth` / `resolve_auth_for_remote` /
@@ -11,10 +11,9 @@
 //! 后续如果认证策略变复杂,值得抽成一个共享的决策函数。这次重构
 //! 只做“搬文件”,不改变这三处各自的行为。
 
+use gt_data::DataHub;
 use gt_git::AuthMethod;
-use gt_store::Store;
 
-use crate::keys::project_token_key_for_path;
 use crate::AppState;
 
 /// 面向指定远程仓库的认证解析结果,比 `AuthMethod` 多了
@@ -28,32 +27,32 @@ pub(crate) struct ResolvedAuth {
 
 /// 解析认证方式:项目级 token 优先 → 公共级 token → SSH → Agent → None
 pub(crate) fn resolve_auth(state: &AppState) -> AuthMethod {
-    let store = state.store.lock().unwrap();
+    let store = state.data.lock().unwrap();
     let repo_lock = state.repo.lock().unwrap();
 
     // 1. 项目级 token(从当前仓库路径对应的 store key)
     if let Some(repo) = repo_lock.as_ref() {
         if let Some(workdir) = repo.workdir() {
-            let project_key = format!("project.{}.token", workdir.display());
-            if let Some(val) = store.get("private.credentials", &project_key) {
-                if let Some(token) = val.as_str() {
-                    if !token.is_empty() {
-                        return AuthMethod::Token(token.to_string());
-                    }
+            if let Some(token) = store
+                .credentials()
+                .project_token(&workdir.display().to_string())
+            {
+                if !token.is_empty() {
+                    return AuthMethod::Token(token);
                 }
             }
         }
     }
 
     // 2. 公共级 token
-    if let Some(token) = store.get_git_token_raw() {
+    if let Some(token) = store.credentials().global_token() {
         if !token.is_empty() {
             return AuthMethod::Token(token);
         }
     }
 
     // 3. SSH key
-    if let Some((key_path, passphrase)) = store.get_git_ssh_key() {
+    if let Some((key_path, passphrase)) = store.credentials().ssh_key() {
         return AuthMethod::SshKey {
             private_key: key_path,
             passphrase,
@@ -71,28 +70,25 @@ pub(crate) fn resolve_auth_for_remote(
     credential_ref: Option<&str>,
 ) -> ResolvedAuth {
     let repo_path = repo_path.to_string_lossy().to_string();
-    let store = state.store.lock().unwrap();
+    let store = state.data.lock().unwrap();
     let url = remote_url.unwrap_or_default().trim().to_ascii_lowercase();
     let prefers_ssh = url.starts_with("git@") || url.starts_with("ssh://");
     let prefers_https = url.starts_with("http://") || url.starts_with("https://");
 
     if !prefers_ssh {
         if let Some(credential_ref) = credential_ref.and_then(|value| value.strip_prefix("repo:")) {
-            let key = project_token_key_for_path(credential_ref);
-            if let Some(val) = store.get("private.credentials", &key) {
-                if let Some(token) = val.as_str() {
-                    if !token.is_empty() {
-                        return ResolvedAuth {
-                            method: AuthMethod::Token(token.to_string()),
-                            mode: "repo_token".to_string(),
-                            credential_ref: Some(format!("repo:{credential_ref}")),
-                        };
-                    }
+            if let Some(token) = store.credentials().project_token(credential_ref) {
+                if !token.is_empty() {
+                    return ResolvedAuth {
+                        method: AuthMethod::Token(token),
+                        mode: "repo_token".to_string(),
+                        credential_ref: Some(format!("repo:{credential_ref}")),
+                    };
                 }
             }
         }
         if matches!(credential_ref, Some("global:git.access_token")) {
-            if let Some(token) = store.get_git_token_raw() {
+            if let Some(token) = store.credentials().global_token() {
                 if !token.is_empty() {
                     return ResolvedAuth {
                         method: AuthMethod::Token(token),
@@ -103,20 +99,17 @@ pub(crate) fn resolve_auth_for_remote(
             }
         }
 
-        let project_key = project_token_key_for_path(&repo_path);
-        if let Some(val) = store.get("private.credentials", &project_key) {
-            if let Some(token) = val.as_str() {
-                if !token.is_empty() {
-                    return ResolvedAuth {
-                        method: AuthMethod::Token(token.to_string()),
-                        mode: "repo_token".to_string(),
-                        credential_ref: Some(format!("repo:{repo_path}")),
-                    };
-                }
+        if let Some(token) = store.credentials().project_token(&repo_path) {
+            if !token.is_empty() {
+                return ResolvedAuth {
+                    method: AuthMethod::Token(token),
+                    mode: "repo_token".to_string(),
+                    credential_ref: Some(format!("repo:{repo_path}")),
+                };
             }
         }
 
-        if let Some(token) = store.get_git_token_raw() {
+        if let Some(token) = store.credentials().global_token() {
             if !token.is_empty() {
                 return ResolvedAuth {
                     method: AuthMethod::Token(token),
@@ -127,7 +120,7 @@ pub(crate) fn resolve_auth_for_remote(
         }
     }
 
-    if let Some((key_path, passphrase)) = store.get_git_ssh_key() {
+    if let Some((key_path, passphrase)) = store.credentials().ssh_key() {
         return ResolvedAuth {
             method: AuthMethod::SshKey {
                 private_key: key_path.clone(),
@@ -155,7 +148,7 @@ pub(crate) fn resolve_auth_for_remote(
 
 /// 展示用的凭证摘要(不返回明文),用于远程配置聚合视图。
 pub(crate) fn credential_summary_for_remote(
-    store: &Store,
+    data: &DataHub,
     workdir: Option<&str>,
     url: &str,
 ) -> (String, Option<String>) {
@@ -164,15 +157,16 @@ pub(crate) fn credential_summary_for_remote(
 
     if !prefers_ssh {
         if let Some(path) = workdir {
-            let project_key = project_token_key_for_path(path);
-            if let Some(val) = store.get("private.credentials", &project_key) {
-                if val.as_str().map(|s| !s.is_empty()).unwrap_or(false) {
-                    return ("repo_token".to_string(), Some(format!("repo:{}", path)));
-                }
+            if data
+                .credentials()
+                .project_token(path)
+                .is_some_and(|token| !token.is_empty())
+            {
+                return ("repo_token".to_string(), Some(format!("repo:{}", path)));
             }
         }
 
-        if let Some(token) = store.get_git_token_raw() {
+        if let Some(token) = data.credentials().global_token() {
             if !token.is_empty() {
                 return (
                     "app_global_token".to_string(),
@@ -182,7 +176,7 @@ pub(crate) fn credential_summary_for_remote(
         }
     }
 
-    if let Some((key_path, _)) = store.get_git_ssh_key() {
+    if let Some((key_path, _)) = data.credentials().ssh_key() {
         return ("ssh_key".to_string(), Some(format!("ssh:{}", key_path)));
     }
 
@@ -226,17 +220,17 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    fn temp_store() -> (TempDir, Store) {
+    fn temp_store() -> (TempDir, DataHub) {
         let dir = TempDir::new().unwrap();
-        let store = Store::open(dir.path()).unwrap();
-        (dir, store)
+        let data = DataHub::open(dir.path()).unwrap();
+        (dir, data)
     }
 
     fn temp_app_state() -> (TempDir, AppState) {
         let (dir, store) = temp_store();
         let state = AppState {
             repo: std::sync::Mutex::new(None),
-            store: std::sync::Mutex::new(store),
+            data: std::sync::Mutex::new(store.into()),
             event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
             node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
             flow_execution: std::sync::Mutex::new(()),
@@ -272,14 +266,14 @@ mod tests {
         let repo = init_repo_with_commit(dir.path());
         let repo_path = repo.workdir().unwrap().display().to_string();
         {
-            let mut store = state.store.lock().unwrap();
-            store.set_git_token("global-token").unwrap();
+            let mut store = state.data.lock().unwrap();
             store
-                .set(
-                    "private.credentials",
-                    &project_token_key_for_path(&repo_path),
-                    serde_json::json!("project-token"),
-                )
+                .credentials_mut()
+                .set_global_token("global-token")
+                .unwrap();
+            store
+                .credentials_mut()
+                .set_project_token(&repo_path, "project-token")
                 .unwrap();
         }
         {
@@ -297,8 +291,11 @@ mod tests {
     fn resolve_auth_falls_back_to_global_token_without_repo() {
         let (_dir, state) = temp_app_state();
         {
-            let mut store = state.store.lock().unwrap();
-            store.set_git_token("global-token").unwrap();
+            let mut store = state.data.lock().unwrap();
+            store
+                .credentials_mut()
+                .set_global_token("global-token")
+                .unwrap();
         }
         match resolve_auth(&state) {
             AuthMethod::Token(token) => assert_eq!(token, "global-token"),
@@ -320,15 +317,15 @@ mod tests {
         let (dir, state) = temp_app_state();
         let repo_path = dir.path().display().to_string();
         {
-            let mut store = state.store.lock().unwrap();
+            let mut store = state.data.lock().unwrap();
             store
-                .set(
-                    "private.credentials",
-                    &project_token_key_for_path(&repo_path),
-                    serde_json::json!("repo-scoped-token"),
-                )
+                .credentials_mut()
+                .set_project_token(&repo_path, "repo-scoped-token")
                 .unwrap();
-            store.set_git_token("global-token").unwrap();
+            store
+                .credentials_mut()
+                .set_global_token("global-token")
+                .unwrap();
         }
 
         let resolved = resolve_auth_for_remote(
@@ -366,11 +363,8 @@ mod tests {
     fn credential_summary_for_remote_reports_repo_token() {
         let (_dir, mut store) = temp_store();
         store
-            .set(
-                "private.credentials",
-                &project_token_key_for_path("/repo/a"),
-                serde_json::json!("tok"),
-            )
+            .credentials_mut()
+            .set_project_token("/repo/a", "tok")
             .unwrap();
         let (mode, reference) =
             credential_summary_for_remote(&store, Some("/repo/a"), "https://github.com/a/b.git");

@@ -1,9 +1,9 @@
-use std::io::{BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gt_plugin_protocol::{event, method, Message, Request, Response};
 use serde::Serialize;
@@ -11,6 +11,8 @@ use serde_json::{json, Value};
 
 const CONTROL_REQUEST_TIMEOUT: Duration = Duration::from_secs(3);
 const PLUGIN_REQUEST_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const MAX_STDOUT_FRAME_BYTES: usize = 1024 * 1024;
+const MAX_STDERR_LINE_BYTES: usize = 64 * 1024;
 
 pub struct PluginHostSupervisor {
     inner: Mutex<SupervisorState>,
@@ -25,8 +27,19 @@ struct SupervisorState {
 struct HostProcess {
     child: Child,
     stdin: ChildStdin,
-    messages: mpsc::Receiver<Message>,
+    messages: mpsc::Receiver<HostReaderEvent>,
     process_id: u32,
+}
+
+enum HostReaderEvent {
+    Message(Message),
+    TransportError(String),
+}
+
+enum BoundedLine {
+    Line(Vec<u8>),
+    TooLarge,
+    Eof,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -173,10 +186,20 @@ impl PluginHostSupervisor {
             .flush()
             .map_err(|error| HostCallError::Transport(error.to_string()))?;
 
+        let deadline = Instant::now() + timeout;
         loop {
-            match process.messages.recv_timeout(timeout) {
-                Ok(Message::Response(response)) if response.id == request_id => {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
+                return Err(HostCallError::Transport("plugin_host_timeout".to_string()));
+            }
+            match process.messages.recv_timeout(remaining) {
+                Ok(HostReaderEvent::Message(Message::Response(response)))
+                    if response.id == request_id =>
+                {
                     return response_result(response).map_err(HostCallError::Rpc)
+                }
+                Ok(HostReaderEvent::TransportError(error)) => {
+                    return Err(HostCallError::Transport(error))
                 }
                 Ok(_) => continue,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -248,19 +271,28 @@ fn spawn_host() -> Result<HostProcess, String> {
         .stderr
         .take()
         .ok_or_else(|| "plugin_host_stderr_missing".to_string())?;
-    let (sender, receiver) = mpsc::channel();
+    // Backpressure prevents an unsolicited noisy plugin from growing an unbounded queue.
+    let (sender, receiver) = mpsc::sync_channel(64);
 
     std::thread::spawn(move || {
-        for line in BufReader::new(stdout).lines() {
-            match line {
-                Ok(line) => match serde_json::from_str::<Message>(&line) {
+        let mut reader = BufReader::new(stdout);
+        loop {
+            match read_bounded_line(&mut reader, MAX_STDOUT_FRAME_BYTES) {
+                Ok(BoundedLine::Line(line)) => match serde_json::from_slice::<Message>(&line) {
                     Ok(message) => {
-                        if sender.send(message).is_err() {
+                        if sender.send(HostReaderEvent::Message(message)).is_err() {
                             break;
                         }
                     }
                     Err(error) => eprintln!("[gt-plugin-host] invalid stdout frame: {error}"),
                 },
+                Ok(BoundedLine::TooLarge) => {
+                    let _ = sender.try_send(HostReaderEvent::TransportError(
+                        "plugin_host_stdout_frame_too_large".to_string(),
+                    ));
+                    break;
+                }
+                Ok(BoundedLine::Eof) => break,
                 Err(error) => {
                     eprintln!("[gt-plugin-host] stdout error: {error}");
                     break;
@@ -269,18 +301,39 @@ fn spawn_host() -> Result<HostProcess, String> {
         }
     });
     std::thread::spawn(move || {
-        for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-            eprintln!("[gt-plugin-host] {line}");
+        let mut reader = BufReader::new(stderr);
+        loop {
+            match read_bounded_line(&mut reader, MAX_STDERR_LINE_BYTES) {
+                Ok(BoundedLine::Line(line)) => {
+                    eprintln!("[gt-plugin-host] {}", String::from_utf8_lossy(&line));
+                }
+                Ok(BoundedLine::TooLarge) => {
+                    eprintln!(
+                        "[gt-plugin-host] stderr line exceeded {MAX_STDERR_LINE_BYTES} bytes and was discarded"
+                    );
+                }
+                Ok(BoundedLine::Eof) => break,
+                Err(error) => {
+                    eprintln!("[gt-plugin-host] stderr error: {error}");
+                    break;
+                }
+            }
         }
     });
 
     match receiver.recv_timeout(CONTROL_REQUEST_TIMEOUT) {
-        Ok(Message::Event(message)) if message.event == event::HELLO => Ok(HostProcess {
-            child,
-            stdin,
-            messages: receiver,
-            process_id,
-        }),
+        Ok(HostReaderEvent::Message(Message::Event(message))) if message.event == event::HELLO => {
+            Ok(HostProcess {
+                child,
+                stdin,
+                messages: receiver,
+                process_id,
+            })
+        }
+        Ok(HostReaderEvent::TransportError(error)) => {
+            let _ = child.kill();
+            Err(error)
+        }
         Ok(_) => {
             let _ = child.kill();
             Err("plugin_host_invalid_handshake".to_string())
@@ -288,6 +341,59 @@ fn spawn_host() -> Result<HostProcess, String> {
         Err(_) => {
             let _ = child.kill();
             Err("plugin_host_handshake_timeout".to_string())
+        }
+    }
+}
+
+fn read_bounded_line<R: BufRead>(reader: &mut R, max_bytes: usize) -> io::Result<BoundedLine> {
+    let mut line = Vec::with_capacity(max_bytes.min(8 * 1024));
+
+    loop {
+        let buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
+            return Ok(if line.is_empty() {
+                BoundedLine::Eof
+            } else {
+                BoundedLine::Line(line)
+            });
+        }
+
+        if let Some(newline) = buffer.iter().position(|byte| *byte == b'\n') {
+            if newline <= max_bytes.saturating_sub(line.len()) {
+                line.extend_from_slice(&buffer[..newline]);
+                reader.consume(newline + 1);
+                return Ok(BoundedLine::Line(line));
+            }
+
+            reader.consume(newline + 1);
+            return Ok(BoundedLine::TooLarge);
+        }
+
+        if buffer.len() <= max_bytes.saturating_sub(line.len()) {
+            line.extend_from_slice(buffer);
+            let consumed = buffer.len();
+            reader.consume(consumed);
+            continue;
+        }
+
+        let consumed = buffer.len();
+        reader.consume(consumed);
+        discard_until_newline(reader)?;
+        return Ok(BoundedLine::TooLarge);
+    }
+}
+
+fn discard_until_newline<R: BufRead>(reader: &mut R) -> io::Result<()> {
+    loop {
+        let buffer = reader.fill_buf()?;
+        if buffer.is_empty() {
+            return Ok(());
+        }
+        let newline = buffer.iter().position(|byte| *byte == b'\n');
+        let consumed = newline.map_or(buffer.len(), |position| position + 1);
+        reader.consume(consumed);
+        if newline.is_some() {
+            return Ok(());
         }
     }
 }
@@ -363,9 +469,56 @@ fn response_result(response: Response) -> Result<Value, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
 
     #[test]
     fn missing_override_falls_back_without_panicking() {
         let _ = resolve_host_executable();
+    }
+
+    #[test]
+    fn bounded_line_accepts_exact_limit_and_eof_without_newline() {
+        let mut reader = BufReader::with_capacity(2, Cursor::new(b"abcd\nef"));
+
+        assert!(matches!(
+            read_bounded_line(&mut reader, 4).unwrap(),
+            BoundedLine::Line(line) if line == b"abcd"
+        ));
+        assert!(matches!(
+            read_bounded_line(&mut reader, 4).unwrap(),
+            BoundedLine::Line(line) if line == b"ef"
+        ));
+        assert!(matches!(
+            read_bounded_line(&mut reader, 4).unwrap(),
+            BoundedLine::Eof
+        ));
+    }
+
+    #[test]
+    fn bounded_line_discards_oversized_frame_and_recovers_at_next_line() {
+        let mut reader = BufReader::with_capacity(3, Cursor::new(b"abcdef\nok\n"));
+
+        assert!(matches!(
+            read_bounded_line(&mut reader, 4).unwrap(),
+            BoundedLine::TooLarge
+        ));
+        assert!(matches!(
+            read_bounded_line(&mut reader, 4).unwrap(),
+            BoundedLine::Line(line) if line == b"ok"
+        ));
+    }
+
+    #[test]
+    fn bounded_line_never_returns_oversized_unterminated_data() {
+        let mut reader = BufReader::with_capacity(2, Cursor::new(b"abcdef"));
+
+        assert!(matches!(
+            read_bounded_line(&mut reader, 4).unwrap(),
+            BoundedLine::TooLarge
+        ));
+        assert!(matches!(
+            read_bounded_line(&mut reader, 4).unwrap(),
+            BoundedLine::Eof
+        ));
     }
 }

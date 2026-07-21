@@ -82,6 +82,7 @@ export function attachExtensionBridge(
     pending += 1;
     void callExtension({
       pluginId: contribution.pluginId,
+      generation: contribution.generation,
       method: request.method,
       payload: request.payload ?? null,
     }).then((result) => {
@@ -128,6 +129,7 @@ export function notifyExtensionReady(
     apiVersion: EXTENSION_API_VERSION,
     sessionId,
     pluginId: contribution.pluginId,
+    generation: contribution.generation,
     viewId: contribution.viewId,
     theme: currentTheme(),
   };

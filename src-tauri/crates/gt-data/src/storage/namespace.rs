@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use serde_json::Value;
 
-use crate::error::Result;
-use crate::record::Record;
+use super::error::Result;
+use super::record::Record;
 
 /// 命名空间可见性:决定是否可被 Git 推送到远程
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -20,8 +20,6 @@ pub enum Visibility {
 
 /// 单个命名空间:对应一个 .jsonl 文件 + 内存 HashMap
 pub struct Namespace {
-    /// 命名空间名称
-    pub name: String,
     /// 可见性
     pub visibility: Visibility,
     /// .jsonl 文件路径
@@ -55,7 +53,6 @@ impl Namespace {
         }
 
         Ok(Self {
-            name: name.to_string(),
             visibility,
             path,
             data,
@@ -131,21 +128,27 @@ impl Namespace {
         self.data.len()
     }
 
+    pub fn storage_bytes(&self) -> u64 {
+        self.path
+            .metadata()
+            .map(|metadata| metadata.len())
+            .unwrap_or(0)
+    }
+
     /// 全部 KV(用于可视化)
     pub fn entries(&self) -> Vec<(String, Value)> {
-        self.data.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+        self.data
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
     }
 
     /// Compaction:重写文件只保留每个 key 的最新值
     pub fn compact(&mut self) -> Result<()> {
-        let now = Utc::now().timestamp();
+        let latest = self.latest_with_ts();
         let mut file = File::create(&self.path)?;
-        for (k, v) in &self.data {
-            let record = Record {
-                k: k.clone(),
-                v: v.clone(),
-                t: now,
-            };
+        for (k, (v, t)) in latest {
+            let record = Record { k, v, t };
             let mut line = serde_json::to_string(&record)?;
             line.push('\n');
             file.write_all(line.as_bytes())?;
@@ -226,12 +229,4 @@ impl Namespace {
         Ok(result)
     }
 
-    /// 文件行数(判断是否需要 compact)
-    pub fn file_lines(&self) -> Result<usize> {
-        if !self.path.exists() {
-            return Ok(0);
-        }
-        let file = File::open(&self.path)?;
-        Ok(BufReader::new(file).lines().count())
-    }
 }

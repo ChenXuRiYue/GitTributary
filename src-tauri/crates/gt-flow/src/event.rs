@@ -269,6 +269,7 @@ pub fn builtin_event_definitions() -> Vec<EventDefinition> {
         ),
         event_definition(
             "store.key.changed",
+            // Protocol identifier kept stable although the crate moved into gt-data.
             "gittributary://gt-store",
             "store",
             "配置已变更",
@@ -310,6 +311,34 @@ pub fn builtin_event_definitions() -> Vec<EventDefinition> {
             "Runner 判断某个 Flow 当前不应执行时触发,例如 Flow 已停用、并发策略跳过或条件不满足。",
             &["flow_id"],
             &[("flow_id", "string"), ("run_id", "string")],
+        ),
+        event_definition(
+            "flow.run.journal_failed",
+            "gittributary://gt-flow",
+            "flow",
+            "Flow 审计日志写入失败",
+            "Flow 已完成，但运行终态未能持久化",
+            "Flow 的业务动作已经结束，但 RunJournal 终态写入失败时触发；消费者不得自动重试该 Flow。",
+            &["flow_id"],
+            &[
+                ("flow_id", "string"),
+                ("run_id", "string"),
+                ("status", "string"),
+            ],
+        ),
+        event_definition(
+            "flow.run.result_persistence_failed",
+            "gittributary://gt-flow",
+            "flow",
+            "Flow 结果投影写入失败",
+            "Flow 已完成，但安全运行结果未能持久化",
+            "Flow 的业务动作已经结束，但安全结果投影写入失败时触发；消费者不得自动重试该 Flow。",
+            &["flow_id"],
+            &[
+                ("flow_id", "string"),
+                ("run_id", "string"),
+                ("status", "string"),
+            ],
         ),
     ]
 }

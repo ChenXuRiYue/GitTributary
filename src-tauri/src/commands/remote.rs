@@ -1,7 +1,7 @@
 //! Git 远程仓库配置命令:列表、聚合视图、clone、增删改、fetch/push/pull。
 //!
 //! 和 `commands::git` 的区别:这里的命令涉及认证解析(`auth::resolve_auth*`)
-//! 和凭证绑定(`gt-store` 的 `private.credentials`),`commands::git`
+//! 和凭证绑定(`gt-data` 的 CredentialsRepository),`commands::git`
 //! 只做纯本地仓库操作。
 
 use std::path::{Path, PathBuf};
@@ -9,16 +9,13 @@ use std::path::{Path, PathBuf};
 use serde_json::json;
 use tauri::State;
 
+use gt_data::{DataHub, RemoteCommitIdentity};
 use gt_flow::{EventDraft, FlowNodeDefinition};
 use gt_git::{AuthMethod, GitRepo, RemoteInfo, RepoOverview};
-use gt_store::Store;
 
 use crate::auth::{credential_summary_for_remote, resolve_auth, validate_project_remote_token};
 use crate::config_dir::store_base_dir;
-use crate::identity::{
-    default_commit_identity_config, remote_commit_identity_config, RemoteCommitIdentityConfig,
-};
-use crate::keys::{project_token_key_for_path, remote_meta_key, repo_path_from_project_token_key};
+use crate::identity::{default_commit_identity_config, remote_commit_identity_config};
 use crate::{publish_flow_event, set_active_repo_state, AppState};
 
 pub(crate) fn flow_node_definitions() -> Vec<FlowNodeDefinition> {
@@ -56,8 +53,8 @@ pub(crate) struct RemoteConfigEntry {
     capabilities: String,
 }
 
-fn config_repo_credential_summary(store: &Store) -> (String, Option<String>) {
-    let status = store.get_data_center_config_credential_status();
+fn config_repo_credential_summary(data: &DataHub) -> (String, Option<String>) {
+    let status = data.credentials().data_center_config_status();
     if status.has_token {
         ("config_repo_token".to_string(), Some(status.credential_ref))
     } else {
@@ -89,38 +86,17 @@ fn save_project_remote_config_and_bind_repo(
     commit_name: Option<&str>,
     commit_email: Option<&str>,
 ) -> Result<(), String> {
-    let mut store = state.store.lock().unwrap();
-    store
-        .set(
-            "private.credentials",
-            &project_token_key_for_path(repo_path),
-            serde_json::json!(token),
-        )
+    let mut data = state.data.lock().unwrap();
+    data.credentials_mut()
+        .set_project_token(repo_path, token)
         .map_err(|e| e.to_string())?;
-    let identity = RemoteCommitIdentityConfig {
-        name: commit_name
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string),
-        email: commit_email
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .map(str::to_string),
-    };
-    if identity.name.is_some() || identity.email.is_some() {
-        store
-            .set(
-                "private.local",
-                &remote_meta_key(repo_path, remote_name),
-                serde_json::to_value(identity).map_err(|e| e.to_string())?,
-            )
-            .map_err(|e| e.to_string())?;
-    } else {
-        store
-            .delete("private.local", &remote_meta_key(repo_path, remote_name))
-            .map_err(|e| e.to_string())?;
-    }
-    store.bind_repo(repo_path).map_err(|e| e.to_string())
+    let identity = RemoteCommitIdentity::normalized(commit_name, commit_email);
+    data.remote_metadata_mut()
+        .save_commit_identity(repo_path, remote_name, &identity)
+        .map_err(|e| e.to_string())?;
+    data.workspace_mut()
+        .bind_repo(repo_path)
+        .map_err(|e| e.to_string())
 }
 
 fn save_project_token_and_bind_repo(
@@ -128,15 +104,13 @@ fn save_project_token_and_bind_repo(
     repo_path: &str,
     token: &str,
 ) -> Result<(), String> {
-    let mut store = state.store.lock().unwrap();
-    store
-        .set(
-            "private.credentials",
-            &project_token_key_for_path(repo_path),
-            serde_json::json!(token),
-        )
+    let mut data = state.data.lock().unwrap();
+    data.credentials_mut()
+        .set_project_token(repo_path, token)
         .map_err(|e| e.to_string())?;
-    store.bind_repo(repo_path).map_err(|e| e.to_string())
+    data.workspace_mut()
+        .bind_repo(repo_path)
+        .map_err(|e| e.to_string())
 }
 
 /// 找远程 URL,找不到直接报错(用于发布/改 URL 前先取旧值)。
@@ -155,8 +129,10 @@ fn maybe_unbind_repo_without_remotes(
     has_remotes: bool,
 ) -> Result<(), String> {
     if !has_remotes {
-        let mut store = state.store.lock().unwrap();
-        store.unbind_repo(repo_path).map_err(|e| e.to_string())?;
+        let mut data = state.data.lock().unwrap();
+        data.workspace_mut()
+            .unbind_repo(repo_path)
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -166,23 +142,23 @@ fn delete_remote_commit_identity(
     repo_path: &str,
     remote_name: &str,
 ) -> Result<(), String> {
-    let mut store = state.store.lock().unwrap();
-    store
-        .delete("private.local", &remote_meta_key(repo_path, remote_name))
+    let mut data = state.data.lock().unwrap();
+    data.remote_metadata_mut()
+        .delete_commit_identity(repo_path, remote_name)
         .map_err(|e| e.to_string())
 }
 
 fn push_remote_config_entries_for_repo(
     entries: &mut Vec<RemoteConfigEntry>,
-    store: &Store,
+    data: &DataHub,
     repo_path: &str,
     purpose: &str,
 ) -> Result<(), String> {
     let repo = GitRepo::open(repo_path).map_err(|e| e.to_string())?;
     for remote in repo.remotes().map_err(|e| e.to_string())? {
         let (credential_mode, credential_ref) =
-            credential_summary_for_remote(store, Some(repo_path), &remote.url);
-        let identity = remote_commit_identity_config(store, repo_path, &remote.name);
+            credential_summary_for_remote(data, Some(repo_path), &remote.url);
+        let identity = remote_commit_identity_config(data, repo_path, &remote.name);
         entries.push(RemoteConfigEntry {
             name: remote.name,
             url: remote.url,
@@ -203,7 +179,7 @@ fn push_remote_config_entries_for_repo(
 
 fn push_remote_config_entries_for_existing_repo(
     entries: &mut Vec<RemoteConfigEntry>,
-    store: &Store,
+    data: &DataHub,
     seen_paths: &mut std::collections::HashSet<String>,
     repo_path: &str,
     purpose: &str,
@@ -215,7 +191,7 @@ fn push_remote_config_entries_for_existing_repo(
     if !seen_paths.insert(repo_path.to_string()) {
         return Ok(());
     }
-    match push_remote_config_entries_for_repo(entries, store, repo_path, purpose) {
+    match push_remote_config_entries_for_repo(entries, data, repo_path, purpose) {
         Ok(()) => Ok(()),
         Err(_) => Ok(()),
     }
@@ -252,15 +228,16 @@ fn collect_remote_configs_with_base_dir(
             .and_then(|repo| repo.workdir().map(|p| p.display().to_string()))
     };
 
-    let store = state.store.lock().unwrap();
-    let workspace_active_repo = store.active_repo();
+    let data = state.data.lock().unwrap();
+    let workspace = data.workspace().snapshot();
+    let workspace_active_repo = workspace.active_repo;
     let mut entries: Vec<RemoteConfigEntry> = Vec::new();
     let mut seen_paths = std::collections::HashSet::new();
 
     if let Some(active_path) = active_workdir.as_deref() {
         push_remote_config_entries_for_existing_repo(
             &mut entries,
-            &store,
+            &data,
             &mut seen_paths,
             active_path,
             "current_repo_remote",
@@ -269,34 +246,20 @@ fn collect_remote_configs_with_base_dir(
     if let Some(active_path) = workspace_active_repo.as_deref() {
         push_remote_config_entries_for_existing_repo(
             &mut entries,
-            &store,
+            &data,
             &mut seen_paths,
             active_path,
             "current_repo_remote",
         )?;
     }
 
-    let mut repo_paths = store.bound_repos();
-    repo_paths.extend(
-        store
-            .scan("private.credentials", "project.")
-            .into_iter()
-            .filter_map(|(key, value)| {
-                if !value
-                    .as_str()
-                    .map(|token| !token.is_empty())
-                    .unwrap_or(false)
-                {
-                    return None;
-                }
-                repo_path_from_project_token_key(&key)
-            }),
-    );
+    let mut repo_paths = workspace.bound_repos;
+    repo_paths.extend(data.credentials().project_token_repo_paths());
 
     for repo_path in repo_paths {
         push_remote_config_entries_for_existing_repo(
             &mut entries,
-            &store,
+            &data,
             &mut seen_paths,
             &repo_path,
             "bound_repo_remote",
@@ -304,7 +267,7 @@ fn collect_remote_configs_with_base_dir(
     }
 
     let sync_config = {
-        let engine = gt_store::SyncEngine::new(&base_dir);
+        let engine = gt_data::SyncEngine::new(&base_dir);
         engine.config().ok().flatten().map(|config| {
             let local_path = engine.config_repo_path(&config);
             (config, local_path)
@@ -319,8 +282,8 @@ fn collect_remote_configs_with_base_dir(
                     .iter()
                     .any(|purpose| purpose == "data_center_sync")
         }) {
-            let (credential_mode, credential_ref) = config_repo_credential_summary(&store);
-            let identity = default_commit_identity_config(&store);
+            let (credential_mode, credential_ref) = config_repo_credential_summary(&data);
+            let identity = default_commit_identity_config(&data);
             let repo_path = if GitRepo::is_repo(&local_path) {
                 Some(local_path.to_string_lossy().to_string())
             } else {
@@ -600,17 +563,17 @@ mod tests {
     use gt_flow::{EventPool, FlowNodeRegistry};
     use tempfile::TempDir;
 
-    fn temp_store() -> (TempDir, Store) {
+    fn temp_store() -> (TempDir, DataHub) {
         let dir = TempDir::new().unwrap();
-        let store = Store::open(dir.path()).unwrap();
-        (dir, store)
+        let data = DataHub::open(dir.path()).unwrap();
+        (dir, data)
     }
 
     fn temp_app_state() -> (TempDir, AppState) {
         let (dir, store) = temp_store();
         let state = AppState {
             repo: std::sync::Mutex::new(None),
-            store: std::sync::Mutex::new(store),
+            data: std::sync::Mutex::new(store.into()),
             event_pool: std::sync::Mutex::new(EventPool::new()),
             node_registry: std::sync::Mutex::new(FlowNodeRegistry::new()),
             flow_execution: std::sync::Mutex::new(()),
@@ -693,8 +656,9 @@ mod tests {
         repo.add_remote("origin", "https://github.com/a/b.git")
             .unwrap();
         {
-            let mut store = state.store.lock().unwrap();
+            let mut store = state.data.lock().unwrap();
             store
+                .workspace_mut()
                 .set_active_repo(&dir.path().display().to_string())
                 .unwrap();
         }
@@ -716,8 +680,11 @@ mod tests {
         let (dir, state) = temp_app_state();
         let non_git_path = dir.path().display().to_string();
         {
-            let mut store = state.store.lock().unwrap();
-            store.set_active_repo(&non_git_path).unwrap();
+            let mut store = state.data.lock().unwrap();
+            store
+                .workspace_mut()
+                .set_active_repo(&non_git_path)
+                .unwrap();
         }
 
         let entries = collect_remote_configs(&state).unwrap();
@@ -736,11 +703,13 @@ mod tests {
         repo.add_remote("origin", "https://github.com/a/b.git")
             .unwrap();
         {
-            let mut store = state.store.lock().unwrap();
+            let mut store = state.data.lock().unwrap();
             store
+                .workspace_mut()
                 .bind_repo(&invalid_dir.path().display().to_string())
                 .unwrap();
             store
+                .workspace_mut()
                 .bind_repo(&valid_dir.path().display().to_string())
                 .unwrap();
         }
@@ -759,9 +728,9 @@ mod tests {
         let repo = init_repo_with_commit(checkout_dir.path());
         repo.add_remote("origin", "https://github.com/a/config.git")
             .unwrap();
-        let engine = gt_store::SyncEngine::new(store_dir.path());
+        let engine = gt_data::SyncEngine::new(store_dir.path());
         engine
-            .set_config(&gt_store::SyncConfig {
+            .set_config(&gt_data::SyncConfig {
                 url: "https://github.com/a/config.git".to_string(),
                 branch: "main".to_string(),
                 active_environment_id: None,
@@ -805,15 +774,14 @@ mod tests {
         )
         .unwrap();
 
-        let store = state.store.lock().unwrap();
-        let token = store
-            .get(
-                "private.credentials",
-                &project_token_key_for_path(&repo_path),
-            )
-            .and_then(|v| v.as_str().map(str::to_string));
+        let store = state.data.lock().unwrap();
+        let token = store.credentials().project_token(&repo_path);
         assert_eq!(token, Some("tok".to_string()));
-        assert!(store.bound_repos().contains(&repo_path));
+        assert!(store
+            .workspace()
+            .snapshot()
+            .bound_repos
+            .contains(&repo_path));
 
         let identity = remote_commit_identity_config(&store, &repo_path, "origin").unwrap();
         assert_eq!(identity.name, Some("Alice".to_string()));
@@ -828,7 +796,7 @@ mod tests {
         save_project_remote_config_and_bind_repo(&state, &repo_path, "origin", "tok", None, None)
             .unwrap();
 
-        let store = state.store.lock().unwrap();
+        let store = state.data.lock().unwrap();
         assert!(remote_commit_identity_config(&store, &repo_path, "origin").is_none());
     }
 
@@ -837,12 +805,16 @@ mod tests {
         let (dir, state) = temp_app_state();
         let repo_path = dir.path().display().to_string();
         {
-            let mut store = state.store.lock().unwrap();
-            store.bind_repo(&repo_path).unwrap();
+            let mut store = state.data.lock().unwrap();
+            store.workspace_mut().bind_repo(&repo_path).unwrap();
         }
         maybe_unbind_repo_without_remotes(&state, &repo_path, false).unwrap();
-        let store = state.store.lock().unwrap();
-        assert!(!store.bound_repos().contains(&repo_path));
+        let store = state.data.lock().unwrap();
+        assert!(!store
+            .workspace()
+            .snapshot()
+            .bound_repos
+            .contains(&repo_path));
     }
 
     #[test]
@@ -850,11 +822,15 @@ mod tests {
         let (dir, state) = temp_app_state();
         let repo_path = dir.path().display().to_string();
         {
-            let mut store = state.store.lock().unwrap();
-            store.bind_repo(&repo_path).unwrap();
+            let mut store = state.data.lock().unwrap();
+            store.workspace_mut().bind_repo(&repo_path).unwrap();
         }
         maybe_unbind_repo_without_remotes(&state, &repo_path, true).unwrap();
-        let store = state.store.lock().unwrap();
-        assert!(store.bound_repos().contains(&repo_path));
+        let store = state.data.lock().unwrap();
+        assert!(store
+            .workspace()
+            .snapshot()
+            .bound_repos
+            .contains(&repo_path));
     }
 }

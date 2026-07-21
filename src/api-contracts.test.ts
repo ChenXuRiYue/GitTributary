@@ -71,6 +71,15 @@ describe("Flow Tauri command contracts", () => {
     ]);
   });
 
+  it("queries persisted run lifecycle by run id", async () => {
+    await flowApi.runJournal("run_123");
+    await flowApi.listRuns(50);
+    expect(mockedInvoke.mock.calls).toEqual([
+      ["flow_run_journal", { runId: "run_123" }],
+      ["flow_run_list", { limit: 50 }],
+    ]);
+  });
+
   it("passes normalized folder paths without client-side rewriting", async () => {
     await flowApi.createFolder("release/daily");
     await flowApi.deleteFolder("release/daily");
@@ -86,6 +95,7 @@ describe("extension API compatibility contracts", () => {
     mockedInvoke.mockResolvedValueOnce([
       {
         pluginId: "com.example.flat",
+        generation: 11,
         pluginName: "Flat plugin",
         pluginVersion: "1.0.0",
         viewId: "main",
@@ -96,6 +106,7 @@ describe("extension API compatibility contracts", () => {
       },
       {
         plugin_id: "com.example.snake",
+        generation: 12,
         plugin_name: "Snake plugin",
         plugin_version: "2.0.0",
         view_id: "settings",
@@ -107,6 +118,7 @@ describe("extension API compatibility contracts", () => {
     await expect(listExtensionContributions()).resolves.toEqual([
       {
         pluginId: "com.example.flat",
+        generation: 11,
         pluginName: "Flat plugin",
         pluginVersion: "1.0.0",
         viewId: "main",
@@ -117,6 +129,7 @@ describe("extension API compatibility contracts", () => {
       },
       {
         pluginId: "com.example.snake",
+        generation: 12,
         pluginName: "Snake plugin",
         pluginVersion: "2.0.0",
         viewId: "settings",
@@ -134,6 +147,7 @@ describe("extension API compatibility contracts", () => {
       extensions: [
         {
           status: "active",
+          generation: 13,
           manifest: {
             id: "com.example.publisher",
             name: "Publisher",
@@ -160,6 +174,7 @@ describe("extension API compatibility contracts", () => {
 
     await expect(listExtensionContributions()).resolves.toEqual([{
       pluginId: "com.example.publisher",
+      generation: 13,
       pluginName: "Publisher",
       pluginVersion: "3.1.4",
       viewId: "site",
@@ -175,14 +190,25 @@ describe("extension API compatibility contracts", () => {
     await expect(listExtensionContributions()).resolves.toEqual([]);
   });
 
+  it("rejects contributions without a valid runtime generation", async () => {
+    mockedInvoke.mockResolvedValueOnce([
+      { pluginId: "missing", viewId: "main", title: "Missing", entryUrl: "/missing" },
+      { pluginId: "zero", generation: 0, viewId: "main", title: "Zero", entryUrl: "/zero" },
+      { pluginId: "fraction", generation: 1.5, viewId: "main", title: "Fraction", entryUrl: "/fraction" },
+    ] as never);
+    await expect(listExtensionContributions()).resolves.toEqual([]);
+  });
+
   it("binds extension identity outside the untrusted payload", async () => {
     await callExtension({
       pluginId: "com.example.publisher",
+      generation: 13,
       method: "site.build",
       payload: { pluginId: "attempted-override", source: "/tmp/notes" },
     });
     expect(mockedInvoke).toHaveBeenCalledWith("extension_call", {
       pluginId: "com.example.publisher",
+      generation: 13,
       method: "site.build",
       payload: { pluginId: "attempted-override", source: "/tmp/notes" },
     });
@@ -203,8 +229,8 @@ describe("extension API compatibility contracts", () => {
 describe("extension contribution hook", () => {
   it("loads contributions and reloads on the extension-changed event", async () => {
     mockedInvoke
-      .mockResolvedValueOnce([{ pluginId: "one", viewId: "main", title: "One", entryUrl: "/one" }] as never)
-      .mockResolvedValueOnce([{ pluginId: "two", viewId: "main", title: "Two", entryUrl: "/two" }] as never);
+      .mockResolvedValueOnce([{ pluginId: "one", generation: 1, viewId: "main", title: "One", entryUrl: "/one" }] as never)
+      .mockResolvedValueOnce([{ pluginId: "two", generation: 2, viewId: "main", title: "Two", entryUrl: "/two" }] as never);
 
     const { result } = renderHook(() => useExtensionContributions());
     await waitFor(() => expect(result.current.loading).toBe(false));

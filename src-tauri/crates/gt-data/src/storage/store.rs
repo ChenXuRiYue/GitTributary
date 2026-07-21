@@ -4,11 +4,13 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use crate::error::{Result, StoreError};
-use crate::namespace::{Namespace, Visibility};
+use super::error::{Result, StoreError};
+use super::namespace::{Namespace, Visibility};
+use super::policy::{EventPolicy, NamespacePolicy, NamespacePolicyRegistry};
 
 /// 数据中心主结构体
 pub struct Store {
+    base_dir: PathBuf,
     /// 数据目录(.gittributary/data/)
     data_dir: PathBuf,
     /// profiles 目录(.gittributary/profiles/)
@@ -17,32 +19,42 @@ pub struct Store {
     namespaces: HashMap<String, Namespace>,
     /// 当前激活的 profile 名称
     active_profile: Option<String>,
+    /// 命名空间的数据分类、同步和事件策略。
+    policies: NamespacePolicyRegistry,
 }
 
-/// 根据命名空间名推断可见性:
-/// secrets / 以 "private." 开头 → Private,其他 → Public
-pub fn infer_visibility(name: &str) -> Visibility {
-    if name == "secrets" || name.starts_with("private.") {
-        Visibility::Private
-    } else {
-        Visibility::Public
+pub fn validate_namespace_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || name.len() > 128
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    {
+        return Err(StoreError::Internal(format!("非法命名空间名称: {name}")));
     }
+    Ok(())
 }
 
 impl Store {
     /// 打开(或初始化)数据中心
     /// base_dir: .gittributary/ 根目录
     pub fn open(base_dir: &Path) -> Result<Self> {
+        Self::open_with_policies(base_dir, NamespacePolicyRegistry::default())
+    }
+
+    pub fn open_with_policies(base_dir: &Path, policies: NamespacePolicyRegistry) -> Result<Self> {
         let data_dir = base_dir.join("data");
         let profiles_dir = base_dir.join("profiles");
         fs::create_dir_all(&data_dir)?;
         fs::create_dir_all(&profiles_dir)?;
 
         let mut store = Self {
+            base_dir: base_dir.to_path_buf(),
             data_dir,
             profiles_dir,
             namespaces: HashMap::new(),
             active_profile: None,
+            policies,
         };
 
         // 加载已有命名空间
@@ -68,7 +80,7 @@ impl Store {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_string();
-                let vis = infer_visibility(&name);
+                let vis = self.policies.resolve(&name).visibility();
                 let ns = Namespace::open(&self.data_dir, &name, vis)?;
                 self.namespaces.insert(name, ns);
             }
@@ -78,8 +90,9 @@ impl Store {
 
     /// 确保命名空间已加载(不存在则创建)
     fn ensure_namespace(&mut self, name: &str) -> Result<()> {
+        validate_namespace_name(name)?;
         if !self.namespaces.contains_key(name) {
-            let vis = infer_visibility(name);
+            let vis = self.policies.resolve(name).visibility();
             let ns = Namespace::open(&self.data_dir, name, vis)?;
             self.namespaces.insert(name.to_string(), ns);
         }
@@ -88,24 +101,22 @@ impl Store {
 
     // ─── KV 操作 ──────────────────────────────────────────────
 
+    pub fn base_dir(&self) -> &Path {
+        &self.base_dir
+    }
+
     pub fn get(&self, namespace: &str, key: &str) -> Option<Value> {
         self.namespaces.get(namespace)?.get(key).cloned()
     }
 
     pub fn set(&mut self, namespace: &str, key: &str, value: Value) -> Result<()> {
         self.ensure_namespace(namespace)?;
-        self.namespaces
-            .get_mut(namespace)
-            .unwrap()
-            .set(key, value)
+        self.namespaces.get_mut(namespace).unwrap().set(key, value)
     }
 
     pub fn delete(&mut self, namespace: &str, key: &str) -> Result<()> {
         self.ensure_namespace(namespace)?;
-        self.namespaces
-            .get_mut(namespace)
-            .unwrap()
-            .delete(key)
+        self.namespaces.get_mut(namespace).unwrap().delete(key)
     }
 
     pub fn keys(&self, namespace: &str) -> Vec<String> {
@@ -135,27 +146,60 @@ impl Store {
 
     /// 获取命名空间的可见性
     pub fn namespace_visibility(&self, namespace: &str) -> Option<Visibility> {
-        self.namespaces.get(namespace).map(|ns| ns.visibility)
+        self.namespaces
+            .contains_key(namespace)
+            .then(|| self.policies.resolve(namespace).visibility())
     }
 
-    /// 列出可同步的命名空间(Public)
-    pub fn public_namespaces(&self) -> Vec<String> {
-        self.namespaces.iter()
-            .filter(|(_, ns)| ns.visibility == Visibility::Public)
-            .map(|(k, _)| k.clone())
+    pub fn namespace_policy(&self, namespace: &str) -> NamespacePolicy {
+        self.policies.resolve(namespace)
+    }
+
+    pub fn register_namespace_policy(&mut self, namespace: &str, policy: NamespacePolicy) {
+        self.policies.register_namespace(namespace, policy);
+        if let Some(loaded) = self.namespaces.get_mut(namespace) {
+            loaded.visibility = policy.visibility();
+        }
+    }
+
+    pub fn publishes_events(&self, namespace: &str) -> bool {
+        self.namespace_policy(namespace).events == EventPolicy::Publish
+    }
+
+    pub fn syncable_namespaces(&self) -> Vec<String> {
+        self.namespaces
+            .keys()
+            .filter(|name| self.namespace_policy(name).sync.is_syncable())
+            .cloned()
             .collect()
     }
 
-    /// 列出仅本地的命名空间(Private)
+    /// 兼容旧 API：列出显式策略允许同步的命名空间。
+    pub fn public_namespaces(&self) -> Vec<String> {
+        self.syncable_namespaces()
+    }
+
+    /// 兼容旧 API：列出显式策略禁止同步的命名空间。
     pub fn private_namespaces(&self) -> Vec<String> {
-        self.namespaces.iter()
-            .filter(|(_, ns)| ns.visibility == Visibility::Private)
-            .map(|(k, _)| k.clone())
+        self.namespaces
+            .keys()
+            .filter(|name| !self.namespace_policy(name).sync.is_syncable())
+            .cloned()
             .collect()
     }
 
     pub fn namespace_len(&self, namespace: &str) -> usize {
-        self.namespaces.get(namespace).map(|ns| ns.len()).unwrap_or(0)
+        self.namespaces
+            .get(namespace)
+            .map(|ns| ns.len())
+            .unwrap_or(0)
+    }
+
+    pub fn namespace_storage_bytes(&self, namespace: &str) -> u64 {
+        self.namespaces
+            .get(namespace)
+            .map(|namespace| namespace.storage_bytes())
+            .unwrap_or(0)
     }
 
     pub fn compact(&mut self, namespace: &str) -> Result<()> {
@@ -182,13 +226,7 @@ impl Store {
     }
 
     /// 用指定时间戳写入(用于 import 远端记录时保留原始 t)。
-    pub fn set_with_ts(
-        &mut self,
-        namespace: &str,
-        key: &str,
-        value: Value,
-        t: i64,
-    ) -> Result<()> {
+    pub fn set_with_ts(&mut self, namespace: &str, key: &str, value: Value, t: i64) -> Result<()> {
         self.ensure_namespace(namespace)?;
         self.namespaces
             .get_mut(namespace)
@@ -207,7 +245,10 @@ impl Store {
         if path.exists() {
             let content = fs::read_to_string(&path)?;
             if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&content) {
-                self.active_profile = obj.get("active").and_then(|v| v.as_str()).map(|s| s.to_string());
+                self.active_profile = obj
+                    .get("active")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
             }
         }
         Ok(())
@@ -226,7 +267,11 @@ impl Store {
             let entry = entry?;
             let path = entry.path();
             if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
-                let name = path.file_stem().unwrap_or_default().to_string_lossy().to_string();
+                let name = path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_string();
                 profiles.push(name);
             }
         }
@@ -252,7 +297,10 @@ impl Store {
         // 记录 active
         self.active_profile = Some(name.to_string());
         let active_json = serde_json::json!({ "active": name });
-        fs::write(self.active_profile_path(), serde_json::to_string_pretty(&active_json)?)?;
+        fs::write(
+            self.active_profile_path(),
+            serde_json::to_string_pretty(&active_json)?,
+        )?;
 
         Ok(())
     }
@@ -271,7 +319,10 @@ impl Store {
         if self.active_profile.is_none() {
             self.active_profile = Some(name.to_string());
             let active_json = serde_json::json!({ "active": name });
-            fs::write(self.active_profile_path(), serde_json::to_string_pretty(&active_json)?)?;
+            fs::write(
+                self.active_profile_path(),
+                serde_json::to_string_pretty(&active_json)?,
+            )?;
         }
 
         Ok(())

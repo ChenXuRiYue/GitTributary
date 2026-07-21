@@ -3,37 +3,32 @@
 //! 优先级:某个远程的显式覆盖配置 > 全局 Git 凭证配置 > 应用默认值
 //! ("GitTributary" / "gittributary@local")。
 //!
-//! 这里同时需要 `gt-store`(凭证/覆盖配置存哪)和 `gt-git`
+//! 这里同时需要 `gt-data`(凭证/覆盖配置)和 `gt-git`
 //! 的 `CommitIdentity` 类型,因此和 `auth.rs` 一样属于胶水层职责。
 
+use gt_data::{DataHub, RemoteCommitIdentity};
 use gt_git::{CommitIdentity, GitRepo};
-use gt_store::Store;
 
-use crate::keys::remote_meta_key;
 use crate::AppState;
 
 /// 某个仓库 + 某个远程的 commit identity 覆盖配置(用户显式设置的)。
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct RemoteCommitIdentityConfig {
-    pub(crate) name: Option<String>,
-    pub(crate) email: Option<String>,
-}
+pub(crate) type RemoteCommitIdentityConfig = RemoteCommitIdentity;
 
 /// 读取某个仓库 + 远程的显式覆盖配置(如果用户设置过)。
 pub(crate) fn remote_commit_identity_config(
-    store: &Store,
+    data: &DataHub,
     repo_path: &str,
     remote_name: &str,
 ) -> Option<RemoteCommitIdentityConfig> {
-    store
-        .get("private.local", &remote_meta_key(repo_path, remote_name))
-        .and_then(|value| serde_json::from_value(value).ok())
+    data.remote_metadata()
+        .commit_identity(repo_path, remote_name)
+        .ok()
+        .flatten()
 }
 
 /// 从全局 Git 凭证配置(`git.username` / `git.email`)取默认 identity。
-pub(crate) fn default_commit_identity_config(store: &Store) -> RemoteCommitIdentityConfig {
-    let credentials = store.get_git_credentials();
+pub(crate) fn default_commit_identity_config(data: &DataHub) -> RemoteCommitIdentityConfig {
+    let credentials = data.credentials().summary();
     RemoteCommitIdentityConfig {
         name: credentials
             .username
@@ -52,7 +47,7 @@ pub(crate) fn fallback_commit_identity(
     state: &AppState,
     remote_identity: Option<RemoteCommitIdentityConfig>,
 ) -> CommitIdentity {
-    let store = state.store.lock().unwrap();
+    let store = state.data.lock().unwrap();
     let default_identity = default_commit_identity_config(&store);
     CommitIdentity {
         name: remote_identity
@@ -85,7 +80,7 @@ pub(crate) fn commit_identity_for_repo_remote(
     remote_name: Option<&str>,
 ) -> CommitIdentity {
     let remote_identity = {
-        let store = state.store.lock().unwrap();
+        let store = state.data.lock().unwrap();
         remote_name.and_then(|remote| remote_commit_identity_config(&store, repo_path, remote))
     };
     fallback_commit_identity(state, remote_identity)
@@ -96,17 +91,17 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn temp_store() -> (TempDir, Store) {
+    fn temp_store() -> (TempDir, DataHub) {
         let dir = TempDir::new().unwrap();
-        let store = Store::open(dir.path()).unwrap();
-        (dir, store)
+        let data = DataHub::open(dir.path()).unwrap();
+        (dir, data)
     }
 
     fn temp_app_state() -> (TempDir, AppState) {
         let (dir, store) = temp_store();
         let state = AppState {
             repo: std::sync::Mutex::new(None),
-            store: std::sync::Mutex::new(store),
+            data: std::sync::Mutex::new(store.into()),
             event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
             node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
             flow_execution: std::sync::Mutex::new(()),
@@ -127,8 +122,17 @@ mod tests {
     #[test]
     fn default_commit_identity_config_reads_from_git_credentials() {
         let (_dir, mut store) = temp_store();
-        store.set_git_username("Alice").unwrap();
-        store.set_git_email("alice@example.com").unwrap();
+        store
+            .settings_mut()
+            .set(gt_data::setting_keys::GIT_USERNAME, "Alice".to_string())
+            .unwrap();
+        store
+            .settings_mut()
+            .set(
+                gt_data::setting_keys::GIT_EMAIL,
+                "alice@example.com".to_string(),
+            )
+            .unwrap();
         let identity = default_commit_identity_config(&store);
         assert_eq!(identity.name, Some("Alice".to_string()));
         assert_eq!(identity.email, Some("alice@example.com".to_string()));
@@ -146,8 +150,11 @@ mod tests {
     fn fallback_commit_identity_prefers_remote_identity_over_defaults() {
         let (_dir, state) = temp_app_state();
         {
-            let mut store = state.store.lock().unwrap();
-            store.set_git_username("Alice").unwrap();
+            let mut store = state.data.lock().unwrap();
+            store
+                .settings_mut()
+                .set(gt_data::setting_keys::GIT_USERNAME, "Alice".to_string())
+                .unwrap();
         }
         let remote_identity = RemoteCommitIdentityConfig {
             name: Some("Bob".to_string()),

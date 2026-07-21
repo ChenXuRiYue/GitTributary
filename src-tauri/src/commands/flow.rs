@@ -1,6 +1,6 @@
 //! 工作流(gt-flow)相关命令 + 应用级 Action 执行器。
 //!
-//! `AppFlowActionExecutor` 是 `gt-flow` 和业务 crate(`gt-git`/`gt-store`)
+//! `AppFlowActionExecutor` 是 `gt-flow` 和业务 crate(`gt-git`/`gt-data`)
 //! 的连接层:`gt-flow` 只负责编排(顺序执行 job/step、渲染表达式),
 //! 真正的动作(commit/push/sync/文件操作)由这里注入执行。
 //!
@@ -14,19 +14,21 @@ use std::path::Path;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, State};
 
+use gt_data::{DataHub, RunJournalObserver, RunJournalRecord, RunJournalSummary};
 use gt_flow::{
     CloudEvent, EventDefinition, EventDraft, EventReceipt, FlowActionExecutor, FlowActionOutcome,
     FlowBuildDraft, FlowBuildRequest, FlowExecutionContext, FlowNodeDefinition, FlowNodeOwner,
     FlowNodeRegistry, FlowNodeSpec, FlowRecord, FlowRunReport, FlowRunRequest, FlowSummary,
 };
 use gt_git::GitRepo;
-use gt_store::Store;
 
 use crate::auth::resolve_auth;
 use crate::commands::{files as file_commands, git as git_commands, remote, sync};
 use crate::extensions::{ExtensionRegistry, PluginFlowNodeBindingSnapshot};
 use crate::identity::{commit_identity_for_repo_remote, preferred_commit_remote};
 use crate::{publish_flow_event, sync_data_center_now, AppState};
+
+const MAX_PLUGIN_NODE_OUTCOME_BYTES: usize = 256 * 1024;
 
 pub(crate) fn inspect_flow_node_sources(
     extensions: &ExtensionRegistry,
@@ -82,30 +84,19 @@ pub(crate) struct FlowSaveRequest {
     folder: Option<String>,
 }
 
-pub(crate) fn flow_record_from_store_value(value: Value) -> Result<FlowRecord, String> {
-    gt_flow::record_from_value(value).map_err(|e| e.to_string())
-}
-
-fn flow_record_to_store_value(record: &FlowRecord) -> Result<Value, String> {
-    gt_flow::record_to_value(record).map_err(|e| e.to_string())
-}
-
 /// 供 `publish_flow_event` / `match_flow_event`(定义在 `lib.rs`,事件池入口)
-/// 复用:从 Store 里读出全部 Flow 记录,用来匹配触发条件。
-pub(crate) fn flow_records_from_store(store: &Store) -> Vec<FlowRecord> {
-    store
-        .scan(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_KEY_PREFIX)
-        .into_iter()
-        .filter_map(|(_, value)| flow_record_from_store_value(value).ok())
-        .collect()
+/// 复用:通过 FlowDefinitionRepository 读取全部 Flow 记录,用来匹配触发条件。
+pub(crate) fn flow_records_from_data(data: &DataHub) -> Result<Vec<FlowRecord>, String> {
+    data.flows().list().map_err(|e| e.to_string())
 }
 
-fn workspace_context_from_store(store: &Store) -> Value {
+fn workspace_context_from_data(data: &DataHub) -> Value {
+    let workspace = data.workspace().snapshot();
     json!({
-        "active_repo": store.active_repo(),
-        "active_branch": store.active_branch(),
-        "device_id": store.device_id(),
-        "device_name": store.device_name(),
+        "active_repo": workspace.active_repo,
+        "active_branch": workspace.active_branch,
+        "device_id": workspace.device_id,
+        "device_name": workspace.device_name,
     })
 }
 
@@ -175,9 +166,7 @@ impl AppFlowActionExecutor<'_> {
                 }),
             )
             .map_err(to_validation_error)?;
-        serde_json::from_value(value).map_err(|error| {
-            gt_flow::FlowError::Validation(format!("插件节点返回值无效 ({}): {error}", node.uses))
-        })
+        decode_plugin_node_outcome(&node.uses, value)
     }
 
     fn assert_exists(
@@ -269,6 +258,21 @@ impl AppFlowActionExecutor<'_> {
     }
 }
 
+fn decode_plugin_node_outcome(uses: &str, value: Value) -> gt_flow::Result<FlowActionOutcome> {
+    let size = serde_json::to_vec(&value)
+        .map_err(to_validation_error)?
+        .len();
+    if size > MAX_PLUGIN_NODE_OUTCOME_BYTES {
+        return Err(gt_flow::FlowError::Validation(format!(
+            "插件节点返回值超过 {} bytes 限制 ({uses}): {size}",
+            MAX_PLUGIN_NODE_OUTCOME_BYTES
+        )));
+    }
+    serde_json::from_value(value).map_err(|error| {
+        gt_flow::FlowError::Validation(format!("插件节点返回值无效 ({uses}): {error}"))
+    })
+}
+
 fn require_input(inputs: &BTreeMap<String, String>, key: &str) -> gt_flow::Result<String> {
     inputs
         .get(key)
@@ -336,12 +340,10 @@ pub(crate) fn flow_save(
     state: State<'_, AppState>,
 ) -> Result<FlowRecord, String> {
     let summary = gt_flow::parse_workflow(&request.workflow).map_err(|e| e.to_string())?;
-    let key = gt_flow::workflow_key(&summary.id);
     let now = gt_flow::now_rfc3339();
-    let mut store = state.store.lock().unwrap();
-    let existing = store
-        .get(gt_flow::FLOW_NAMESPACE, &key)
-        .and_then(|value| flow_record_from_store_value(value).ok());
+    let mut data = state.data.lock().unwrap();
+    // 保存是损坏/旧 schema Flow 的修复入口；无法解析的旧值按不存在处理并覆盖。
+    let existing = data.flows().get(&summary.id).ok().flatten();
     let created_at = existing
         .as_ref()
         .map(|record| record.created_at.clone())
@@ -359,22 +361,19 @@ pub(crate) fn flow_save(
         created_at,
         now,
     );
-    let value = flow_record_to_store_value(&record)?;
-    store
-        .set(gt_flow::FLOW_NAMESPACE, &key, value)
-        .map_err(|e| e.to_string())?;
-    let mut folders = flow_folders_from_store(&store);
+    data.flows_mut().save(&record).map_err(|e| e.to_string())?;
+    let mut folders = flow_folders_from_data(&data)?;
     if !folders.contains(&folder) {
         folders.push(folder);
-        save_flow_folders_to_store(&mut store, folders)?;
+        save_flow_folders_to_data(&mut data, folders)?;
     }
     Ok(record)
 }
 
 #[tauri::command]
-pub(crate) fn flow_list(state: State<'_, AppState>) -> Vec<FlowListItem> {
-    let store = state.store.lock().unwrap();
-    let mut items = flow_records_from_store(&store)
+pub(crate) fn flow_list(state: State<'_, AppState>) -> Result<Vec<FlowListItem>, String> {
+    let data = state.data.lock().unwrap();
+    let mut items = flow_records_from_data(&data)?
         .into_iter()
         .map(|record| {
             let key = gt_flow::workflow_key(&record.summary.id);
@@ -395,7 +394,7 @@ pub(crate) fn flow_list(state: State<'_, AppState>) -> Vec<FlowListItem> {
             .cmp(&b.summary.name)
             .then_with(|| a.id.cmp(&b.id))
     });
-    items
+    Ok(items)
 }
 
 #[tauri::command]
@@ -403,21 +402,14 @@ pub(crate) fn flow_get(
     id: String,
     state: State<'_, AppState>,
 ) -> Result<Option<FlowRecord>, String> {
-    let store = state.store.lock().unwrap();
-    let key = gt_flow::workflow_key(&id);
-    store
-        .get(gt_flow::FLOW_NAMESPACE, &key)
-        .map(flow_record_from_store_value)
-        .transpose()
+    let data = state.data.lock().unwrap();
+    data.flows().get(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub(crate) fn flow_delete(id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut store = state.store.lock().unwrap();
-    let key = gt_flow::workflow_key(&id);
-    store
-        .delete(gt_flow::FLOW_NAMESPACE, &key)
-        .map_err(|e| e.to_string())
+    let mut data = state.data.lock().unwrap();
+    data.flows_mut().delete(&id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -426,24 +418,21 @@ pub(crate) fn flow_set_enabled(
     enabled: bool,
     state: State<'_, AppState>,
 ) -> Result<FlowRecord, String> {
-    let mut store = state.store.lock().unwrap();
-    let key = gt_flow::workflow_key(&id);
-    let value = store
-        .get(gt_flow::FLOW_NAMESPACE, &key)
+    let mut data = state.data.lock().unwrap();
+    let mut record = data
+        .flows()
+        .get(&id)
+        .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Flow 不存在: {id}"))?;
-    let mut record = flow_record_from_store_value(value)?;
     record.set_enabled(enabled, gt_flow::now_rfc3339());
-    let value = flow_record_to_store_value(&record)?;
-    store
-        .set(gt_flow::FLOW_NAMESPACE, &key, value)
-        .map_err(|e| e.to_string())?;
+    data.flows_mut().save(&record).map_err(|e| e.to_string())?;
     Ok(record)
 }
 
 #[tauri::command]
-pub(crate) fn flow_list_folders(state: State<'_, AppState>) -> Vec<String> {
-    let store = state.store.lock().unwrap();
-    flow_folders_from_store(&store)
+pub(crate) fn flow_list_folders(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let data = state.data.lock().unwrap();
+    flow_folders_from_data(&data)
 }
 
 #[tauri::command]
@@ -451,13 +440,13 @@ pub(crate) fn flow_create_folder(
     path: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    let mut store = state.store.lock().unwrap();
+    let mut data = state.data.lock().unwrap();
     let folder = gt_flow::normalize_folder(Some(&path), None);
-    let mut folders = flow_folders_from_store(&store);
+    let mut folders = flow_folders_from_data(&data)?;
     if !folders.contains(&folder) {
         folders.push(folder);
     }
-    save_flow_folders_to_store(&mut store, folders)
+    save_flow_folders_to_data(&mut data, folders)
 }
 
 #[tauri::command]
@@ -465,18 +454,19 @@ pub(crate) fn flow_delete_folder(
     path: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    let mut store = state.store.lock().unwrap();
+    let mut data = state.data.lock().unwrap();
     let folder = gt_flow::normalize_folder(Some(&path), None);
-    let has_children = flow_folders_from_store(&store)
+    let has_children = flow_folders_from_data(&data)?
         .iter()
         .any(|item| item != &folder && item.starts_with(&format!("{folder}/")));
     if has_children {
         return Err("文件夹非空: 请先删除子文件夹".to_string());
     }
-    let has_flows = store
-        .scan(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_KEY_PREFIX)
+    let has_flows = data
+        .flows()
+        .list()
+        .map_err(|e| e.to_string())?
         .into_iter()
-        .filter_map(|(_, value)| flow_record_from_store_value(value).ok())
         .any(|record| {
             gt_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)) == folder
         });
@@ -484,38 +474,36 @@ pub(crate) fn flow_delete_folder(
         return Err("文件夹非空: 请先移动或删除其中的 Flow".to_string());
     }
 
-    let folders = flow_folders_from_store(&store)
+    let folders = flow_folders_from_data(&data)?
         .into_iter()
         .filter(|item| item != &folder)
         .collect::<Vec<_>>();
-    save_flow_folders_to_store(&mut store, folders)
+    save_flow_folders_to_data(&mut data, folders)
 }
 
-fn flow_folders_from_store(store: &Store) -> Vec<String> {
-    let mut folders = store
-        .get(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_FOLDERS_KEY)
-        .and_then(|value| serde_json::from_value::<Vec<String>>(value).ok())
-        .unwrap_or_default()
+fn flow_folders_from_data(data: &DataHub) -> Result<Vec<String>, String> {
+    let mut folders = data
+        .flows()
+        .folders()
+        .map_err(|e| e.to_string())?
         .into_iter()
         .map(|folder| gt_flow::normalize_folder(Some(&folder), None))
         .collect::<Vec<_>>();
 
-    for (_, value) in store.scan(gt_flow::FLOW_NAMESPACE, gt_flow::FLOW_KEY_PREFIX) {
-        if let Ok(record) = flow_record_from_store_value(value) {
-            folders.push(gt_flow::normalize_folder(
-                record.folder.as_deref(),
-                Some(&record.summary),
-            ));
-        }
+    for record in data.flows().list().map_err(|e| e.to_string())? {
+        folders.push(gt_flow::normalize_folder(
+            record.folder.as_deref(),
+            Some(&record.summary),
+        ));
     }
 
     folders.sort();
     folders.dedup();
-    folders
+    Ok(folders)
 }
 
-fn save_flow_folders_to_store(
-    store: &mut Store,
+fn save_flow_folders_to_data(
+    data: &mut DataHub,
     folders: Vec<String>,
 ) -> Result<Vec<String>, String> {
     let mut folders = folders
@@ -524,12 +512,8 @@ fn save_flow_folders_to_store(
         .collect::<Vec<_>>();
     folders.sort();
     folders.dedup();
-    store
-        .set(
-            gt_flow::FLOW_NAMESPACE,
-            gt_flow::FLOW_FOLDERS_KEY,
-            serde_json::json!(folders),
-        )
+    data.flows_mut()
+        .save_folders(&folders)
         .map_err(|e| e.to_string())?;
     Ok(folders)
 }
@@ -606,12 +590,10 @@ pub(crate) fn flow_nodes(
     state: State<'_, AppState>,
 ) -> Result<Vec<FlowNodeSpec>, String> {
     let record = {
-        let store = state.store.lock().unwrap();
-        let key = gt_flow::workflow_key(&id);
-        store
-            .get(gt_flow::FLOW_NAMESPACE, &key)
-            .map(flow_record_from_store_value)
-            .transpose()?
+        let data = state.data.lock().unwrap();
+        data.flows()
+            .get(&id)
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Flow 不存在: {id}"))?
     };
     let registry = state.node_registry.lock().unwrap();
@@ -632,6 +614,28 @@ pub(crate) async fn flow_run(
     .map_err(|error| error.to_string())?
 }
 
+#[tauri::command]
+pub(crate) fn flow_run_journal(
+    run_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<RunJournalRecord>, String> {
+    let data = state.data.lock().unwrap();
+    data.run_journal()
+        .read_run(&run_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub(crate) fn flow_run_list(
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<RunJournalSummary>, String> {
+    let data = state.data.lock().unwrap();
+    data.run_journal()
+        .list_runs(limit.unwrap_or(100).clamp(1, 1000))
+        .map_err(|error| error.to_string())
+}
+
 fn flow_run_blocking(
     id: String,
     request: Option<FlowRunRequest>,
@@ -642,14 +646,13 @@ fn flow_run_blocking(
         .try_lock()
         .map_err(|_| "flow_run_already_in_progress".to_string())?;
     let (record, workspace) = {
-        let store = state.store.lock().unwrap();
-        let key = gt_flow::workflow_key(&id);
-        let record = store
-            .get(gt_flow::FLOW_NAMESPACE, &key)
-            .map(flow_record_from_store_value)
-            .transpose()?
+        let data = state.data.lock().unwrap();
+        let record = data
+            .flows()
+            .get(&id)
+            .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Flow 不存在: {id}"))?;
-        let workspace = workspace_context_from_store(&store);
+        let workspace = workspace_context_from_data(&data);
         (record, workspace)
     };
     let (registry, plugin_bindings) = {
@@ -666,17 +669,76 @@ fn flow_run_blocking(
         }
         (registry, bindings)
     };
+    let request = request.unwrap_or(FlowRunRequest {
+        intent: None,
+        inputs: Value::Object(Default::default()),
+    });
+    let run_id = gt_flow::resolve_run_id(&request);
+    {
+        let data = state.data.lock().unwrap();
+        data.run_journal()
+            .start_run(&run_id, &record.summary.id, &gt_flow::now_rfc3339())
+            .map_err(|error| format!("flow_run_journal_start_failed: {error}"))?;
+    }
+
+    let journal = {
+        let data = state.data.lock().unwrap();
+        data.run_journal().clone()
+    };
+    let mut observer = RunJournalObserver::new(&journal);
     let mut executor = AppFlowActionExecutor::new(state, plugin_bindings);
-    let report = gt_flow::run_flow_with_executor(
+    let report = gt_flow::run_flow_with_executor_for_run_id_and_observer(
         &record,
-        request.unwrap_or(FlowRunRequest {
-            intent: None,
-            inputs: Value::Object(Default::default()),
-        }),
+        request,
+        run_id,
         &registry,
         workspace,
         &mut executor,
+        &mut observer,
     );
+    let lifecycle_error = observer.take_error();
+    let (completion_error, result_error) = {
+        let data = state.data.lock().unwrap();
+        (
+            data.run_journal().complete_run(&report).err(),
+            data.run_results().write(&report).err(),
+        )
+    };
+    let journal_error = lifecycle_error.or_else(|| completion_error.map(|error| error.to_string()));
+    if let Some(error) = result_error {
+        // 业务动作已经结束，结果投影失败不能改变真实报告或触发自动重试。
+        eprintln!("flow_run_completed_but_result_persistence_failed: {error}");
+        let _ = publish_flow_event(
+            state,
+            EventDraft {
+                source: "gittributary://gt-flow".to_string(),
+                event_type: "flow.run.result_persistence_failed".to_string(),
+                subject: Some(format!("flow:{}", report.flow_id)),
+                data: json!({
+                    "flow_id": report.flow_id,
+                    "run_id": report.run_id,
+                    "status": format!("{:?}", report.status).to_ascii_lowercase(),
+                }),
+            },
+        );
+    }
+    if let Some(error) = journal_error {
+        eprintln!("flow_run_completed_but_journal_failed: {error}");
+        let _ = publish_flow_event(
+            state,
+            EventDraft {
+                source: "gittributary://gt-flow".to_string(),
+                event_type: "flow.run.journal_failed".to_string(),
+                subject: Some(format!("flow:{}", report.flow_id)),
+                data: json!({
+                    "flow_id": report.flow_id,
+                    "run_id": report.run_id,
+                    "status": format!("{:?}", report.status).to_ascii_lowercase(),
+                }),
+            },
+        );
+        return Ok(report);
+    }
     let _ = publish_flow_event(
         state,
         EventDraft {
@@ -702,6 +764,88 @@ fn flow_run_blocking(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn event_catalog_registers_journal_failure_notification() {
+        let pool = gt_flow::EventPool::new();
+        assert!(pool
+            .catalog()
+            .iter()
+            .any(|event| event.event_type == "flow.run.journal_failed"));
+        assert!(pool
+            .catalog()
+            .iter()
+            .any(|event| event.event_type == "flow.run.result_persistence_failed"));
+    }
+
+    #[test]
+    fn plugin_node_outcome_is_bounded_before_entering_run_report() {
+        let oversized = json!({
+            "outputs": { "payload": "x".repeat(MAX_PLUGIN_NODE_OUTCOME_BYTES) },
+            "skipped": false,
+            "message": null
+        });
+        let error = decode_plugin_node_outcome("plugin/example@v1", oversized).unwrap_err();
+        assert!(error.to_string().contains("返回值超过"));
+    }
+
+    #[test]
+    fn flow_run_persists_lifecycle_before_returning_report() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut data = DataHub::open(directory.path()).unwrap();
+        let workflow = r#"
+name: Journal Demo
+gt:
+  id: journal-demo
+  enabled: true
+on:
+  workflow_dispatch:
+jobs:
+  main:
+    steps:
+      - uses: gittributary/files/assert-exists@v1
+        with:
+          path: README.md
+"#
+        .trim()
+        .to_string();
+        let summary = gt_flow::parse_workflow(&workflow).unwrap();
+        let record = FlowRecord::new(
+            workflow,
+            summary,
+            None,
+            gt_flow::now_rfc3339(),
+            gt_flow::now_rfc3339(),
+        );
+        data.flows_mut().save(&record).unwrap();
+        let state = AppState {
+            repo: std::sync::Mutex::new(None),
+            data: std::sync::Mutex::new(data),
+            event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
+            node_registry: std::sync::Mutex::new(FlowNodeRegistry::new()),
+            flow_execution: std::sync::Mutex::new(()),
+            extensions: ExtensionRegistry::default(),
+            plugin_host: std::sync::Arc::new(crate::plugin_host::PluginHostSupervisor::default()),
+        };
+
+        let report = flow_run_blocking("journal-demo".to_string(), None, &state).unwrap();
+        assert_eq!(report.status, gt_flow::FlowRunStatus::Failed);
+        let data = state.data.lock().unwrap();
+        let records = data.run_journal().read_run(&report.run_id).unwrap();
+        assert_eq!(records.len(), 6);
+        assert_eq!(records[0].kind, gt_data::RunJournalEventKind::RunStarted);
+        assert_eq!(records[1].kind, gt_data::RunJournalEventKind::JobStarted);
+        assert_eq!(records[2].kind, gt_data::RunJournalEventKind::NodeStarted);
+        assert_eq!(records[3].kind, gt_data::RunJournalEventKind::NodeFinished);
+        assert_eq!(records[4].kind, gt_data::RunJournalEventKind::JobFinished);
+        assert_eq!(records[5].kind, gt_data::RunJournalEventKind::RunCompleted);
+        let result = data.run_results().read(&report.run_id).unwrap().unwrap();
+        assert_eq!(result.status, report.status);
+        assert_eq!(
+            result.jobs[0].nodes[0].node_id,
+            report.jobs[0].nodes[0].node_id
+        );
+    }
 
     #[test]
     fn inspects_only_executable_core_node_sources() {

@@ -3,6 +3,7 @@ export const EXTENSION_API_VERSION = 1 as const;
 /** A navigation view contributed by an installed extension. */
 export interface ExtensionViewContribution {
   pluginId: string;
+  generation: number;
   pluginName: string;
   pluginVersion: string;
   viewId: string;
@@ -14,6 +15,7 @@ export interface ExtensionViewContribution {
 
 export interface ExtensionCallRequest {
   pluginId: string;
+  generation: number;
   method: string;
   payload: unknown;
 }
@@ -41,6 +43,7 @@ export interface ExtensionHostReadyMessage {
   apiVersion: typeof EXTENSION_API_VERSION;
   sessionId: string;
   pluginId: string;
+  generation: number;
   viewId: string;
   theme: "light" | "dark";
 }

@@ -14,6 +14,7 @@ const mockedAttachBridge = vi.mocked(attachExtensionBridge);
 const mockedNotifyReady = vi.mocked(notifyExtensionReady);
 const contribution: ExtensionViewContribution = {
   pluginId: "com.example.publisher",
+  generation: 7,
   pluginName: "Publisher",
   pluginVersion: "1.0.0",
   viewId: "main",

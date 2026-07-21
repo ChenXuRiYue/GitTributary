@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use chrono::{SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
@@ -52,6 +53,43 @@ pub enum FlowRunStatus {
     Succeeded,
     Failed,
     Skipped,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FlowLifecycleEventKind {
+    RunStarted,
+    RunFinished,
+    JobStarted,
+    JobFinished,
+    NodeStarted,
+    NodeFinished,
+}
+
+/// 可持久化的 Flow 生命周期元数据。这里刻意不包含业务输入、事件、输出或错误文本。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FlowLifecycleEvent {
+    pub kind: FlowLifecycleEventKind,
+    pub run_id: String,
+    pub flow_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<String>,
+    pub status: FlowRunStatus,
+    pub occurred_at: String,
+}
+
+pub trait FlowRunObserver {
+    /// 观察行为不能改变 Flow 的业务执行结果；需要上报写入错误的实现应自行记录错误。
+    fn observe(&mut self, event: &FlowLifecycleEvent);
+}
+
+#[derive(Default)]
+struct NoopFlowRunObserver;
+
+impl FlowRunObserver for NoopFlowRunObserver {
+    fn observe(&mut self, _event: &FlowLifecycleEvent) {}
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -143,11 +181,62 @@ pub fn run_flow_with_executor(
     workspace: Value,
     executor: &mut impl FlowActionExecutor,
 ) -> FlowRunReport {
-    let run_id = request
-        .intent
-        .as_ref()
-        .map(|intent| intent.id.replace("run_intent", "run"))
-        .unwrap_or_else(run_id);
+    let run_id = resolve_run_id(&request);
+    let mut observer = NoopFlowRunObserver;
+    run_flow_with_executor_for_run_id_and_observer(
+        record,
+        request,
+        run_id,
+        registry,
+        workspace,
+        executor,
+        &mut observer,
+    )
+}
+
+pub fn run_flow_with_executor_and_observer(
+    record: &FlowRecord,
+    request: FlowRunRequest,
+    registry: &FlowNodeRegistry,
+    workspace: Value,
+    executor: &mut impl FlowActionExecutor,
+    observer: &mut impl FlowRunObserver,
+) -> FlowRunReport {
+    let run_id = resolve_run_id(&request);
+    run_flow_with_executor_for_run_id_and_observer(
+        record, request, run_id, registry, workspace, executor, observer,
+    )
+}
+
+pub fn run_flow_with_executor_for_run_id(
+    record: &FlowRecord,
+    request: FlowRunRequest,
+    run_id: String,
+    registry: &FlowNodeRegistry,
+    workspace: Value,
+    executor: &mut impl FlowActionExecutor,
+) -> FlowRunReport {
+    let mut observer = NoopFlowRunObserver;
+    run_flow_with_executor_for_run_id_and_observer(
+        record,
+        request,
+        run_id,
+        registry,
+        workspace,
+        executor,
+        &mut observer,
+    )
+}
+
+pub fn run_flow_with_executor_for_run_id_and_observer(
+    record: &FlowRecord,
+    request: FlowRunRequest,
+    run_id: String,
+    registry: &FlowNodeRegistry,
+    workspace: Value,
+    executor: &mut impl FlowActionExecutor,
+    observer: &mut impl FlowRunObserver,
+) -> FlowRunReport {
     let started_at = now_rfc3339();
     let trigger = request
         .intent
@@ -186,11 +275,31 @@ pub fn run_flow_with_executor(
         inputs,
         error: None,
     };
+    observe_lifecycle(
+        observer,
+        FlowLifecycleEventKind::RunStarted,
+        &run_id,
+        &record.summary.id,
+        None,
+        None,
+        FlowRunStatus::Running,
+        &report.started_at,
+    );
 
     if !record.enabled || !record.summary.enabled {
         report.status = FlowRunStatus::Skipped;
         report.error = Some("flow_disabled".to_string());
         report.finished_at = now_rfc3339();
+        observe_lifecycle(
+            observer,
+            FlowLifecycleEventKind::RunFinished,
+            &run_id,
+            &record.summary.id,
+            None,
+            None,
+            report.status,
+            &report.finished_at,
+        );
         return report;
     }
 
@@ -208,9 +317,29 @@ pub fn run_flow_with_executor(
             nodes: Vec::new(),
             error: None,
         };
+        observe_lifecycle(
+            observer,
+            FlowLifecycleEventKind::JobStarted,
+            &run_id,
+            &record.summary.id,
+            Some(&job.id),
+            None,
+            FlowRunStatus::Running,
+            job_run
+                .started_at
+                .as_deref()
+                .expect("job start time is set"),
+        );
 
         for node in nodes.iter().filter(|node| node.job_id == job.id) {
-            let node_run = execute_node(&run_id, &record.summary.id, node, &mut context, executor);
+            let node_run = execute_node(
+                &run_id,
+                &record.summary.id,
+                node,
+                &mut context,
+                executor,
+                observer,
+            );
             let failed = node_run.status == FlowRunStatus::Failed;
             if failed {
                 job_run.error = node_run.error.clone();
@@ -238,6 +367,19 @@ pub fn run_flow_with_executor(
             FlowRunStatus::Succeeded
         };
         job_run.finished_at = Some(now_rfc3339());
+        observe_lifecycle(
+            observer,
+            FlowLifecycleEventKind::JobFinished,
+            &run_id,
+            &record.summary.id,
+            Some(&job.id),
+            None,
+            job_run.status,
+            job_run
+                .finished_at
+                .as_deref()
+                .expect("job finish time is set"),
+        );
         report.jobs.push(job_run);
 
         if overall_status == FlowRunStatus::Failed {
@@ -252,6 +394,16 @@ pub fn run_flow_with_executor(
         .find_map(|job| job.error.clone())
         .filter(|_| overall_status == FlowRunStatus::Failed);
     report.finished_at = now_rfc3339();
+    observe_lifecycle(
+        observer,
+        FlowLifecycleEventKind::RunFinished,
+        &run_id,
+        &record.summary.id,
+        None,
+        None,
+        report.status,
+        &report.finished_at,
+    );
     report
 }
 
@@ -261,6 +413,7 @@ fn execute_node(
     node: &FlowNodeSpec,
     context: &mut FlowExecutionContext,
     executor: &mut impl FlowActionExecutor,
+    observer: &mut impl FlowRunObserver,
 ) -> FlowNodeRun {
     let started_at = now_rfc3339();
     let mut node_run = FlowNodeRun {
@@ -277,11 +430,25 @@ fn execute_node(
         message: None,
         error: None,
     };
+    observe_lifecycle(
+        observer,
+        FlowLifecycleEventKind::NodeStarted,
+        run_id,
+        flow_id,
+        Some(&node.job_id),
+        Some(&node.id),
+        FlowRunStatus::Running,
+        node_run
+            .started_at
+            .as_deref()
+            .expect("node start time is set"),
+    );
 
     if !node.known {
         node_run.status = FlowRunStatus::Failed;
         node_run.error = Some(format!("节点动作未登记: {}", node.uses));
         node_run.finished_at = Some(now_rfc3339());
+        observe_node_finished(observer, &node_run);
         return node_run;
     }
 
@@ -311,7 +478,45 @@ fn execute_node(
     }
 
     node_run.finished_at = Some(now_rfc3339());
+    observe_node_finished(observer, &node_run);
     node_run
+}
+
+fn observe_node_finished(observer: &mut impl FlowRunObserver, node: &FlowNodeRun) {
+    observe_lifecycle(
+        observer,
+        FlowLifecycleEventKind::NodeFinished,
+        &node.run_id,
+        &node.flow_id,
+        Some(&node.job_id),
+        Some(&node.node_id),
+        node.status,
+        node.finished_at
+            .as_deref()
+            .expect("finished node has finish time"),
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn observe_lifecycle(
+    observer: &mut impl FlowRunObserver,
+    kind: FlowLifecycleEventKind,
+    run_id: &str,
+    flow_id: &str,
+    job_id: Option<&str>,
+    node_id: Option<&str>,
+    status: FlowRunStatus,
+    occurred_at: &str,
+) {
+    observer.observe(&FlowLifecycleEvent {
+        kind,
+        run_id: run_id.to_string(),
+        flow_id: flow_id.to_string(),
+        job_id: job_id.map(str::to_string),
+        node_id: node_id.map(str::to_string),
+        status,
+        occurred_at: occurred_at.to_string(),
+    });
 }
 
 fn render_inputs(
@@ -460,7 +665,26 @@ fn normalize_object(value: Value) -> Value {
 }
 
 fn run_id() -> String {
-    format!("run_{}", Utc::now().timestamp_millis())
+    static RUN_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    format!(
+        "run_{}_{}_{}",
+        Utc::now().timestamp_millis(),
+        std::process::id(),
+        RUN_SEQUENCE.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+pub fn resolve_run_id(request: &FlowRunRequest) -> String {
+    let candidate = request
+        .intent
+        .as_ref()
+        .map(|intent| intent.id.replace("run_intent", "run"))
+        .unwrap_or_else(run_id);
+    if candidate.as_bytes().len() <= 96 {
+        candidate
+    } else {
+        run_id()
+    }
 }
 
 fn now_rfc3339() -> String {

@@ -7,6 +7,8 @@ import type {
   FlowNodeSpec,
   FlowRecord,
   FlowRunReport,
+  RunJournalRecord,
+  RunJournalSummary,
   FlowSummary,
 } from "./types";
 
@@ -32,6 +34,8 @@ export const flowApi = {
       inputs: {},
     },
   }),
+  runJournal: (runId: string) => invoke<RunJournalRecord[]>("flow_run_journal", { runId }),
+  listRuns: (limit = 100) => invoke<RunJournalSummary[]>("flow_run_list", { limit }),
   delete: (id: string) => invoke("flow_delete", { id }),
   createFolder: (path: string) => invoke<string[]>("flow_create_folder", { path }),
   deleteFolder: (path: string) => invoke<string[]>("flow_delete_folder", { path }),

@@ -90,5 +90,5 @@
     "store:write",
     "shell:open"
   ],
-  "storeNamespaces": ["sites", "ui-state"]
+  "storeNamespaces": ["sites"]
 }

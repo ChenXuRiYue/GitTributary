@@ -3,8 +3,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
 use semver::Version;
+use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::commands::flow::refresh_flow_node_registry;
@@ -196,6 +196,18 @@ pub fn plugin_install(
         let _ = fs::remove_dir_all(&backup);
     }
     remove_other_versions(&target_parent, &manifest.version);
+    if let Err(error) = state
+        .data
+        .lock()
+        .unwrap()
+        .plugin_containers_mut()
+        .attach(&manifest.id, &manifest.version)
+    {
+        eprintln!(
+            "[plugins] 无法关联插件 {} 的数据容器，启动时将重试: {error}",
+            manifest.id
+        );
+    }
     let item = market_item(&manifest, &state);
     let _ = app.emit("extensions://changed", &item);
     Ok(item)
@@ -248,6 +260,17 @@ pub fn plugin_uninstall(
         };
     }
     let _ = fs::remove_dir_all(&trash);
+    if let Err(error) = state
+        .data
+        .lock()
+        .unwrap()
+        .plugin_containers_mut()
+        .mark_orphaned(&plugin_id)
+    {
+        eprintln!(
+            "[plugins] 无法将插件 {plugin_id} 的数据容器标记为 orphan，启动时将重试: {error}"
+        );
+    }
     let _ = app.emit("extensions://changed", &plugin_id);
     Ok(())
 }
@@ -588,8 +611,6 @@ mod tests {
             .unwrap();
         let (_, manifest) = plugin_source(&root, "dev.gittributary.site-publisher").unwrap();
         assert!(manifest.store_namespaces.contains(&"sites".to_string()));
-        assert!(manifest
-            .store_namespaces
-            .contains(&"ui-state".to_string()));
+        assert!(!manifest.store_namespaces.contains(&"ui-state".to_string()));
     }
 }

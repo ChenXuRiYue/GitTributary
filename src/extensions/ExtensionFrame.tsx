@@ -22,7 +22,7 @@ export function ExtensionFrame({ contribution, className }: ExtensionFrameProps)
   const [frameKey, setFrameKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const sessionKey = `${contribution.pluginId}:${contribution.viewId}:${contribution.entryUrl}`;
+  const sessionKey = `${contribution.pluginId}:${contribution.generation}:${contribution.viewId}:${contribution.entryUrl}`;
 
   const clearStartupTimer = useCallback(() => {
     if (startupTimerRef.current !== null) {

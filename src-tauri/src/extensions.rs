@@ -11,6 +11,7 @@ use serde_json::{json, Value};
 use tauri::http::{header, Request, Response, StatusCode};
 use tauri::State;
 
+use gt_data::validate_namespace_name;
 use gt_files::replace_tree;
 use gt_flow::FlowNodeDefinition;
 use gt_git::{
@@ -20,7 +21,7 @@ use gt_git::{
 
 use crate::auth::resolve_auth_for_remote;
 use crate::commands::files::{files_list, files_read_text, files_scan, files_search};
-use crate::commands::flow::flow_records_from_store;
+use crate::commands::flow::flow_records_from_data;
 use crate::commands::remote::{get_remote_configs, remote_url_for};
 use crate::commands::store::{store_delete, store_get, store_set};
 use crate::commands::workspace::get_workspace_info;
@@ -168,6 +169,7 @@ pub struct ExtensionRegistry {
 #[serde(rename_all = "camelCase")]
 pub struct ExtensionListItem {
     pub id: String,
+    pub generation: u64,
     pub name: String,
     pub version: String,
     pub description: String,
@@ -323,8 +325,15 @@ impl ExtensionRegistry {
             .collect()
     }
 
-    fn contains(&self, plugin_id: &str) -> bool {
-        self.installed.read().unwrap().contains_key(plugin_id)
+    fn validate_generation(&self, plugin_id: &str, generation: u64) -> Result<(), String> {
+        let installed = self.installed.read().unwrap();
+        let extension = installed
+            .get(plugin_id)
+            .ok_or_else(|| "extension_not_found".to_string())?;
+        if extension.generation != generation {
+            return Err("extension_generation_mismatch".to_string());
+        }
+        Ok(())
     }
 
     fn has_permission(&self, plugin_id: &str, permission: &str) -> bool {
@@ -515,13 +524,14 @@ pub fn extension_list(state: State<'_, AppState>) -> Vec<ExtensionListItem> {
 #[tauri::command]
 pub async fn extension_call(
     plugin_id: String,
+    generation: u64,
     method: String,
     payload: Option<Value>,
     state: State<'_, AppState>,
 ) -> Result<Value, String> {
-    if !state.extensions.contains(&plugin_id) {
-        return Err("extension_not_found".to_string());
-    }
+    state
+        .extensions
+        .validate_generation(&plugin_id, generation)?;
     let payload = payload.unwrap_or(Value::Null);
     let backend_snapshot = if method == "backend.invoke" {
         let backend_method = payload
@@ -544,6 +554,35 @@ pub async fn extension_call(
         }
         None
     };
+    if method == "backend.invoke" {
+        let expected_snapshot =
+            backend_snapshot.ok_or_else(|| "backend_method_snapshot_missing".to_string())?;
+        let backend_method = payload
+            .get("method")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "invalid_backend_method".to_string())?
+            .to_string();
+        let backend_payload = payload.get("payload").cloned().unwrap_or(Value::Null);
+        let extensions = state.extensions.clone();
+        let plugin_host = Arc::clone(&state.plugin_host);
+        return tauri::async_runtime::spawn_blocking(move || {
+            let _lifecycle = extensions.lifecycle_lock();
+            extensions.validate_generation(&plugin_id, generation)?;
+            let current_snapshot =
+                extensions.backend_method_snapshot(&plugin_id, &backend_method)?;
+            if current_snapshot != expected_snapshot {
+                return Err("extension_changed_during_request".to_string());
+            }
+            plugin_host.invoke_plugin(&current_snapshot.path, &backend_method, backend_payload)
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    }
+
+    let _lifecycle = state.extensions.lifecycle_lock();
+    state
+        .extensions
+        .validate_generation(&plugin_id, generation)?;
     match method.as_str() {
         "repositories.active" | "git.overview" => {
             let lock = state.repo.lock().unwrap();
@@ -581,8 +620,8 @@ pub async fn extension_call(
                 .map_err(|_| "serialization_failed".to_string())
         }
         "flow.list" => {
-            let store = state.store.lock().unwrap();
-            let flows = flow_records_from_store(&store)
+            let store = state.data.lock().unwrap();
+            let flows = flow_records_from_data(&store)?
                 .into_iter()
                 .map(|record| {
                     json!({
@@ -597,7 +636,17 @@ pub async fn extension_call(
         "store.get" => {
             let namespace = extension_store_namespace(&state.extensions, &plugin_id, &payload)?;
             let key = payload_field::<String>(&payload, "key")?;
-            Ok(store_get(namespace, key, state).unwrap_or(Value::Null))
+            if is_private_plugin_namespace(&plugin_id, &namespace) {
+                let data = state.data.lock().unwrap();
+                Ok(data
+                    .plugin_data(&plugin_id)
+                    .map_err(|error| error.to_string())?
+                    .get(&namespace, &key)
+                    .map_err(|error| error.to_string())?
+                    .unwrap_or(Value::Null))
+            } else {
+                Ok(store_get(namespace, key, state.clone())?.unwrap_or(Value::Null))
+            }
         }
         "store.set" => {
             let namespace = extension_store_namespace(&state.extensions, &plugin_id, &payload)?;
@@ -606,13 +655,29 @@ pub async fn extension_call(
                 .get("value")
                 .cloned()
                 .ok_or_else(|| "missing_payload_field:value".to_string())?;
-            store_set(namespace, key, value, state)?;
+            if is_private_plugin_namespace(&plugin_id, &namespace) {
+                let mut data = state.data.lock().unwrap();
+                data.plugin_data_mut(&plugin_id)
+                    .map_err(|error| error.to_string())?
+                    .set(&namespace, &key, value)
+                    .map_err(|error| error.to_string())?;
+            } else {
+                store_set(namespace, key, value, state.clone())?;
+            }
             Ok(Value::Null)
         }
         "store.delete" => {
             let namespace = extension_store_namespace(&state.extensions, &plugin_id, &payload)?;
             let key = payload_field::<String>(&payload, "key")?;
-            store_delete(namespace, key, state)?;
+            if is_private_plugin_namespace(&plugin_id, &namespace) {
+                let mut data = state.data.lock().unwrap();
+                data.plugin_data_mut(&plugin_id)
+                    .map_err(|error| error.to_string())?
+                    .delete(&namespace, &key)
+                    .map_err(|error| error.to_string())?;
+            } else {
+                store_delete(namespace, key, state.clone())?;
+            }
             Ok(Value::Null)
         }
         "files.list" => {
@@ -658,8 +723,8 @@ pub async fn extension_call(
         }
         "git.pathUpdate.prepare" => extension_prepare_path_update(&state, &plugin_id, &payload),
         "git.pathUpdate.commit" => extension_commit_path_update(&state, &plugin_id, &payload),
-        "repositories.configs" => serialize_value(get_remote_configs(state)?),
-        "workspace.info" => serialize_value(get_workspace_info(state)),
+        "repositories.configs" => serialize_value(get_remote_configs(state.clone())?),
+        "workspace.info" => serialize_value(get_workspace_info(state.clone())),
         "shell.openPath" => {
             let path = payload_field::<String>(&payload, "path")?;
             tauri_plugin_opener::open_path(path, None::<&str>)
@@ -676,29 +741,7 @@ pub async fn extension_call(
             tauri_plugin_opener::open_url(url, None::<&str>).map_err(|error| error.to_string())?;
             Ok(Value::Null)
         }
-        "backend.invoke" => {
-            let expected_snapshot =
-                backend_snapshot.ok_or_else(|| "backend_method_snapshot_missing".to_string())?;
-            let backend_method = payload
-                .get("method")
-                .and_then(Value::as_str)
-                .ok_or_else(|| "invalid_backend_method".to_string())?
-                .to_string();
-            let backend_payload = payload.get("payload").cloned().unwrap_or(Value::Null);
-            let extensions = state.extensions.clone();
-            let plugin_host = Arc::clone(&state.plugin_host);
-            tauri::async_runtime::spawn_blocking(move || {
-                let _lifecycle = extensions.lifecycle_lock();
-                let current_snapshot =
-                    extensions.backend_method_snapshot(&plugin_id, &backend_method)?;
-                if current_snapshot != expected_snapshot {
-                    return Err("extension_changed_during_request".to_string());
-                }
-                plugin_host.invoke_plugin(&current_snapshot.path, &backend_method, backend_payload)
-            })
-            .await
-            .map_err(|error| error.to_string())?
-        }
+        "backend.invoke" => unreachable!("backend.invoke returns before synchronous dispatch"),
         _ => Err("unknown_method".to_string()),
     }
 }
@@ -707,6 +750,7 @@ fn extension_to_list_item(extension: &InstalledExtension) -> ExtensionListItem {
     let base = format!("gt-plugin://localhost/{}/", extension.manifest.id);
     ExtensionListItem {
         id: extension.manifest.id.clone(),
+        generation: extension.generation,
         name: extension.manifest.name.clone(),
         version: extension.manifest.version.clone(),
         description: extension.manifest.description.clone(),
@@ -786,14 +830,11 @@ pub(crate) fn validate_manifest(manifest: &ExtensionManifest, root: &Path) -> Re
     {
         return Err("插件声明了不支持的权限".to_string());
     }
-    if manifest.store_namespaces.iter().any(|namespace| {
-        namespace.is_empty()
-            || namespace.starts_with("private.")
-            || namespace == "workspace"
-            || !namespace
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
-    }) {
+    if manifest
+        .store_namespaces
+        .iter()
+        .any(|namespace| !matches!(namespace.as_str(), "sites"))
+    {
         return Err("插件声明了不安全的存储命名空间".to_string());
     }
     let mut view_ids = BTreeSet::new();
@@ -1087,12 +1128,13 @@ fn extension_commit_path_update(
 }
 
 fn authorize_path_update_repository(state: &AppState, repository: &Path) -> Result<(), String> {
-    let store = state.store.lock().unwrap();
-    let allowed = store
-        .active_repo()
+    let store = state.data.lock().unwrap();
+    let workspace = store.workspace().snapshot();
+    let allowed = workspace
+        .active_repo
         .into_iter()
-        .chain(store.recent_repos())
-        .chain(store.bound_repos())
+        .chain(workspace.recent_repos)
+        .chain(workspace.bound_repos)
         .filter_map(|path| PathBuf::from(path).canonicalize().ok())
         .any(|known| known == repository);
     if allowed {
@@ -1108,6 +1150,7 @@ fn extension_store_namespace(
     payload: &Value,
 ) -> Result<String, String> {
     let requested = payload_field::<String>(payload, "namespace")?;
+    validate_namespace_name(&requested).map_err(|_| "store_namespace_denied".to_string())?;
     if registry.has_store_namespace(plugin_id, &requested) {
         return Ok(requested);
     }
@@ -1118,6 +1161,11 @@ fn extension_store_namespace(
     Err("store_namespace_denied".to_string())
 }
 
+fn is_private_plugin_namespace(plugin_id: &str, namespace: &str) -> bool {
+    let scoped = format!("plugin.{plugin_id}");
+    namespace == scoped || namespace.starts_with(&format!("{scoped}."))
+}
+
 fn extension_source_directory(state: &AppState, payload: &Value) -> Result<PathBuf, String> {
     let requested = payload_field::<String>(payload, "sourceRoot")?;
     let requested = PathBuf::from(requested)
@@ -1126,11 +1174,12 @@ fn extension_source_directory(state: &AppState, payload: &Value) -> Result<PathB
     if !requested.is_dir() {
         return Err("file_root_not_directory".to_string());
     }
-    let store = state.store.lock().unwrap();
-    let allowed = store
-        .active_repo()
+    let store = state.data.lock().unwrap();
+    let workspace = store.workspace().snapshot();
+    let allowed = workspace
+        .active_repo
         .into_iter()
-        .chain(store.recent_repos())
+        .chain(workspace.recent_repos)
         .filter_map(|path| PathBuf::from(path).canonicalize().ok())
         .any(|root| requested.starts_with(root));
     if !allowed {
@@ -1149,9 +1198,10 @@ fn extension_file_root(state: &AppState, payload: &Value) -> Result<String, Stri
     }
 
     let mut known_roots = {
-        let store = state.store.lock().unwrap();
-        let mut roots = store.recent_repos();
-        if let Some(active) = store.active_repo() {
+        let store = state.data.lock().unwrap();
+        let workspace = store.workspace().snapshot();
+        let mut roots = workspace.recent_repos;
+        if let Some(active) = workspace.active_repo {
             roots.push(active);
         }
         roots
@@ -1364,6 +1414,12 @@ mod tests {
             &json!({ "namespace": "sites" })
         )
         .is_err());
+        assert!(extension_store_namespace(
+            &registry,
+            "com.example.demo",
+            &json!({ "namespace": "plugin.com.example.demo.x/../../escape" })
+        )
+        .is_err());
     }
 
     #[test]
@@ -1371,15 +1427,15 @@ mod tests {
         let store_directory = tempfile::tempdir().unwrap();
         let repository = tempfile::tempdir().unwrap();
         let unknown = tempfile::tempdir().unwrap();
-        let mut store = gt_store::Store::open(store_directory.path()).unwrap();
-        store.init_workspace().unwrap();
+        let mut data = gt_data::DataHub::open(store_directory.path()).unwrap();
+        data.workspace_mut().initialize().unwrap();
         let repository_path = repository.path().to_string_lossy().to_string();
-        store
-            .sync_workspace(Some(&repository_path), Some("main"))
+        data.workspace_mut()
+            .sync(Some(&repository_path), Some("main"))
             .unwrap();
         let state = AppState {
             repo: std::sync::Mutex::new(None),
-            store: std::sync::Mutex::new(store),
+            data: std::sync::Mutex::new(data),
             event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
             node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
             flow_execution: std::sync::Mutex::new(()),
@@ -1430,15 +1486,17 @@ mod tests {
         );
         run_git(&target, &["push", "-u", "origin", "main"]);
 
-        let mut store = gt_store::Store::open(&store_directory).unwrap();
-        store.init_workspace().unwrap();
-        store
-            .sync_workspace(Some(&source.to_string_lossy()), Some("main"))
+        let mut data = gt_data::DataHub::open(&store_directory).unwrap();
+        data.workspace_mut().initialize().unwrap();
+        data.workspace_mut()
+            .sync(Some(&source.to_string_lossy()), Some("main"))
             .unwrap();
-        store.bind_repo(&target.to_string_lossy()).unwrap();
+        data.workspace_mut()
+            .bind_repo(&target.to_string_lossy())
+            .unwrap();
         let state = AppState {
             repo: std::sync::Mutex::new(None),
-            store: std::sync::Mutex::new(store),
+            data: std::sync::Mutex::new(data),
             event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
             node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
             flow_execution: std::sync::Mutex::new(()),
@@ -1652,6 +1710,31 @@ mod tests {
         registry.register_path(directory.path()).unwrap();
         let extensions = registry.list();
         assert_eq!(extensions.len(), 1);
+        let generation = extensions[0].generation;
+        assert!(generation > 0);
+        assert_eq!(
+            registry.validate_generation("com.example.demo", generation),
+            Ok(())
+        );
+        assert_eq!(
+            registry.validate_generation("com.example.demo", generation + 1),
+            Err("extension_generation_mismatch".to_string())
+        );
+        assert_eq!(
+            registry.validate_generation("com.example.missing", generation),
+            Err("extension_not_found".to_string())
+        );
+        registry.register_path(directory.path()).unwrap();
+        let reinstalled_generation = registry.list()[0].generation;
+        assert!(reinstalled_generation > generation);
+        assert_eq!(
+            registry.validate_generation("com.example.demo", generation),
+            Err("extension_generation_mismatch".to_string())
+        );
+        assert_eq!(
+            registry.validate_generation("com.example.demo", reinstalled_generation),
+            Ok(())
+        );
         assert_eq!(
             extensions[0].views[0].icon_url.as_deref(),
             Some("lucide:paperclip")

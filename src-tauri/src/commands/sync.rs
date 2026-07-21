@@ -4,9 +4,9 @@
 
 use tauri::State;
 
+use gt_data::DataHub;
 use gt_flow::FlowNodeDefinition;
 use gt_git::AuthMethod;
-use gt_store::Store;
 
 use crate::config_dir::store_base_dir;
 use crate::error::classify_config_repo_check_error;
@@ -49,7 +49,7 @@ pub(crate) struct ConfigRepoCheckReport {
 /// 校验数据中心配置仓库的 URL + 专用 Access Token 是否齐备。
 /// 强制规则:必须 HTTPS,必须有专用 token,不能回退到系统凭据。
 pub(crate) fn require_config_repo_url_and_token(
-    store: &Store,
+    data: &DataHub,
     url: &str,
 ) -> Result<String, String> {
     if !url.starts_with("https://") {
@@ -59,19 +59,18 @@ pub(crate) fn require_config_repo_url_and_token(
         );
     }
 
-    store
-        .get_data_center_config_token_raw()
+    data.credentials()
+        .data_center_config_token()
         .filter(|token| !token.is_empty())
         .ok_or_else(|| "请先为数据中心配置仓库设置专用 Access Token".to_string())
 }
 
 #[tauri::command]
 pub(crate) fn sync_get_config(
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
 ) -> Result<Option<SyncConfigPayload>, String> {
-    let _store = state.store.lock().unwrap();
     let base_dir = store_base_dir();
-    let engine = gt_store::SyncEngine::new(&base_dir);
+    let engine = gt_data::SyncEngine::new(&base_dir);
     match engine.config() {
         Ok(Some(c)) => {
             let local_database_path = Some(engine.config_repo_path(&c));
@@ -93,18 +92,18 @@ pub(crate) fn sync_get_config(
 /// `active_environment_id` 为空时默认 "default"。
 fn apply_sync_config(config: SyncConfigPayload, state: &State<'_, AppState>) -> Result<(), String> {
     let token = {
-        let store = state.store.lock().unwrap();
-        require_config_repo_url_and_token(&store, &config.url)?
+        let data = state.data.lock().unwrap();
+        require_config_repo_url_and_token(&data, &config.url)?
     };
 
     let base_dir = store_base_dir();
-    let engine = gt_store::SyncEngine::new(&base_dir);
+    let engine = gt_data::SyncEngine::new(&base_dir);
     let active_environment_id = config
         .active_environment_id
         .clone()
         .filter(|s| !s.is_empty())
         .or_else(|| Some("default".to_string()));
-    let cfg = gt_store::SyncConfig {
+    let cfg = gt_data::SyncConfig {
         url: config.url,
         branch: config.branch,
         active_environment_id,
@@ -113,15 +112,14 @@ fn apply_sync_config(config: SyncConfigPayload, state: &State<'_, AppState>) -> 
         interval_seconds: config.interval_seconds,
     };
     engine.set_config(&cfg).map_err(|e| e.to_string())?;
-    let auth = gt_store::ConfigRepoAuth { token: &token };
+    let auth = gt_data::ConfigRepoAuth { token: &token };
     let checkout = engine
         .ensure_config_repo(&auth)
         .map_err(|e| e.to_string())?;
     // 绑定后若远端已有数据,import 进本地;空仓库则跳过,等首次 sync_now export
     {
-        let mut store = state.store.lock().unwrap();
-        engine
-            .import_public_from_checkout(&mut store, &checkout)
+        let mut data = state.data.lock().unwrap();
+        data.import_public_from_checkout(&engine, &checkout)
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -143,9 +141,9 @@ pub(crate) fn update_data_center_config_remote(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     {
-        let mut store = state.store.lock().unwrap();
+        let mut data = state.data.lock().unwrap();
         if clear_token {
-            store
+            data.credentials_mut()
                 .clear_data_center_config_token()
                 .map_err(|e| e.to_string())?;
         }
@@ -154,7 +152,7 @@ pub(crate) fn update_data_center_config_remote(
             .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            store
+            data.credentials_mut()
                 .set_data_center_config_token(token)
                 .map_err(|e| e.to_string())?;
         }
@@ -168,7 +166,7 @@ pub(crate) fn unbind_data_center_config_remote(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let base_dir = store_base_dir();
-    let engine = gt_store::SyncEngine::new(&base_dir);
+    let engine = gt_data::SyncEngine::new(&base_dir);
     // 清除配置前先算出 checkout 路径,以便删除工作副本
     let checkout_to_remove = engine
         .config()
@@ -184,8 +182,8 @@ pub(crate) fn unbind_data_center_config_remote(
     }
 
     if clear_token {
-        let mut store = state.store.lock().unwrap();
-        store
+        let mut data = state.data.lock().unwrap();
+        data.credentials_mut()
             .clear_data_center_config_token()
             .map_err(|e| e.to_string())?;
     }
@@ -211,8 +209,10 @@ pub(crate) fn check_data_center_config_repo(
     }
 
     let stored_token = {
-        let store = state.store.lock().unwrap();
-        store.get_data_center_config_token_raw().unwrap_or_default()
+        let data = state.data.lock().unwrap();
+        data.credentials()
+            .data_center_config_token()
+            .unwrap_or_default()
     };
     let effective_token = token
         .as_deref()
@@ -256,34 +256,35 @@ pub(crate) fn check_data_center_config_repo(
 /// 供 `sync_now` command 和 Flow 的 `store/sync-now` action 共用。
 pub(crate) fn sync_data_center_now(state: &AppState) -> Result<String, String> {
     let (device_id, token) = {
-        let store = state.store.lock().unwrap();
+        let data = state.data.lock().unwrap();
         let config = {
             let base_dir = store_base_dir();
-            let engine = gt_store::SyncEngine::new(&base_dir);
+            let engine = gt_data::SyncEngine::new(&base_dir);
             engine.config().map_err(|e| e.to_string())?
         }
         .ok_or_else(|| "未配置同步远程仓库".to_string())?;
-        let token = require_config_repo_url_and_token(&store, &config.url)?;
+        let token = require_config_repo_url_and_token(&data, &config.url)?;
         (
-            store.device_id().unwrap_or_else(|| "unknown".to_string()),
+            data.workspace()
+                .snapshot()
+                .device_id
+                .unwrap_or_else(|| "unknown".to_string()),
             token,
         )
     };
 
     let base_dir = store_base_dir();
-    let engine = gt_store::SyncEngine::new(&base_dir);
-    let auth = gt_store::ConfigRepoAuth { token: &token };
+    let engine = gt_data::SyncEngine::new(&base_dir);
+    let auth = gt_data::ConfigRepoAuth { token: &token };
     let checkout = engine
         .ensure_config_repo(&auth)
         .map_err(|e| e.to_string())?;
     engine.pull(&auth, &checkout).map_err(|e| e.to_string())?;
     {
-        let mut store = state.store.lock().unwrap();
-        engine
-            .import_public_from_checkout(&mut store, &checkout)
+        let mut data = state.data.lock().unwrap();
+        data.import_public_from_checkout(&engine, &checkout)
             .map_err(|e| e.to_string())?;
-        engine
-            .export_public_to_checkout(&store, &checkout)
+        data.export_public_to_checkout(&engine, &checkout)
             .map_err(|e| e.to_string())?;
     }
     engine
@@ -299,10 +300,9 @@ pub(crate) fn sync_now(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub(crate) fn sync_get_state(state: State<'_, AppState>) -> Result<gt_store::SyncState, String> {
-    let _store = state.store.lock().unwrap();
+pub(crate) fn sync_get_state(_state: State<'_, AppState>) -> Result<gt_data::SyncState, String> {
     let base_dir = store_base_dir();
-    let engine = gt_store::SyncEngine::new(&base_dir);
+    let engine = gt_data::SyncEngine::new(&base_dir);
     engine.state().map_err(|e| e.to_string())
 }
 
@@ -311,10 +311,10 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn temp_store() -> (TempDir, Store) {
+    fn temp_store() -> (TempDir, DataHub) {
         let dir = TempDir::new().unwrap();
-        let store = Store::open(dir.path()).unwrap();
-        (dir, store)
+        let data = DataHub::open(dir.path()).unwrap();
+        (dir, data)
     }
 
     #[test]
@@ -335,7 +335,10 @@ mod tests {
     #[test]
     fn require_config_repo_url_and_token_returns_token_when_set() {
         let (_dir, mut store) = temp_store();
-        store.set_data_center_config_token("tok123").unwrap();
+        store
+            .credentials_mut()
+            .set_data_center_config_token("tok123")
+            .unwrap();
         let token =
             require_config_repo_url_and_token(&store, "https://github.com/a/b.git").unwrap();
         assert_eq!(token, "tok123");

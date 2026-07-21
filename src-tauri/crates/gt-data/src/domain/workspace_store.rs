@@ -8,8 +8,8 @@ use serde_json::json;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use crate::error::Result;
-use crate::store::Store;
+use crate::storage::error::Result;
+use crate::storage::store::Store;
 
 const NS: &str = "workspace";
 const KEY_ACTIVE_REPO: &str = "repo.active";

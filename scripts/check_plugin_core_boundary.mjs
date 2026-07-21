@@ -7,6 +7,7 @@ const pluginsRoot = resolve(root, "plugins");
 const forbiddenPackages = [
   "gt-git",
   "gt-files",
+  "gt-data",
   "gt-store",
   "gt-flow",
   "gt-plugin-host",

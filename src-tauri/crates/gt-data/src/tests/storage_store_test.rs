@@ -1,4 +1,4 @@
-use gt_store::Store;
+use crate::storage::Store;
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -50,7 +50,9 @@ fn test_scan_prefix() {
     let (_dir, mut store) = setup();
 
     store.set("settings", "sidebar.width", json!(220)).unwrap();
-    store.set("settings", "sidebar.collapsed", json!(true)).unwrap();
+    store
+        .set("settings", "sidebar.collapsed", json!(true))
+        .unwrap();
     store.set("settings", "theme", json!("light")).unwrap();
 
     let results = store.scan("settings", "sidebar.");
@@ -92,6 +94,16 @@ fn test_compact() {
 }
 
 #[test]
+fn test_compact_preserves_lww_timestamp() {
+    let (_dir, mut store) = setup();
+    store
+        .set_with_ts("settings", "count", json!(9), 123)
+        .unwrap();
+    store.compact("settings").unwrap();
+    assert_eq!(store.latest_with_ts("settings")["count"].1, 123);
+}
+
+#[test]
 fn test_history() {
     let (_dir, mut store) = setup();
 
@@ -111,7 +123,9 @@ fn test_profiles() {
 
     // 设置基础 settings
     store.set("settings", "theme", json!("light")).unwrap();
-    store.set("settings", "backup.interval", json!(300)).unwrap();
+    store
+        .set("settings", "backup.interval", json!(300))
+        .unwrap();
 
     // 创建 profile
     store.create_profile("work").unwrap();
@@ -140,7 +154,9 @@ fn test_bound_repos_are_independent_from_active_repo() {
     store.init_workspace().unwrap();
 
     store.bind_repo("/tmp/repo-a").unwrap();
-    store.sync_workspace(Some("/tmp/repo-b"), Some("main")).unwrap();
+    store
+        .sync_workspace(Some("/tmp/repo-b"), Some("main"))
+        .unwrap();
 
     assert_eq!(store.active_repo(), Some("/tmp/repo-b".to_string()));
     assert_eq!(store.bound_repos(), vec!["/tmp/repo-a".to_string()]);
@@ -150,4 +166,18 @@ fn test_bound_repos_are_independent_from_active_repo() {
 
     store.unbind_repo("/tmp/repo-a").unwrap();
     assert!(store.bound_repos().is_empty());
+}
+
+#[test]
+fn test_rejects_unsafe_namespace_paths() {
+    let dir = TempDir::new().unwrap();
+    let mut store = Store::open(dir.path()).unwrap();
+
+    assert!(store
+        .set("plugin.demo.x/../../escape", "key", json!("value"))
+        .is_err());
+    assert!(store
+        .set("plugin.demo\\escape", "key", json!("value"))
+        .is_err());
+    assert!(!dir.path().join("escape.jsonl").exists());
 }

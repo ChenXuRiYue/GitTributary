@@ -150,7 +150,7 @@ Git Tributary's long-term goal is not to rebuild another closed note app. It aim
 - TypeScript
 - Tailwind CSS 4
 - Radix UI primitives
-- Internal Rust crates: `gt-git`, `gt-files`, `gt-store`, `gt-flow` (all non-publishable)
+- Internal Rust crates: `gt-git`, `gt-files`, `gt-data`, `gt-flow` (all non-publishable)
 - Plugin boundary: plugins use platform capabilities only through the versioned Extension API/IPC
 
 ## Development

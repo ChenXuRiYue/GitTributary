@@ -27,10 +27,10 @@ use std::path::{Path, PathBuf};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{Result, StoreError};
-use crate::namespace::{Namespace, Visibility};
-use crate::record::Record;
-use crate::store::Store;
+use super::error::{Result, StoreError};
+use super::namespace::{Namespace, Visibility};
+use super::record::Record;
+use super::store::Store;
 
 /// 配置数据库在 checkout 内的数据子目录(按环境隔离)。
 const ENV_ROOT: &str = "environments";
@@ -143,8 +143,8 @@ impl SyncEngine {
     /// 保存同步状态
     pub fn set_state(&self, state: &SyncState) -> Result<()> {
         let path = self.sync_dir.join("last-sync.json");
-        let content = serde_json::to_string_pretty(state)
-            .map_err(|e| StoreError::Internal(e.to_string()))?;
+        let content =
+            serde_json::to_string_pretty(state).map_err(|e| StoreError::Internal(e.to_string()))?;
         fs::write(path, content)?;
         Ok(())
     }
@@ -195,7 +195,8 @@ impl SyncEngine {
         }
 
         Err(StoreError::Internal(
-            "数据中心配置仓库只支持 HTTPS URL + 明确 Access Token,不能使用 SSH 或系统凭据".to_string(),
+            "数据中心配置仓库只支持 HTTPS URL + 明确 Access Token,不能使用 SSH 或系统凭据"
+                .to_string(),
         ))
     }
 
@@ -243,7 +244,8 @@ secrets.jsonl\n";
     /// 配置绑定后就应该落地这个 checkout;后续 pull/import/export/commit/push 都围绕它进行。
     /// 注意:只负责"确保存在并 origin 正确";fetch/ff 归 `pull`。
     pub fn ensure_config_repo(&self, auth: &ConfigRepoAuth<'_>) -> Result<PathBuf> {
-        let config = self.config()?
+        let config = self
+            .config()?
             .ok_or_else(|| StoreError::Internal("未配置同步远程仓库".to_string()))?;
         Self::ensure_token_auth_url(&config.url)?;
         let checkout = self.config_repo_path(&config);
@@ -299,8 +301,9 @@ secrets.jsonl\n";
             // 顺带把 HEAD 对齐到配置分支——历史上 init 回退可能用了 git 默认分支
             // (如 master)与配置(如 main)不一致,有提交后再改就危险,故只在
             // unborn 时修正。
-            let repo = git2::Repository::open(&checkout)
-                .map_err(|e| StoreError::Internal(format!("打开配置数据库失败: {}", e.message())))?;
+            let repo = git2::Repository::open(&checkout).map_err(|e| {
+                StoreError::Internal(format!("打开配置数据库失败: {}", e.message()))
+            })?;
             let _ = Self::origin_remote(&repo, &config.url)?;
             if repo.head().is_err() {
                 let refname = format!("refs/heads/{}", config.branch);
@@ -325,7 +328,9 @@ secrets.jsonl\n";
         let repo = git2::Repository::open(checkout)
             .map_err(|e| StoreError::Internal(format!("打开配置数据库失败: {}", e.message())))?;
 
-        let mut index = repo.index().map_err(|e| StoreError::Internal(e.message().to_string()))?;
+        let mut index = repo
+            .index()
+            .map_err(|e| StoreError::Internal(e.message().to_string()))?;
         let paths = ["environments", ".gitignore"];
         index
             .add_all(paths.iter(), git2::IndexAddOption::DEFAULT, None)
@@ -333,7 +338,9 @@ secrets.jsonl\n";
         index
             .update_all(paths.iter(), None)
             .map_err(|e| StoreError::Internal(e.message().to_string()))?;
-        index.write().map_err(|e| StoreError::Internal(e.message().to_string()))?;
+        index
+            .write()
+            .map_err(|e| StoreError::Internal(e.message().to_string()))?;
 
         let tree_oid = index
             .write_tree()
@@ -381,7 +388,8 @@ secrets.jsonl\n";
 
     /// 从远程拉取并 fast-forward 合并到 checkout。非 ff 返回错误(M1 不合并)。
     pub fn pull(&self, auth: &ConfigRepoAuth<'_>, checkout: &Path) -> Result<()> {
-        let config = self.config()?
+        let config = self
+            .config()?
             .ok_or_else(|| StoreError::Internal("未配置同步远程仓库".to_string()))?;
         Self::ensure_token_auth_url(&config.url)?;
 
@@ -464,7 +472,8 @@ secrets.jsonl\n";
 
     /// 推送 checkout 到远程。
     pub fn push(&self, auth: &ConfigRepoAuth<'_>, checkout: &Path) -> Result<()> {
-        let config = self.config()?
+        let config = self
+            .config()?
             .ok_or_else(|| StoreError::Internal("未配置同步远程仓库".to_string()))?;
         Self::ensure_token_auth_url(&config.url)?;
 
@@ -490,12 +499,31 @@ secrets.jsonl\n";
     /// 每个 ns 写一份截断的 JSONL,每行一条 Record,保留原始 t(不用 compact,
     /// 因为 compact 会用 now 覆盖 t,破坏跨端 LWW)。private 命名空间不写。
     pub fn export_public_to_checkout(&self, store: &Store, checkout: &Path) -> Result<()> {
-        let config = self.config()?
+        let config = self
+            .config()?
             .ok_or_else(|| StoreError::Internal("未配置同步远程仓库".to_string()))?;
         let env_data = self.environment_dir(&config, checkout, "data");
         fs::create_dir_all(&env_data)?;
 
-        for ns_name in store.public_namespaces() {
+        let syncable = store.syncable_namespaces();
+        // Remove snapshots that became local/secret so they cannot be committed again.
+        if let Ok(entries) = fs::read_dir(&env_data) {
+            for entry in entries {
+                let path = entry?.path();
+                let Some(ns_name) = path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .and_then(|name| name.strip_suffix(".jsonl"))
+                else {
+                    continue;
+                };
+                if !syncable.iter().any(|name| name == ns_name) {
+                    fs::remove_file(path)?;
+                }
+            }
+        }
+
+        for ns_name in syncable {
             let latest = store.latest_with_ts(&ns_name);
             let target = env_data.join(format!("{}.jsonl", ns_name));
             let mut file = File::create(&target)?;
@@ -514,7 +542,8 @@ secrets.jsonl\n";
     /// 对每条 (k, v, t):若 t >= 本地最新 t 则写入(set_with_ts 保留远端 t);
     /// v=null 视为删除。private 命名空间一律跳过(安全网)。
     pub fn import_public_from_checkout(&self, store: &mut Store, checkout: &Path) -> Result<()> {
-        let config = self.config()?
+        let config = self
+            .config()?
             .ok_or_else(|| StoreError::Internal("未配置同步远程仓库".to_string()))?;
         let env_data = self.environment_dir(&config, checkout, "data");
         if !env_data.exists() {
@@ -531,17 +560,14 @@ secrets.jsonl\n";
                     .to_string_lossy()
                     .to_string();
                 // 安全网:checkout 不应含 private,但防御性跳过
-                if crate::store::infer_visibility(&ns_name) == Visibility::Private {
+                if !store.namespace_policy(&ns_name).sync.is_syncable() {
                     continue;
                 }
                 let remote_ns = Namespace::open(&env_data, &ns_name, Visibility::Public)?;
                 let remote_latest = remote_ns.latest_with_ts();
                 let local_latest = store.latest_with_ts(&ns_name);
                 for (k, (v, t)) in remote_latest {
-                    let local_t = local_latest
-                        .get(&k)
-                        .map(|(_, lt)| *lt)
-                        .unwrap_or(i64::MIN);
+                    let local_t = local_latest.get(&k).map(|(_, lt)| *lt).unwrap_or(i64::MIN);
                     if t < local_t {
                         continue;
                     }

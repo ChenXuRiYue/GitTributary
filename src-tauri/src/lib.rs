@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
+use gt_data::DataHub;
 use gt_flow::{EventDraft, EventPool, EventReceipt, FlowNodeRegistry};
 use gt_git::{GitRepo, RepoOverview};
-use gt_store::Store;
 use serde_json::json;
 use tauri::Manager;
 
@@ -12,7 +12,6 @@ mod config_dir;
 mod error;
 mod extensions;
 mod identity;
-mod keys;
 mod plugin_host;
 mod plugin_market;
 use commands::credentials::{
@@ -24,8 +23,9 @@ use commands::files::{files_list, files_read_text, files_scan, files_search};
 use commands::flow::{
     flow_build_draft, flow_create_folder, flow_delete, flow_delete_folder, flow_emit_event,
     flow_event_catalog, flow_get, flow_list, flow_list_folders, flow_match_event,
-    flow_node_catalog, flow_nodes, flow_recent_events, flow_records_from_store, flow_run,
-    flow_save, flow_set_enabled, flow_validate, inspect_flow_node_sources,
+    flow_node_catalog, flow_nodes, flow_recent_events, flow_records_from_data, flow_run,
+    flow_run_journal, flow_run_list, flow_save, flow_set_enabled, flow_validate,
+    inspect_flow_node_sources,
 };
 use commands::git::{
     checkout_branch, commit_all, commit_selected, create_branch, delete_branch, get_branch_log,
@@ -54,7 +54,8 @@ use plugin_market::{plugin_install, plugin_market_list, plugin_uninstall};
 /// 应用状态
 pub struct AppState {
     pub repo: Mutex<Option<GitRepo>>,
-    pub store: Mutex<Store>,
+    /// DataHub 是应用唯一的数据入口。
+    pub data: Mutex<DataHub>,
     pub event_pool: Mutex<EventPool>,
     pub node_registry: Mutex<FlowNodeRegistry>,
     pub flow_execution: Mutex<()>,
@@ -74,8 +75,8 @@ pub(crate) fn set_active_repo_state(
         *repo_lock = Some(repo);
     }
     {
-        let mut store = state.store.lock().unwrap();
-        let _ = store.sync_workspace(Some(&repo_path), Some(&branch));
+        let mut data = state.data.lock().unwrap();
+        let _ = data.workspace_mut().sync(Some(&repo_path), Some(&branch));
     }
     let _ = publish_flow_event(
         state,
@@ -99,8 +100,8 @@ pub(crate) fn publish_flow_event(
     event: EventDraft,
 ) -> Result<EventReceipt, String> {
     let flows = {
-        let store = state.store.lock().unwrap();
-        flow_records_from_store(&store)
+        let store = state.data.lock().unwrap();
+        flow_records_from_data(&store)?
     };
     let mut event_pool = state.event_pool.lock().unwrap();
     event_pool
@@ -113,8 +114,8 @@ pub(crate) fn match_flow_event(
     event: EventDraft,
 ) -> Result<EventReceipt, String> {
     let flows = {
-        let store = state.store.lock().unwrap();
-        flow_records_from_store(&store)
+        let store = state.data.lock().unwrap();
+        flow_records_from_data(&store)?
     };
     let event_pool = state.event_pool.lock().unwrap();
     event_pool
@@ -128,10 +129,12 @@ pub fn run() {
     let store_dir = dirs_next::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join(".git-tributary");
-    let mut store = Store::open(&store_dir).expect("无法初始化数据中心");
-    store.init_workspace().expect("无法初始化 workspace");
-    store
-        .migrate_git_remote_url_to_local()
+    let mut data = DataHub::open(&store_dir).expect("无法初始化数据中心");
+    data.workspace_mut()
+        .initialize()
+        .expect("无法初始化 workspace");
+    data.remote_metadata_mut()
+        .migrate_default_remote_url()
         .expect("无法迁移 Git 默认远程配置");
 
     let plugins_dir = store_dir.join("plugins");
@@ -139,6 +142,14 @@ pub fn run() {
         eprintln!("[extensions] 无法创建插件目录: {error}");
     }
     let extensions = ExtensionRegistry::discover(&plugins_dir);
+    if let Err(error) = data.plugin_containers_mut().reconcile(
+        extensions
+            .list()
+            .into_iter()
+            .map(|extension| (extension.id, extension.version)),
+    ) {
+        eprintln!("[plugins] 无法协调插件数据容器状态: {error}");
+    }
     let node_registry = inspect_flow_node_sources(&extensions)
         .unwrap_or_else(|error| panic!("无法汇聚 Flow 节点来源: {error}"));
     let extension_assets = extensions.clone();
@@ -151,7 +162,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState {
             repo: Mutex::new(None),
-            store: Mutex::new(store),
+            data: Mutex::new(data),
             event_pool: Mutex::new(EventPool::new()),
             node_registry: Mutex::new(node_registry),
             flow_execution: Mutex::new(()),
@@ -222,6 +233,8 @@ pub fn run() {
             flow_node_catalog,
             flow_nodes,
             flow_run,
+            flow_run_journal,
+            flow_run_list,
             store_get,
             store_set,
             store_delete,

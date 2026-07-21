@@ -19,6 +19,14 @@ function readString(source: JsonObject, ...keys: string[]): string | null {
   return null;
 }
 
+function readGeneration(source: JsonObject, ...keys: string[]): number | null {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isSafeInteger(value) && value > 0) return value;
+  }
+  return null;
+}
+
 function normalizeContribution(
   value: unknown,
   pluginDefaults?: JsonObject,
@@ -27,13 +35,18 @@ function normalizeContribution(
 
   const pluginId = readString(value, "pluginId", "plugin_id")
     ?? (pluginDefaults && readString(pluginDefaults, "pluginId", "plugin_id", "id"));
+  const defaultGeneration = pluginDefaults
+    ? readGeneration(pluginDefaults, "generation")
+    : null;
+  const generation = readGeneration(value, "generation") ?? defaultGeneration;
   const viewId = readString(value, "viewId", "view_id", "id");
   const title = readString(value, "title", "name");
   const entryUrl = readString(value, "entryUrl", "entry_url", "url", "entry");
-  if (!pluginId || !viewId || !title || !entryUrl) return null;
+  if (!pluginId || generation === null || !viewId || !title || !entryUrl) return null;
 
   return {
     pluginId,
+    generation,
     pluginName: readString(value, "pluginName", "plugin_name")
       ?? (pluginDefaults && readString(pluginDefaults, "pluginName", "plugin_name", "name"))
       ?? pluginId,
@@ -78,7 +91,7 @@ function normalizeExtensionList(value: unknown): ExtensionViewContribution[] {
         ? item.views
         : [];
     for (const view of views) {
-      const normalized = normalizeContribution(view, manifest);
+      const normalized = normalizeContribution(view, { ...manifest, ...item });
       if (normalized) contributions.push(normalized);
     }
   }
@@ -94,6 +107,7 @@ export async function listExtensionContributions(): Promise<ExtensionViewContrib
 export function callExtension<T = unknown>(request: ExtensionCallRequest): Promise<T> {
   return invoke<T>("extension_call", {
     pluginId: request.pluginId,
+    generation: request.generation,
     method: request.method,
     payload: request.payload,
   });

@@ -12,6 +12,7 @@ vi.mock("./api", () => ({
 const mockedCallExtension = vi.mocked(callExtension);
 const contribution: ExtensionViewContribution = {
   pluginId: "com.example.publisher",
+  generation: 7,
   pluginName: "Publisher",
   pluginVersion: "1.0.0",
   viewId: "main",
@@ -80,6 +81,7 @@ describe("extension MessageChannel bridge", () => {
     });
     expect(mockedCallExtension).toHaveBeenCalledWith({
       pluginId: contribution.pluginId,
+      generation: contribution.generation,
       method: "site.build",
       payload: { pluginId: "attacker", source: "/tmp/notes" },
     });
@@ -97,6 +99,7 @@ describe("extension MessageChannel bridge", () => {
     await response;
     expect(mockedCallExtension).toHaveBeenCalledWith({
       pluginId: contribution.pluginId,
+      generation: contribution.generation,
       method: "status",
       payload: null,
     });
@@ -187,6 +190,7 @@ describe("extension host handshake", () => {
       apiVersion: EXTENSION_API_VERSION,
       sessionId: "session-1",
       pluginId: contribution.pluginId,
+      generation: contribution.generation,
       viewId: contribution.viewId,
       theme: "dark",
     });

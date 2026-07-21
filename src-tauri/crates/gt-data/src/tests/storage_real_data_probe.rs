@@ -2,15 +2,15 @@
 //! Namespace::open + get，验证 `sites` 命名空间里的 `workspace.config`
 //! 是否能正常重放出最新值。不会写入任何数据 (只调用 open/get，不调用
 //! set/delete)。用于诊断"进入文档发布页面时任务列表为空"的问题，排除
-//! gt-store 底层重放逻辑本身出错的可能性。
+//! storage 底层重放逻辑本身出错的可能性。
 //!
 //! 运行: cargo test --test real_data_probe -- --nocapture --ignored
 //! (标记为 #[ignore] 因为它依赖本机真实数据目录，不适合在 CI/其他机器上跑)
 
 use std::path::PathBuf;
 
-use gt_store::namespace::Namespace;
-use gt_store::Visibility;
+use crate::storage::namespace::Namespace;
+use crate::storage::Visibility;
 
 fn real_data_dir() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;

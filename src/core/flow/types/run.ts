@@ -40,3 +40,23 @@ export interface FlowRunReport {
   inputs?: unknown;
   error?: string | null;
 }
+
+export type RunJournalEventKind = "run_started" | "run_completed" | "run_abandoned";
+
+export interface RunJournalRecord {
+  schema_version: number;
+  seq: number;
+  run_id: string;
+  flow_id: string;
+  occurred_at: string;
+  kind: RunJournalEventKind;
+  status: FlowRunStatus;
+}
+
+export interface RunJournalSummary {
+  run_id: string;
+  flow_id: string;
+  status: FlowRunStatus;
+  started_at: string;
+  finished_at?: string | null;
+}

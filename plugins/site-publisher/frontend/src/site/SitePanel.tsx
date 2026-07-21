@@ -76,7 +76,7 @@ interface SiteViewUiState {
   updatedAt: number;
 }
 
-const SITE_VIEW_STATE_NS = "ui-state";
+const SITE_VIEW_STATE_NS = "plugin.dev.gittributary.site-publisher.ui";
 const SITE_VIEW_STATE_KEY = "site.view.active";
 const SITE_MORE_STATE_KEY = "site.nav.more.open";
 const SITE_VIEW_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
