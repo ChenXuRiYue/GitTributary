@@ -61,8 +61,16 @@ pub fn check_remote_access(url: &str, auth: &AuthMethod) -> Result<RemoteAccessR
     let default_branch = remote
         .default_branch()
         .ok()
-        .and_then(|buf| std::str::from_utf8(buf.as_ref()).ok().map(|s| s.to_string()))
-        .and_then(|name| name.strip_prefix("refs/heads/").map(str::to_string).or(Some(name)));
+        .and_then(|buf| {
+            std::str::from_utf8(buf.as_ref())
+                .ok()
+                .map(|s| s.to_string())
+        })
+        .and_then(|name| {
+            name.strip_prefix("refs/heads/")
+                .map(str::to_string)
+                .or(Some(name))
+        });
     let refs_count = remote.list()?.len();
     remote.disconnect()?;
 
@@ -131,7 +139,10 @@ pub fn repo_dir_name_from_url(url: &str) -> Result<String> {
         .rsplit(['/', ':'])
         .find(|segment| !segment.trim().is_empty())
         .ok_or_else(|| GitError::Internal("无法从远程 URL 推导仓库目录名".to_string()))?;
-    let dir_name = last_segment.strip_suffix(".git").unwrap_or(last_segment).trim();
+    let dir_name = last_segment
+        .strip_suffix(".git")
+        .unwrap_or(last_segment)
+        .trim();
 
     if dir_name.is_empty()
         || dir_name == "."
@@ -140,7 +151,9 @@ pub fn repo_dir_name_from_url(url: &str) -> Result<String> {
         || dir_name.contains('/')
         || dir_name.contains('\\')
     {
-        return Err(GitError::Internal("无法从远程 URL 推导仓库目录名".to_string()));
+        return Err(GitError::Internal(
+            "无法从远程 URL 推导仓库目录名".to_string(),
+        ));
     }
 
     Ok(dir_name.to_string())
@@ -196,11 +209,9 @@ impl GitRepo {
         if self.repo.find_remote(&name).is_ok() {
             return Err(GitError::Internal(format!("远程 '{}' 已存在", name)));
         }
-        self.repo
-            .remote(&name, &url)
-            .map_err(|e| {
-                GitError::Internal(format!("添加远程 '{}' 失败: {}", name, e.message()))
-            })?;
+        self.repo.remote(&name, &url).map_err(|e| {
+            GitError::Internal(format!("添加远程 '{}' 失败: {}", name, e.message()))
+        })?;
         Ok(())
     }
 
@@ -210,11 +221,9 @@ impl GitRepo {
         self.repo
             .find_remote(&name)
             .map_err(|_| GitError::Internal(format!("远程 '{}' 不存在", name)))?;
-        self.repo
-            .remote_set_url(&name, &url)
-            .map_err(|e| {
-                GitError::Internal(format!("修改远程 '{}' 失败: {}", name, e.message()))
-            })?;
+        self.repo.remote_set_url(&name, &url).map_err(|e| {
+            GitError::Internal(format!("修改远程 '{}' 失败: {}", name, e.message()))
+        })?;
         Ok(())
     }
 
@@ -227,17 +236,17 @@ impl GitRepo {
         self.repo
             .find_remote(name)
             .map_err(|_| GitError::Internal(format!("远程 '{}' 不存在", name)))?;
-        self.repo
-            .remote_delete(name)
-            .map_err(|e| {
-                GitError::Internal(format!("删除远程 '{}' 失败: {}", name, e.message()))
-            })?;
+        self.repo.remote_delete(name).map_err(|e| {
+            GitError::Internal(format!("删除远程 '{}' 失败: {}", name, e.message()))
+        })?;
         Ok(())
     }
 
     /// Fetch(拉取远程引用,不合并)
     pub fn fetch(&self, remote_name: &str, auth: &AuthMethod) -> Result<()> {
-        let mut remote = self.repo.find_remote(remote_name)
+        let mut remote = self
+            .repo
+            .find_remote(remote_name)
             .map_err(|_| GitError::Internal(format!("远程 '{}' 不存在", remote_name)))?;
 
         let mut fetch_opts = FetchOptions::new();
@@ -250,7 +259,9 @@ impl GitRepo {
 
     /// Push 当前分支到远程
     pub fn push(&self, remote_name: &str, branch: &str, auth: &AuthMethod) -> Result<()> {
-        let mut remote = self.repo.find_remote(remote_name)
+        let mut remote = self
+            .repo
+            .find_remote(remote_name)
             .map_err(|_| GitError::Internal(format!("远程 '{}' 不存在", remote_name)))?;
 
         let refspec = format!("refs/heads/{}:refs/heads/{}", branch, branch);
@@ -259,7 +270,8 @@ impl GitRepo {
         let callbacks = build_callbacks(auth);
         push_opts.remote_callbacks(callbacks);
 
-        remote.push(&[&refspec], Some(&mut push_opts))
+        remote
+            .push(&[&refspec], Some(&mut push_opts))
             .map_err(|e| GitError::Internal(format!("推送失败: {}", e.message())))?;
         Ok(())
     }
@@ -271,8 +283,12 @@ impl GitRepo {
 
         // 2. Fast-forward
         let fetch_head_ref = format!("refs/remotes/{}/{}", remote_name, branch);
-        let fetch_commit = self.repo.find_reference(&fetch_head_ref)
-            .map_err(|_| GitError::Internal(format!("远程分支 '{}/{}' 不存在", remote_name, branch)))?
+        let fetch_commit = self
+            .repo
+            .find_reference(&fetch_head_ref)
+            .map_err(|_| {
+                GitError::Internal(format!("远程分支 '{}/{}' 不存在", remote_name, branch))
+            })?
             .peel_to_commit()?;
 
         let local_ref = format!("refs/heads/{}", branch);
@@ -288,9 +304,8 @@ impl GitRepo {
             if analysis.is_fast_forward() {
                 reference.set_target(fetch_commit.id(), "pull: fast-forward")?;
                 self.repo.set_head(&local_ref)?;
-                self.repo.checkout_head(Some(
-                    git2::build::CheckoutBuilder::default().force(),
-                ))?;
+                self.repo
+                    .checkout_head(Some(git2::build::CheckoutBuilder::default().force()))?;
             } else {
                 return Err(GitError::Internal(
                     "无法 fast-forward,存在分叉。请手动合并。".to_string(),
@@ -314,13 +329,14 @@ pub(crate) fn build_callbacks(auth: &AuthMethod) -> RemoteCallbacks<'_> {
                 // HTTPS: 用 token 作为密码,用户名用实际用户名或 "x-access-token"
                 git2::Cred::userpass_plaintext(username_from_url.unwrap_or("x-access-token"), token)
             }
-            AuthMethod::SshKey { private_key, passphrase } => {
+            AuthMethod::SshKey {
+                private_key,
+                passphrase,
+            } => {
                 let key_path = Path::new(private_key);
                 git2::Cred::ssh_key(username, None, key_path, passphrase.as_deref())
             }
-            AuthMethod::Agent => {
-                git2::Cred::ssh_key_from_agent(username)
-            }
+            AuthMethod::Agent => git2::Cred::ssh_key_from_agent(username),
             AuthMethod::None => {
                 // 尝试默认方式
                 if allowed_types.contains(git2::CredentialType::SSH_KEY) {

@@ -1,15 +1,19 @@
 //! 配置同步模块:将 public 数据通过 Git 推送到远程配置数据库,拉取时按时间戳合并。
 //!
 //! 同步范围:
+//!
 //! - data/*.jsonl (Public 命名空间)
 //! - profiles/ (配置档,Phase 1 暂不同步)
+//!
 //! 不同步:
+//!
 //! - credentials / private.* (Private 命名空间,永不离开本机)
 //!
 //! ## Phase 1:传输模型
 //!
 //! Store 本体仍在 `~/.git-tributary/data/`;远程配置数据库 clone 到
 //! `~/.git-tributary/databases/<repo>-<hash>/` 作为 git worktree。sync 时:
+//!
 //! 1. pull(ff)更新 checkout
 //! 2. import:checkout `environments/<env>/data/` → 本地 Store(LWW 按时间戳)
 //! 3. export:本地 public 命名空间 → checkout `environments/<env>/data/`

@@ -29,18 +29,12 @@ impl GitRepo {
         let mut opts = DiffOptions::new();
         opts.pathspec(path);
 
-        let head_tree = self
-            .repo
-            .head()
-            .ok()
-            .and_then(|h| h.peel_to_tree().ok());
+        let head_tree = self.repo.head().ok().and_then(|h| h.peel_to_tree().ok());
 
         // 先看 index vs HEAD(staged 变更)
-        let diff_staged = self.repo.diff_tree_to_index(
-            head_tree.as_ref(),
-            None,
-            Some(&mut opts),
-        )?;
+        let diff_staged =
+            self.repo
+                .diff_tree_to_index(head_tree.as_ref(), None, Some(&mut opts))?;
 
         // 再看 workdir vs index(unstaged 变更)
         let mut opts2 = DiffOptions::new();
@@ -65,26 +59,18 @@ impl GitRepo {
             match origin {
                 '+' | '-' | ' ' => {
                     patch_text.push(origin);
-                    patch_text.push_str(
-                        std::str::from_utf8(line.content()).unwrap_or(""),
-                    );
+                    patch_text.push_str(std::str::from_utf8(line.content()).unwrap_or(""));
                 }
                 'H' => {
                     // Hunk header
-                    patch_text.push_str(
-                        std::str::from_utf8(line.content()).unwrap_or(""),
-                    );
+                    patch_text.push_str(std::str::from_utf8(line.content()).unwrap_or(""));
                 }
                 'F' => {
                     // File header
-                    patch_text.push_str(
-                        std::str::from_utf8(line.content()).unwrap_or(""),
-                    );
+                    patch_text.push_str(std::str::from_utf8(line.content()).unwrap_or(""));
                 }
                 _ => {
-                    patch_text.push_str(
-                        std::str::from_utf8(line.content()).unwrap_or(""),
-                    );
+                    patch_text.push_str(std::str::from_utf8(line.content()).unwrap_or(""));
                 }
             }
             true
@@ -119,7 +105,13 @@ impl GitRepo {
             .map_err(|e| GitError::Internal(format!("无法读取新增文件 '{}': {}", path, e)))?;
         let additions = content.lines().count();
         let mode = fs::metadata(&full_path)
-            .map(|m| if m.permissions().readonly() { "100444" } else { "100644" })
+            .map(|m| {
+                if m.permissions().readonly() {
+                    "100444"
+                } else {
+                    "100644"
+                }
+            })
             .unwrap_or("100644");
 
         let mut patch = String::new();

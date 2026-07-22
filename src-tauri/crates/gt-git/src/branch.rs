@@ -67,12 +67,15 @@ impl GitRepo {
 
         result.sort_by(|a, b| {
             // 当前分支排最前
-            if a.is_head && !b.is_head { return std::cmp::Ordering::Less; }
-            if !a.is_head && b.is_head { return std::cmp::Ordering::Greater; }
+            if a.is_head && !b.is_head {
+                return std::cmp::Ordering::Less;
+            }
+            if !a.is_head && b.is_head {
+                return std::cmp::Ordering::Greater;
+            }
             a.name.cmp(&b.name)
         });
 
         Ok(result)
     }
-
 }

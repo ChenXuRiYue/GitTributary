@@ -11,8 +11,6 @@ pub(crate) mod sync;
 
 pub(crate) use error::StoreError;
 pub(crate) use namespace::Visibility;
-pub(crate) use policy::{
-    is_reserved_secret_namespace, DataClass, NamespacePolicy, Sensitivity,
-};
+pub(crate) use policy::{is_reserved_secret_namespace, DataClass, NamespacePolicy, Sensitivity};
 pub(crate) use store::{validate_namespace_name, Store};
 pub(crate) use sync::SyncEngine;

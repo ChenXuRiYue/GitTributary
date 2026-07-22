@@ -69,7 +69,11 @@ pub(crate) fn render_index_html(
     )
 }
 
-pub(crate) fn render_page_html(config: &SiteBuildConfig, page: &RenderedPage, nav_html: &str) -> String {
+pub(crate) fn render_page_html(
+    config: &SiteBuildConfig,
+    page: &RenderedPage,
+    nav_html: &str,
+) -> String {
     let title = if config.site_title.trim().is_empty() {
         "Git Tributary Site"
     } else {
@@ -162,4 +166,3 @@ fn render_toc(page: &RenderedPage) -> String {
     html.push_str("</nav>");
     html
 }
-

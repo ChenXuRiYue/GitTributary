@@ -67,11 +67,17 @@ fn test_status_after_modification() {
     let statuses = repo.status().unwrap();
     assert_eq!(statuses.len(), 2);
 
-    let modified = statuses.iter().find(|s| s.path == Path::new("hello.md")).unwrap();
+    let modified = statuses
+        .iter()
+        .find(|s| s.path == Path::new("hello.md"))
+        .unwrap();
     assert_eq!(modified.kind, ChangeKind::Modified);
     assert!(!modified.staged);
 
-    let untracked = statuses.iter().find(|s| s.path == Path::new("new.md")).unwrap();
+    let untracked = statuses
+        .iter()
+        .find(|s| s.path == Path::new("new.md"))
+        .unwrap();
     assert_eq!(untracked.kind, ChangeKind::Untracked);
     assert!(!untracked.staged);
 }
@@ -149,10 +155,16 @@ fn test_stage_files_selective() {
     repo.stage_files(&[Path::new("a.md")]).unwrap();
 
     let statuses = repo.status().unwrap();
-    let a = statuses.iter().find(|s| s.path == Path::new("a.md")).unwrap();
+    let a = statuses
+        .iter()
+        .find(|s| s.path == Path::new("a.md"))
+        .unwrap();
     assert!(a.staged);
 
-    let b = statuses.iter().find(|s| s.path == Path::new("b.md")).unwrap();
+    let b = statuses
+        .iter()
+        .find(|s| s.path == Path::new("b.md"))
+        .unwrap();
     assert!(!b.staged);
 }
 
@@ -177,7 +189,10 @@ fn test_unstage_files() {
     repo.unstage_files(&[Path::new("hello.md")]).unwrap();
 
     let statuses = repo.status().unwrap();
-    let hello = statuses.iter().find(|s| s.path == Path::new("hello.md")).unwrap();
+    let hello = statuses
+        .iter()
+        .find(|s| s.path == Path::new("hello.md"))
+        .unwrap();
     assert!(!hello.staged); // 应回到 unstaged
 }
 
@@ -189,14 +204,20 @@ fn test_remote_management_trims_and_lists_remote() {
         .unwrap();
 
     let remotes = repo.remotes().unwrap();
-    let backup = remotes.iter().find(|remote| remote.name == "backup").unwrap();
+    let backup = remotes
+        .iter()
+        .find(|remote| remote.name == "backup")
+        .unwrap();
     assert_eq!(backup.url, "https://example.com/user/repo.git");
     assert_eq!(backup.push_url, None);
 
     repo.set_remote_url(" backup ", " https://example.com/user/new.git ")
         .unwrap();
     let remotes = repo.remotes().unwrap();
-    let backup = remotes.iter().find(|remote| remote.name == "backup").unwrap();
+    let backup = remotes
+        .iter()
+        .find(|remote| remote.name == "backup")
+        .unwrap();
     assert_eq!(backup.url, "https://example.com/user/new.git");
 
     repo.remove_remote(" backup ").unwrap();
@@ -208,15 +229,24 @@ fn test_add_remote_rejects_empty_and_duplicate_names() {
     let (_dir, repo) = setup_repo();
 
     let empty_name = repo.add_remote("   ", "https://example.com/user/repo.git");
-    assert!(empty_name.unwrap_err().to_string().contains("远程名称不能为空"));
+    assert!(empty_name
+        .unwrap_err()
+        .to_string()
+        .contains("远程名称不能为空"));
 
     let empty_url = repo.add_remote("origin", "   ");
-    assert!(empty_url.unwrap_err().to_string().contains("远程 URL 不能为空"));
+    assert!(empty_url
+        .unwrap_err()
+        .to_string()
+        .contains("远程 URL 不能为空"));
 
     repo.add_remote("origin", "https://example.com/user/repo.git")
         .unwrap();
     let duplicate = repo.add_remote("origin", "https://example.com/user/other.git");
-    assert!(duplicate.unwrap_err().to_string().contains("远程 'origin' 已存在"));
+    assert!(duplicate
+        .unwrap_err()
+        .to_string()
+        .contains("远程 'origin' 已存在"));
 }
 
 #[test]

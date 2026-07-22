@@ -130,4 +130,3 @@ fn nav_file_name(path: &str) -> String {
         .unwrap_or(path)
         .to_string()
 }
-

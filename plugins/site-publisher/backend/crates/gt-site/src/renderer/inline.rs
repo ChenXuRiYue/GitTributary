@@ -21,7 +21,8 @@ pub(crate) fn render_inline(
     while i < chars.len() {
         if chars[i] == '!' && i + 1 < chars.len() && chars[i + 1] == '[' {
             if let Some(link) = parse_markdown_link(&chars[i + 1..]) {
-                let src = resolve_asset_url(repo, output_dir, file, &link.url, copy_assets, assets)?;
+                let src =
+                    resolve_asset_url(repo, output_dir, file, &link.url, copy_assets, assets)?;
                 out.push_str(&format!(
                     "<img src=\"{}\" alt=\"{}\">",
                     escape_attr(&src),

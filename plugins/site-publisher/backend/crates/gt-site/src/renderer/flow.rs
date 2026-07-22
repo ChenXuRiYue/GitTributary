@@ -69,10 +69,7 @@ impl MarkdownRenderState {
         self.plain_text.push('\n');
     }
 
-    pub(crate) fn push_break(
-        &mut self,
-        context: &mut MarkdownRenderContext<'_>,
-    ) -> Result<()> {
+    pub(crate) fn push_break(&mut self, context: &mut MarkdownRenderContext<'_>) -> Result<()> {
         self.flush_paragraph(context)?;
         self.close_lists();
         self.close_blockquote();

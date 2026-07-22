@@ -39,10 +39,7 @@ pub struct BranchInfo {
 pub(crate) fn current_branch(repo: &Repository) -> Result<String> {
     let head = repo.head().map_err(|_| GitError::DetachedHead)?;
     if head.is_branch() {
-        Ok(head
-            .shorthand()
-            .unwrap_or("HEAD")
-            .to_string())
+        Ok(head.shorthand().unwrap_or("HEAD").to_string())
     } else {
         Err(GitError::DetachedHead)
     }
@@ -61,10 +58,7 @@ impl GitRepo {
 
         for item in branches {
             let (branch, branch_type) = item?;
-            let name = branch
-                .name()?
-                .unwrap_or("<invalid utf8>")
-                .to_string();
+            let name = branch.name()?.unwrap_or("<invalid utf8>").to_string();
             let is_head = branch.is_head();
             let is_remote = branch_type == git2::BranchType::Remote;
             result.push(BranchInfo {

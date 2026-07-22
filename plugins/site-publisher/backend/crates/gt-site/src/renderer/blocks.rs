@@ -108,7 +108,10 @@ pub(crate) fn render_table(
     let headers = split_table_row(lines[0]);
     let mut html = String::from("<table>\n<thead><tr>");
     for header in headers {
-        html.push_str(&format!("<th>{}</th>", context.render_inline(header.trim())?));
+        html.push_str(&format!(
+            "<th>{}</th>",
+            context.render_inline(header.trim())?
+        ));
     }
     html.push_str("</tr></thead>\n<tbody>\n");
     let mut consumed = 2;

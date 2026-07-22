@@ -87,8 +87,9 @@ impl GitRepo {
         use crate::status::{ChangeKind, FileStatus};
         use std::path::PathBuf;
 
-        let oid = git2::Oid::from_str(commit_id)
-            .map_err(|_| crate::error::GitError::Internal(format!("无效的提交 ID: {}", commit_id)))?;
+        let oid = git2::Oid::from_str(commit_id).map_err(|_| {
+            crate::error::GitError::Internal(format!("无效的提交 ID: {}", commit_id))
+        })?;
         let commit = self.repo.find_commit(oid)?;
         let tree = commit.tree()?;
 
@@ -98,7 +99,9 @@ impl GitRepo {
             None
         };
 
-        let diff = self.repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
+        let diff = self
+            .repo
+            .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), None)?;
 
         let mut files = Vec::new();
         for delta in diff.deltas() {
@@ -120,11 +123,16 @@ impl GitRepo {
     }
 
     /// 获取某次提交中指定文件的 diff(对比 parent)
-    pub fn commit_file_diff(&self, commit_id: &str, file_path: &str) -> Result<crate::diff::FileDiff> {
+    pub fn commit_file_diff(
+        &self,
+        commit_id: &str,
+        file_path: &str,
+    ) -> Result<crate::diff::FileDiff> {
         use git2::DiffFormat;
 
-        let oid = git2::Oid::from_str(commit_id)
-            .map_err(|_| crate::error::GitError::Internal(format!("无效的提交 ID: {}", commit_id)))?;
+        let oid = git2::Oid::from_str(commit_id).map_err(|_| {
+            crate::error::GitError::Internal(format!("无效的提交 ID: {}", commit_id))
+        })?;
         let commit = self.repo.find_commit(oid)?;
         let tree = commit.tree()?;
 
@@ -137,7 +145,9 @@ impl GitRepo {
         let mut opts = git2::DiffOptions::new();
         opts.pathspec(file_path);
 
-        let diff = self.repo.diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))?;
+        let diff =
+            self.repo
+                .diff_tree_to_tree(parent_tree.as_ref(), Some(&tree), Some(&mut opts))?;
         let stats = diff.stats()?;
 
         let mut patch_text = String::new();
