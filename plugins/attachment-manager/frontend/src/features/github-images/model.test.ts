@@ -95,4 +95,17 @@ describe("GitHub image library settings", () => {
     expect(migrationError("github_request_failed:timeout")).toContain("无法连接 GitHub");
     expect(migrationError(new Error("custom_failure"))).toBe("custom_failure");
   });
+
+  it.each([
+    ["migration_delete_skipped_note_failures", "Markdown 修改未全部成功，已保留本地图片"],
+    ["migration_delete_skipped_no_references", "未确认引用替换，已保留本地图片"],
+    ["migration_delete_skipped_remaining_references", "仍有 Markdown 引用本地图片，未执行删除"],
+  ])("translates migration cleanup failure %s", (error, expected) => {
+    expect(migrationError(error)).toBe(expected);
+  });
+
+  it("hides migration cleanup scan diagnostics behind an actionable message", () => {
+    expect(migrationError("migration_delete_scan_failed:permission_denied"))
+      .toBe("无法确认引用替换结果，已保留本地图片");
+  });
 });
