@@ -15,6 +15,7 @@ coverage/
 playwright-report/
 test-results/
 test-reports/
+quality-reports/
 /target/
 
 # Generated plugin artifacts
