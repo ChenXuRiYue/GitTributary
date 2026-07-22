@@ -38,6 +38,21 @@ export interface AttachmentPreview {
   dataUrl: string;
 }
 
+export interface AttachmentPreviewDescriptor {
+  path: string;
+  mimeType: string;
+  size: number;
+  chunkSize: number;
+}
+
+export interface AttachmentPreviewChunk {
+  path: string;
+  offset: number;
+  nextOffset: number;
+  data: string;
+  done: boolean;
+}
+
 export interface WorkspaceInfo {
   active_repo: string | null;
 }
@@ -101,7 +116,61 @@ export interface GitHubImageMigrationReport {
   migrated: GitHubImageMigrationItem[];
   failed: GitHubImageMigrationFailure[];
   failedNotes: GitHubImageMigrationFailure[];
+  failedDeletes: GitHubImageMigrationFailure[];
+  changedNotePaths: string[];
+  deletedLocalPaths: string[];
   changedNotes: number;
   replacedReferences: number;
   durationMs: number;
+}
+
+export type LocalFilePolicy = "keep" | "delete_after_success";
+
+export type ImageMigrationFileScopeMode = "manual" | "rules";
+
+export interface ImageMigrationFileScope {
+  mode: ImageMigrationFileScopeMode;
+  manualFolders: string[] | null;
+  rules: string;
+}
+
+export interface ImageMigrationSettings {
+  version: 1;
+  targetLibraryId: string;
+  localFilePolicy: LocalFilePolicy;
+  fileScope?: ImageMigrationFileScope;
+}
+
+export interface ImageMigrationLibrarySnapshot {
+  id: string;
+  name: string;
+  config: GitHubImageConfig;
+}
+
+export type ImageMigrationTaskStatus =
+  | "running"
+  | "succeeded"
+  | "partial"
+  | "failed"
+  | "interrupted";
+
+export interface ImageMigrationTaskRecord {
+  id: string;
+  status: ImageMigrationTaskStatus;
+  repoPath: string;
+  settings: ImageMigrationSettings;
+  library: ImageMigrationLibrarySnapshot;
+  imagePaths: string[];
+  noteCount: number;
+  startedAt: number;
+  finishedAt?: number;
+  result?: GitHubImageMigrationReport;
+  error?: string;
+}
+
+export interface ImageMigrationWorkspaceState {
+  version: 1;
+  drafts: Record<string, ImageMigrationSettings>;
+  history: ImageMigrationTaskRecord[];
+  updatedAt: number;
 }

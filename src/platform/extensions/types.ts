@@ -54,6 +54,16 @@ export interface ExtensionPluginReadyMessage {
   sessionId: string;
 }
 
+export type ExtensionModalBackdrop = "standard" | "immersive";
+
+export interface ExtensionPluginModalStateMessage {
+  type: "gittributary:modal-state";
+  apiVersion: typeof EXTENSION_API_VERSION;
+  sessionId: string;
+  open: boolean;
+  backdrop: ExtensionModalBackdrop;
+}
+
 export interface ExtensionContributionsState {
   contributions: ExtensionViewContribution[];
   loading: boolean;

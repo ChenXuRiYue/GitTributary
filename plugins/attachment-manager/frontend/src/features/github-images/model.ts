@@ -111,8 +111,12 @@ export function migrationError(error: unknown): string {
     migration_file_not_image: "文件不是可迁移的图片",
     invalid_attachment_path: "图片路径无效或文件已不存在",
     note_too_large: "Markdown 文件超过 4 MB，未自动修改",
+    migration_delete_skipped_note_failures: "Markdown 修改未全部成功，已保留本地图片",
+    migration_delete_skipped_no_references: "未确认引用替换，已保留本地图片",
+    migration_delete_skipped_remaining_references: "仍有 Markdown 引用本地图片，未执行删除",
   };
   if (message.startsWith("github_request_failed:")) return "无法连接 GitHub，请检查网络后重试";
+  if (message.startsWith("migration_delete_scan_failed:")) return "无法确认引用替换结果，已保留本地图片";
   return labels[message] ?? message;
 }
 

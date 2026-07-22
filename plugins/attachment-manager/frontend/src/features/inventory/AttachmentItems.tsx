@@ -22,9 +22,9 @@ export const AttachmentTile = memo(function AttachmentTile({
   item: AttachmentItem;
   repoPath: string;
   selected: boolean;
-  onSelect: (path: string) => void;
+  onSelect?: (path: string) => void;
 }) {
-  const tileRef = useRef<HTMLButtonElement>(null);
+  const tileRef = useRef<HTMLElement | null>(null);
   const key = previewKey(repoPath, item);
   const [preview, setPreview] = useState<AttachmentPreview | null>(() => getCachedAttachmentPreview(key));
   const [loadState, setLoadState] = useState<"idle" | "loading" | "ready" | "error">(
@@ -67,17 +67,13 @@ export const AttachmentTile = memo(function AttachmentTile({
     };
   }, [canPreview, item, key, repoPath]);
 
-  return (
-    <button
-      ref={tileRef}
-      type="button"
-      onClick={() => onSelect(item.path)}
-      aria-pressed={selected}
-      className={cn(
-        "border-border/60 bg-card min-w-0 overflow-hidden rounded-md border text-left transition-colors [contain:layout_paint] focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
-        selected ? "border-primary/40 bg-primary/5" : "hover:bg-accent/40",
-      )}
-    >
+  const tileClassName = cn(
+    "border-border/60 bg-card w-full min-w-0 overflow-hidden rounded-md border text-left transition-colors [contain:layout_paint]",
+    selected ? "border-primary/40 bg-primary/5" : onSelect && "hover:bg-accent/40",
+    onSelect && "focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+  );
+  const content = (
+    <>
       <div className="bg-muted/60 pointer-events-none flex aspect-[4/3] w-full items-center justify-center overflow-hidden">
         {preview && canPreview ? (
           <AsyncPreviewImage key={preview.dataUrl} src={preview.dataUrl} alt="" fallbackKind={item.kind} />
@@ -103,7 +99,26 @@ export const AttachmentTile = memo(function AttachmentTile({
           <span className="flex items-center gap-1"><Link2 className="size-3" />{item.references.length}</span>
         </div>
       </div>
+    </>
+  );
+
+  return onSelect ? (
+    <button
+      ref={(element) => { tileRef.current = element; }}
+      type="button"
+      onClick={() => onSelect(item.path)}
+      aria-pressed={selected}
+      className={tileClassName}
+    >
+      {content}
     </button>
+  ) : (
+    <div
+      ref={(element) => { tileRef.current = element; }}
+      className={tileClassName}
+    >
+      {content}
+    </div>
   );
 });
 

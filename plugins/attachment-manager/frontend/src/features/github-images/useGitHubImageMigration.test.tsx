@@ -1,51 +1,20 @@
-import { invoke } from "@tauri-apps/api/core";
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { attachment, scanReport } from "../../test/fixtures";
-import type { GitHubImageLibrary, GitHubImageMigrationReport } from "../../types";
 import { useGitHubImageMigration } from "./useGitHubImageMigration";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
-
-const mockedInvoke = vi.mocked(invoke);
 const report = scanReport([
   attachment({ path: "assets/one.png" }),
   attachment({ path: "assets/two.png", references: [{ notePath: "guide.md", line: 2 }] }),
   attachment({ path: "assets/orphan.png", references: [] }),
   attachment({ path: "audio/theme.mp3", kind: "audio", mimeType: "audio/mpeg" }),
 ]);
-const library: GitHubImageLibrary = {
-  id: "library",
-  name: "文档图库",
-  remote: {
-    repoPath: "/fixtures/notes",
-    name: "image-cloud",
-    url: "https://github.com/octocat/images.git",
-  },
-  branch: "main",
-  directory: "images",
-};
-const migrationReport: GitHubImageMigrationReport = {
-  migrated: [{
-    localPath: "assets/one.png",
-    remotePath: "images/hash.png",
-    url: "https://raw.githubusercontent.com/octocat/images/main/images/hash.png",
-    uploaded: true,
-  }],
-  failed: [],
-  failedNotes: [],
-  changedNotes: 2,
-  replacedReferences: 2,
-  durationMs: 25,
-};
-
-beforeEach(() => mockedInvoke.mockResolvedValue(null as never));
 
 describe("useGitHubImageMigration", () => {
   it("selects referenced images and supports bulk and individual toggles", async () => {
     const { result, rerender } = renderHook(
-      ({ currentReport }) => useGitHubImageMigration(currentReport, library, vi.fn()),
+      ({ currentReport }) => useGitHubImageMigration(currentReport),
       { initialProps: { currentReport: report } },
     );
     await waitFor(() => expect(result.current.selectedCount).toBe(2));
@@ -59,36 +28,46 @@ describe("useGitHubImageMigration", () => {
     await waitFor(() => expect(result.current.selectedCount).toBe(2));
   });
 
-  it("migrates through the bound Git remote and rescans", async () => {
-    const onCompleted = vi.fn().mockResolvedValue(undefined);
-    mockedInvoke.mockImplementation(async (command) => {
-      if (command === "attachments_migrate_github_images") return migrationReport as never;
-      return null as never;
-    });
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    const { result } = renderHook(() => useGitHubImageMigration(report, library, onCompleted));
+  it("selects and clears a folder-sized path batch in one update", async () => {
+    const { result } = renderHook(() => useGitHubImageMigration(report));
     await waitFor(() => expect(result.current.selectedCount).toBe(2));
-    await act(() => result.current.migrate());
 
-    expect(mockedInvoke).toHaveBeenCalledWith("attachments_migrate_github_images", {
-      repoPath: report.repoPath,
-      imagePaths: ["assets/one.png", "assets/two.png"],
-      config: {
-        remote: library.remote,
-        branch: "main",
-        directory: "images",
-      },
-    });
-    expect(result.current.result).toEqual(migrationReport);
-    expect(onCompleted).toHaveBeenCalledOnce();
+    act(() => result.current.selectPaths(["assets/one.png", "assets/two.png"], false));
+    expect([...result.current.selectedPaths]).toEqual([]);
+
+    act(() => result.current.selectPaths(["assets/one.png", "missing.png"], true));
+    expect([...result.current.selectedPaths]).toEqual(["assets/one.png"]);
+
+    act(() => result.current.replaceSelection(["assets/two.png", "missing.png"]));
+    expect([...result.current.selectedPaths]).toEqual(["assets/two.png"]);
   });
 
-  it("stops when the library has no Git remote binding", async () => {
-    const unbound = { ...library, remote: null };
-    const { result } = renderHook(() => useGitHubImageMigration(report, unbound, vi.fn()));
+  it("returns an immutable selection only after in-plugin confirmation", async () => {
+    const { result } = renderHook(() => useGitHubImageMigration(report));
     await waitFor(() => expect(result.current.selectedCount).toBe(2));
-    await act(() => result.current.migrate());
-    expect(result.current.error).toContain("Git 远程不可用");
-    expect(mockedInvoke).not.toHaveBeenCalled();
+
+    act(() => result.current.migrate());
+    expect(result.current.confirmation).toEqual({ imageCount: 2, noteCount: 2 });
+
+    act(() => result.current.cancelMigration());
+    expect(result.current.confirmation).toBeNull();
+
+    act(() => result.current.migrate());
+    let confirmed: ReturnType<typeof result.current.confirmMigration> = null;
+    act(() => { confirmed = result.current.confirmMigration(); });
+    expect(confirmed).toEqual({
+      paths: ["assets/one.png", "assets/two.png"],
+      noteCount: 2,
+    });
+    expect(result.current.confirmation).toBeNull();
+  });
+
+  it("rejects an empty selection", async () => {
+    const { result } = renderHook(() => useGitHubImageMigration(report));
+    await waitFor(() => expect(result.current.selectedCount).toBe(2));
+    act(() => result.current.selectAll(false));
+    act(() => result.current.migrate());
+    expect(result.current.error).toContain("至少选择");
+    expect(result.current.confirmation).toBeNull();
   });
 });

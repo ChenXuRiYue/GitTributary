@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, Globe2, Images, LoaderCircle, RefreshCw, ScanSearch } from "lucide-react";
+import { AlertTriangle, CloudUpload, Globe2, Images, LoaderCircle, RefreshCw, ScanSearch } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 
 import { DomainTrail } from "@/shared/components/DomainTrail";
@@ -16,7 +16,9 @@ import {
   filterAndSortDomains,
   type DomainSort,
 } from "./features/domains/model";
+import { AttachmentMigrationPanel } from "./features/github-images/AttachmentMigrationPanel";
 import { GitHubImagePanel } from "./features/github-images/GitHubImagePanel";
+import { useMigrationWorkspace } from "./features/github-images/useMigrationWorkspace";
 import { AttachmentDetailPanel } from "./features/inventory/AttachmentDetailPanel";
 import { ImagePreviewDialog } from "./features/inventory/AttachmentPreview";
 import { InventoryPanel } from "./features/inventory/InventoryPanel";
@@ -48,12 +50,13 @@ import type {
   WorkspaceInfo,
 } from "./types";
 
-type Module = "inventory" | "domains" | "github";
+type Module = "inventory" | "domains" | "gallery" | "migration";
 
 const modules = [
   { id: "inventory", name: "扫描盘点", icon: ScanSearch },
   { id: "domains", name: "域名统计", icon: Globe2 },
-  { id: "github", name: "图库", icon: Images },
+  { id: "gallery", name: "图库配置", icon: Images },
+  { id: "migration", name: "附件迁移", icon: CloudUpload },
 ];
 
 const EMPTY_ATTACHMENTS: AttachmentItem[] = [];
@@ -116,6 +119,7 @@ export function App() {
       setLoading(false);
     }
   }, []);
+  const migrationWorkspace = useMigrationWorkspace(scan);
 
   useEffect(() => {
     markPluginReady();
@@ -221,7 +225,9 @@ export function App() {
     ? "扫描盘点"
     : activeModule === "domains"
       ? "域名统计"
-      : "图库";
+      : activeModule === "gallery"
+        ? "图库配置"
+        : "附件迁移";
   const domainResourceCount = domainStats.reduce((sum, item) => sum + item.total, 0);
   const headerStats = activeModule === "inventory"
     ? [`附件:${attachments.length}`, `笔记:${report?.notesScanned ?? 0}`]
@@ -273,7 +279,7 @@ export function App() {
         </div>
       </header>
 
-      {error && activeModule !== "github" ? (
+      {error && activeModule !== "gallery" ? (
         <div className="flex min-h-0 flex-1 items-center justify-center p-6">
           <div className="flex max-w-sm flex-col items-center text-center">
             <AlertTriangle className="text-destructive mb-3 size-6" />
@@ -340,8 +346,14 @@ export function App() {
               />
             ) : (
               <div className="gt-thin-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 [scrollbar-gutter:stable]">
-                {activeModule === "github" ? (
-                  <GitHubImagePanel report={report} onCompleted={scan} />
+                {activeModule === "gallery" ? (
+                  <GitHubImagePanel />
+                ) : activeModule === "migration" ? (
+                  <AttachmentMigrationPanel
+                    report={report}
+                    workspace={migrationWorkspace}
+                    onOpenSettings={() => selectModule("gallery")}
+                  />
                 ) : loading && !report ? (
                   <div className="text-muted-foreground flex h-full items-center justify-center gap-2">
                     <LoaderCircle className="size-4 animate-spin" />

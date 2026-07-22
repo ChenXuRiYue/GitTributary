@@ -5,6 +5,7 @@ import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/ui/button";
 
 import { AttachmentIcon, KindIcon } from "../../components/AttachmentIcon";
+import { registerPluginModal } from "../../bridge";
 import { canPreviewImage } from "../../lib/attachment";
 import type { AttachmentItem, AttachmentKind, AttachmentPreview as Preview } from "../../types";
 
@@ -153,6 +154,8 @@ export function ImagePreviewDialog({
   preview: Preview;
   onClose: () => void;
 }) {
+  useEffect(() => registerPluginModal("immersive"), []);
+
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -163,7 +166,7 @@ export function ImagePreviewDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
       role="dialog"
       aria-modal="true"
       aria-label={`${item.name} 图片预览`}

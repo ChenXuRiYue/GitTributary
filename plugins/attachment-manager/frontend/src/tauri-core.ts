@@ -11,6 +11,7 @@ const COMMAND_METHODS: Record<string, string> = {
 const BACKEND_METHODS: Record<string, string> = {
   attachments_scan: "attachments.scan",
   attachments_preview: "attachments.preview",
+  attachments_preview_chunk: "attachments.previewChunk",
   attachments_check_github_image_config: "attachments.checkGithubImageConfig",
   attachments_migrate_github_images: "attachments.migrateGithubImages",
 };

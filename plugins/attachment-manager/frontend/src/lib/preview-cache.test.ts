@@ -13,7 +13,9 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
 const mockedInvoke = vi.mocked(invoke);
 
-beforeEach(() => mockedInvoke.mockReset());
+beforeEach(() => {
+  mockedInvoke.mockReset();
+});
 
 describe("attachment preview cache", () => {
   it("uses a stable key containing repository, file metadata, and path", () => {
@@ -49,6 +51,44 @@ describe("attachment preview cache", () => {
     expect(mockedInvoke).toHaveBeenCalledOnce();
     resolvePreview?.({ path: item.path, mimeType: "image/png", dataUrl: "data:image/png;base64,AQ==" });
     await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+  });
+
+  it("assembles large local previews from bounded backend chunks", async () => {
+    const item = attachment({ path: "assets/chunked.png", size: 4 });
+    mockedInvoke.mockImplementation(async (command, args) => {
+      if (command === "attachments_preview") {
+        return {
+          path: item.path,
+          mimeType: "image/png",
+          size: 4,
+          chunkSize: 3,
+        } as never;
+      }
+      const payload = args as { offset: number; expectedSize: number };
+      expect(command).toBe("attachments_preview_chunk");
+      expect(payload.expectedSize).toBe(4);
+      return (payload.offset === 0
+        ? { path: item.path, offset: 0, nextOffset: 3, data: "YWJj", done: false }
+        : { path: item.path, offset: 3, nextOffset: 4, data: "ZA==", done: true }) as never;
+    });
+
+    await expect(loadAttachmentPreview("/repo", item)).resolves.toEqual({
+      path: item.path,
+      mimeType: "image/png",
+      dataUrl: "data:image/png;base64,YWJjZA==",
+    });
+    expect(mockedInvoke).toHaveBeenNthCalledWith(2, "attachments_preview_chunk", {
+      repoPath: "/repo",
+      path: item.path,
+      offset: 0,
+      expectedSize: 4,
+    });
+    expect(mockedInvoke).toHaveBeenNthCalledWith(3, "attachments_preview_chunk", {
+      repoPath: "/repo",
+      path: item.path,
+      offset: 3,
+      expectedSize: 4,
+    });
   });
 
   it("builds remote previews without invoking the plugin backend", async () => {

@@ -16,7 +16,7 @@ export function ImageMigrationResult({
 }) {
   const uploadedCount = result.migrated.filter((item) => item.uploaded).length;
   const reusedCount = result.migrated.length - uploadedCount;
-  const failures = [...result.failed, ...result.failedNotes];
+  const failures = [...result.failed, ...result.failedNotes, ...result.failedDeletes];
   const completedWithoutErrors = failures.length === 0;
   return (
     <section className="border-border/60 border">

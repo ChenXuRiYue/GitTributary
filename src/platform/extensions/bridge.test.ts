@@ -88,6 +88,46 @@ describe("extension MessageChannel bridge", () => {
     bridge.dispose();
   });
 
+  it("forwards modal backdrop state only for the active bridge session", async () => {
+    const onModalBackdropChange = vi.fn();
+    const bridge = attachExtensionBridge(contribution, { onModalBackdropChange });
+    bridge.pluginPort.postMessage({
+      type: "gittributary:modal-state",
+      apiVersion: EXTENSION_API_VERSION,
+      sessionId: "wrong-session",
+      open: true,
+      backdrop: "immersive",
+    });
+    bridge.pluginPort.postMessage({
+      type: "gittributary:modal-state",
+      apiVersion: EXTENSION_API_VERSION,
+      sessionId: bridge.sessionId,
+      open: true,
+      backdrop: "immersive",
+    });
+
+    await vi.waitFor(() => expect(onModalBackdropChange).toHaveBeenCalledWith("immersive"));
+    bridge.pluginPort.postMessage({
+      type: "gittributary:modal-state",
+      apiVersion: EXTENSION_API_VERSION,
+      sessionId: bridge.sessionId,
+      open: false,
+      backdrop: "standard",
+    });
+    await vi.waitFor(() => expect(onModalBackdropChange).toHaveBeenLastCalledWith(null));
+
+    bridge.pluginPort.postMessage({
+      type: "gittributary:modal-state",
+      apiVersion: EXTENSION_API_VERSION,
+      sessionId: bridge.sessionId,
+      open: true,
+      backdrop: "standard",
+    });
+    await vi.waitFor(() => expect(onModalBackdropChange).toHaveBeenLastCalledWith("standard"));
+    bridge.dispose();
+    expect(onModalBackdropChange).toHaveBeenLastCalledWith(null);
+  });
+
   it("normalizes missing payloads to null", async () => {
     const bridge = attachExtensionBridge(contribution);
     const response = nextMessage(bridge.pluginPort);

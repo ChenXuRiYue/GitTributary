@@ -40,7 +40,7 @@ export function formatDate(seconds: number | null): string {
 
 export function attachmentErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  if (message.includes("preview_file_too_large")) return "文件超过 24 MB，请使用系统应用打开";
+  if (message.includes("preview_file_too_large")) return "音频文件超过 24 MB，请使用系统应用打开";
   if (message.includes("repository_not_open")) return "请先打开一个 Git 仓库";
   return message;
 }

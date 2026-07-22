@@ -5,16 +5,21 @@ import { Button } from "@/shared/ui/button";
 import { cn } from "@/shared/lib/utils";
 
 import { attachExtensionBridge, notifyExtensionReady } from "./bridge";
-import type { ExtensionViewContribution } from "./types";
+import type { ExtensionModalBackdrop, ExtensionViewContribution } from "./types";
 
 const EXTENSION_STARTUP_TIMEOUT_MS = 5_000;
 
 export interface ExtensionFrameProps {
   contribution: ExtensionViewContribution;
   className?: string;
+  onModalBackdropChange?: (backdrop: ExtensionModalBackdrop | null) => void;
 }
 
-export function ExtensionFrame({ contribution, className }: ExtensionFrameProps) {
+export function ExtensionFrame({
+  contribution,
+  className,
+  onModalBackdropChange,
+}: ExtensionFrameProps) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const bridgeRef = useRef<ReturnType<typeof attachExtensionBridge> | null>(null);
   const connectedRef = useRef(false);
@@ -40,6 +45,7 @@ export function ExtensionFrame({ contribution, className }: ExtensionFrameProps)
         setLoading(false);
         setError(null);
       },
+      onModalBackdropChange,
     });
     bridgeRef.current = bridge;
     return () => {
@@ -47,7 +53,7 @@ export function ExtensionFrame({ contribution, className }: ExtensionFrameProps)
       bridge.dispose();
       if (bridgeRef.current === bridge) bridgeRef.current = null;
     };
-  }, [clearStartupTimer, frameKey, sessionKey]);
+  }, [clearStartupTimer, frameKey, onModalBackdropChange, sessionKey]);
 
   useEffect(() => {
     setLoading(true);

@@ -18,6 +18,7 @@ import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 
+import { ConfirmDialog } from "../../components/ConfirmDialog";
 import type {
   GitHubImageConfig,
   GitHubImageConfigCheck,
@@ -55,6 +56,7 @@ export function ImageLibraryRepositoryPage({
   const [checking, setChecking] = useState(false);
   const [check, setCheck] = useState<GitHubImageConfigCheck | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deletionRequested, setDeletionRequested] = useState(false);
   const selectedKey = draft.remote ? bindingKey(draft.remote) : "";
   const selectedEntry = useMemo(
     () => remotes.find((entry) => remoteEntryKey(entry) === selectedKey) ?? null,
@@ -110,9 +112,9 @@ export function ImageLibraryRepositoryPage({
   };
 
   const remove = async () => {
-    if (!window.confirm(`删除图库“${draft.name}”？Git 远程仓库不会被删除。`)) return;
     try {
       await onDelete(draft.id);
+      setDeletionRequested(false);
     } catch (reason) {
       setError(migrationError(reason));
     }
@@ -121,7 +123,7 @@ export function ImageLibraryRepositoryPage({
   return (
     <div className="mx-auto w-full max-w-5xl pb-4">
       <div className="border-border/50 flex min-h-12 items-center gap-2 border-b pb-3">
-        <Button variant="ghost" size="icon" onClick={onBack} title="返回图库">
+        <Button variant="ghost" size="icon" onClick={onBack} title="返回图库配置">
           <ArrowLeft />
         </Button>
         <div>
@@ -129,7 +131,7 @@ export function ImageLibraryRepositoryPage({
           <div className="text-muted-foreground gt-caption">{existing ? "管理 Git 远程绑定" : "添加 Git 远程绑定"}</div>
         </div>
         {existing && (
-          <Button variant="ghost" size="icon" className="text-destructive ml-auto" onClick={() => void remove()} disabled={saving} title="删除图库">
+          <Button variant="ghost" size="icon" className="text-destructive ml-auto" onClick={() => setDeletionRequested(true)} disabled={saving} title="删除图库">
             <Trash2 />
           </Button>
         )}
@@ -235,6 +237,16 @@ export function ImageLibraryRepositoryPage({
       )}
 
       {error && <div className="border-destructive/40 bg-destructive/5 text-destructive gt-body border px-4 py-3">{error}</div>}
+      <ConfirmDialog
+        open={deletionRequested}
+        title="确认删除图库"
+        description={`删除图库“${draft.name}”？Git 远程仓库不会被删除。`}
+        confirmLabel="删除图库"
+        destructive
+        busy={saving}
+        onCancel={() => setDeletionRequested(false)}
+        onConfirm={() => void remove()}
+      />
     </div>
   );
 }
