@@ -25,14 +25,17 @@ const contribution: ExtensionViewContribution = {
 };
 
 const readyCallbacks: Array<(() => void) | undefined> = [];
+const modalCallbacks: Array<((backdrop: "standard" | "immersive" | null) => void) | undefined> = [];
 const disposers: ReturnType<typeof vi.fn>[] = [];
 
 beforeEach(() => {
   readyCallbacks.length = 0;
+  modalCallbacks.length = 0;
   disposers.length = 0;
   mockedAttachBridge.mockImplementation((_currentContribution, options) => {
     const dispose = vi.fn();
     readyCallbacks.push(options?.onReady);
+    modalCallbacks.push(options?.onModalBackdropChange);
     disposers.push(dispose);
     return {
       pluginPort: {} as MessagePort,
@@ -96,5 +99,18 @@ describe("ExtensionFrame lifecycle", () => {
     const { unmount } = render(<ExtensionFrame contribution={contribution} />);
     unmount();
     expect(disposers[0]).toHaveBeenCalledOnce();
+  });
+
+  it("connects plugin modal state to the host shell", () => {
+    const onModalBackdropChange = vi.fn();
+    render(
+      <ExtensionFrame
+        contribution={contribution}
+        onModalBackdropChange={onModalBackdropChange}
+      />,
+    );
+
+    act(() => modalCallbacks[0]?.("immersive"));
+    expect(onModalBackdropChange).toHaveBeenCalledWith("immersive");
   });
 });

@@ -3,6 +3,8 @@ import {
   EXTENSION_API_VERSION,
   type ExtensionBridgeRequest,
   type ExtensionHostReadyMessage,
+  type ExtensionModalBackdrop,
+  type ExtensionPluginModalStateMessage,
   type ExtensionPluginReadyMessage,
   type ExtensionViewContribution,
 } from "./types";
@@ -32,6 +34,19 @@ function isPluginReadyMessage(
     && message.sessionId === sessionId;
 }
 
+function isPluginModalStateMessage(
+  value: unknown,
+  sessionId: string,
+): value is ExtensionPluginModalStateMessage {
+  if (typeof value !== "object" || value === null) return false;
+  const message = value as Partial<ExtensionPluginModalStateMessage>;
+  return message.type === "gittributary:modal-state"
+    && message.apiVersion === EXTENSION_API_VERSION
+    && message.sessionId === sessionId
+    && typeof message.open === "boolean"
+    && (message.backdrop === "standard" || message.backdrop === "immersive");
+}
+
 function currentTheme(): "light" | "dark" {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
 }
@@ -44,6 +59,7 @@ export interface AttachedExtensionBridge {
 
 export interface ExtensionBridgeOptions {
   onReady?: () => void;
+  onModalBackdropChange?: (backdrop: ExtensionModalBackdrop | null) => void;
 }
 
 /** Bind one MessagePort to one immutable plugin identity. */
@@ -56,6 +72,7 @@ export function attachExtensionBridge(
   let pending = 0;
   let disposed = false;
   let ready = false;
+  let modalBackdrop: ExtensionModalBackdrop | null = null;
 
   channel.port1.onmessage = (event: MessageEvent<unknown>) => {
     if (disposed) return;
@@ -63,6 +80,14 @@ export function attachExtensionBridge(
       if (!ready) {
         ready = true;
         options.onReady?.();
+      }
+      return;
+    }
+    if (isPluginModalStateMessage(event.data, sessionId)) {
+      const nextBackdrop = event.data.open ? event.data.backdrop : null;
+      if (nextBackdrop !== modalBackdrop) {
+        modalBackdrop = nextBackdrop;
+        options.onModalBackdropChange?.(modalBackdrop);
       }
       return;
     }
@@ -111,7 +136,12 @@ export function attachExtensionBridge(
     pluginPort: channel.port2,
     sessionId,
     dispose: () => {
+      if (disposed) return;
       disposed = true;
+      if (modalBackdrop !== null) {
+        modalBackdrop = null;
+        options.onModalBackdropChange?.(null);
+      }
       channel.port1.close();
       channel.port2.close();
     },

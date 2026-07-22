@@ -11,6 +11,7 @@ import {
   useExtensionContributions,
 } from "@/platform/extensions";
 import { resolveExtensionIcon } from "@/platform/extensions/icons";
+import type { ExtensionModalBackdrop } from "@/platform/extensions/types";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Separator } from "@/shared/ui/separator";
 import {
@@ -69,6 +70,10 @@ const registeredCoreItems: WorkbenchItem[] = coreModules.map(({ panel: Panel, ..
 
 function App() {
   const { contributions } = useExtensionContributions();
+  const [extensionModalBackdrop, setExtensionModalBackdrop] = useState<ExtensionModalBackdrop | null>(null);
+  const handleExtensionModalBackdropChange = useCallback((backdrop: ExtensionModalBackdrop | null) => {
+    setExtensionModalBackdrop(backdrop);
+  }, []);
   const workbenchItems = useMemo<WorkbenchItem[]>(() => [
     ...registeredCoreItems,
     ...contributions.map((contribution) => ({
@@ -79,9 +84,14 @@ function App() {
       group: "main" as const,
       fullHeight: true,
       pinned: true,
-      content: <ExtensionFrame contribution={contribution} />,
+      content: (
+        <ExtensionFrame
+          contribution={contribution}
+          onModalBackdropChange={handleExtensionModalBackdropChange}
+        />
+      ),
     })),
-  ], [contributions]);
+  ], [contributions, handleExtensionModalBackdropChange]);
   const navItems = useMemo<NavItem[]>(() => workbenchItems.map((item) => ({
     id: item.id,
     name: item.name,
@@ -231,9 +241,17 @@ function App() {
         {/* 左侧侧边栏 */}
         <aside
           ref={asideRef}
+          data-testid="primary-sidebar"
           style={{ width: collapsed ? COLLAPSED_WIDTH : width }}
+          inert={extensionModalBackdrop !== null}
+          aria-hidden={extensionModalBackdrop !== null || undefined}
           className={cn(
-            "glass border-sidebar-border relative flex shrink-0 flex-col border-r p-2",
+            "glass relative flex shrink-0 flex-col border-r p-2",
+            extensionModalBackdrop === "immersive"
+              ? "border-black/60"
+              : extensionModalBackdrop === "standard"
+                ? "border-black/55"
+                : "border-sidebar-border",
             !dragging && "transition-[width] duration-200",
           )}
         >
@@ -331,6 +349,17 @@ function App() {
               onDoubleClick={() => setWidth(DEFAULT_WIDTH)}
               className="hover:bg-primary/30 absolute top-0 right-0 h-full w-1 cursor-col-resize bg-transparent transition-colors"
               title="拖拽调整宽度，双击重置"
+            />
+          )}
+
+          {extensionModalBackdrop && (
+            <div
+              aria-hidden="true"
+              data-plugin-modal-backdrop={extensionModalBackdrop}
+              className={cn(
+                "absolute inset-y-0 left-0 -right-px z-[100] cursor-default",
+                extensionModalBackdrop === "immersive" ? "bg-black/60" : "bg-black/55",
+              )}
             />
           )}
         </aside>
