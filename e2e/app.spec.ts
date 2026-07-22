@@ -206,3 +206,24 @@ test("degrades to the repository empty state when backend context is unavailable
   await expect(page.getByText("选择一个 Git 仓库开始")).toBeVisible();
   expect((await tauri.calls()).some((call) => call.cmd === "get_workspace_info")).toBe(true);
 });
+
+test("dismisses sidebar tooltips when the pointer enters the work area", async ({ page }) => {
+  await page.goto("/");
+  const tooltip = page.locator('[data-slot="tooltip-content"]');
+
+  const primaryTrigger = page.getByRole("button", { name: "插件" });
+  await primaryTrigger.hover();
+  await expect(tooltip).toContainText("插件");
+  const primaryBox = await primaryTrigger.boundingBox();
+  expect(primaryBox).not.toBeNull();
+  await page.mouse.move(420, primaryBox!.y + primaryBox!.height / 2);
+  await expect(tooltip).toHaveCount(0);
+
+  const secondaryTrigger = page.getByRole("button", { name: "历史" });
+  await secondaryTrigger.hover();
+  await expect(tooltip).toContainText("历史");
+  const secondaryBox = await secondaryTrigger.boundingBox();
+  expect(secondaryBox).not.toBeNull();
+  await page.mouse.move(420, secondaryBox!.y + secondaryBox!.height / 2);
+  await expect(tooltip).toHaveCount(0);
+});

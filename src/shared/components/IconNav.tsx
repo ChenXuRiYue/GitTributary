@@ -146,7 +146,7 @@ export function IconNav({
     const Icon = item.icon;
     const isActive = item.id === activeId;
     return (
-      <Tooltip>
+      <Tooltip disableHoverableContent>
         <TooltipTrigger asChild>
           <button
             type="button"
@@ -181,7 +181,7 @@ export function IconNav({
       {overflowItems.length > 0 && (
         <>
           <div className="my-1 h-px w-5 bg-border/50" />
-          <Tooltip>
+          <Tooltip disableHoverableContent>
             <TooltipTrigger asChild>
               <button
                 type="button"

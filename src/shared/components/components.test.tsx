@@ -109,6 +109,17 @@ describe("IconNav", () => {
     expect(onSelect.mock.calls).toEqual([["settings"], ["system"]]);
   });
 
+  it.each(["文件", "更多"])("dismisses the %s tooltip when its trigger loses hover", async (name) => {
+    render(<IconNav items={items} activeId="files" onSelect={() => undefined} />);
+    const trigger = screen.getByRole("button", { name });
+
+    fireEvent.pointerMove(trigger, { pointerType: "mouse" });
+    expect(await screen.findByRole("tooltip")).toHaveTextContent(name);
+
+    fireEvent.pointerLeave(trigger, { pointerType: "mouse" });
+    await waitFor(() => expect(screen.queryByRole("tooltip")).not.toBeInTheDocument());
+  });
+
   it("restores a fresh persisted overflow state", async () => {
     mockedInvoke.mockResolvedValueOnce({ version: 1, open: true, updatedAt: Date.now() } as never);
     render(<IconNav items={items} activeId="files" onSelect={() => undefined} moreStateKey="nav.more" />);
