@@ -170,7 +170,7 @@ impl Namespace {
             Err(_) => return map,
         };
         let reader = BufReader::new(file);
-        for line in reader.lines().flatten() {
+        for line in reader.lines().map_while(|line| line.ok()) {
             if line.trim().is_empty() {
                 continue;
             }
@@ -228,5 +228,4 @@ impl Namespace {
         }
         Ok(result)
     }
-
 }

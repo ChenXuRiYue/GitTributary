@@ -321,7 +321,7 @@ impl ExtensionRegistry {
             .read()
             .unwrap()
             .values()
-            .map(|extension| extension_to_list_item(extension))
+            .map(extension_to_list_item)
             .collect()
     }
 
@@ -542,7 +542,7 @@ pub async fn extension_call(
             .extensions
             .backend_method_snapshot(&plugin_id, backend_method)?;
         for permission in &snapshot.permissions {
-            if !state.extensions.has_permission(&plugin_id, &permission) {
+            if !state.extensions.has_permission(&plugin_id, permission) {
                 return Err("permission_denied".to_string());
             }
         }
@@ -1048,7 +1048,7 @@ fn extension_git_operation_context(
     ),
     String,
 > {
-    let target_root = resolve_repo_root(&repository_path).map_err(|error| error.to_string())?;
+    let target_root = resolve_repo_root(repository_path).map_err(|error| error.to_string())?;
     let target_repo = GitRepo::open(&target_root).map_err(|error| error.to_string())?;
     let remote_url = remote_url_for(&target_repo, remote_name)?;
     let auth = resolve_auth_for_remote(state, &target_root, Some(&remote_url), credential_ref);

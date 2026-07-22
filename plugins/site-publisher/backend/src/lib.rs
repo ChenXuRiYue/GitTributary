@@ -176,6 +176,12 @@ pub extern "C" fn gittributary_plugin_abi_version() -> u32 {
 }
 
 #[no_mangle]
+/// Handles one plugin request through the C ABI.
+///
+/// # Safety
+///
+/// `method` and `payload` must be non-null pointers to valid, NUL-terminated C strings. The
+/// returned pointer must be released exactly once with `gittributary_plugin_free_string`.
 pub unsafe extern "C" fn gittributary_plugin_handle_request(
     method: *const c_char,
     payload: *const c_char,
@@ -198,6 +204,12 @@ pub unsafe extern "C" fn gittributary_plugin_handle_request(
 }
 
 #[no_mangle]
+/// Releases a response allocated by `gittributary_plugin_handle_request`.
+///
+/// # Safety
+///
+/// `value` must be null or a pointer returned by `gittributary_plugin_handle_request` that has not
+/// already been released.
 pub unsafe extern "C" fn gittributary_plugin_free_string(value: *mut c_char) {
     if !value.is_null() {
         drop(CString::from_raw(value));

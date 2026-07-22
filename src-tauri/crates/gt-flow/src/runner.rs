@@ -680,7 +680,7 @@ pub fn resolve_run_id(request: &FlowRunRequest) -> String {
         .as_ref()
         .map(|intent| intent.id.replace("run_intent", "run"))
         .unwrap_or_else(run_id);
-    if candidate.as_bytes().len() <= 96 {
+    if candidate.len() <= 96 {
         candidate
     } else {
         run_id()
