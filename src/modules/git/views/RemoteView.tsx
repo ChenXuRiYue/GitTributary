@@ -1,149 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ChevronDown,
-  Clock,
-  Eye,
-  EyeOff,
-  FolderOpen,
-  GitBranch,
-  Globe,
-  Link,
-  Plus,
-  RefreshCw,
-  Save,
-  ShieldCheck,
-  Trash2,
-  Unplug,
+  ChevronDown, Eye, EyeOff, FolderOpen, Globe, Link,
+  Plus, Save, ShieldCheck, Trash2, Unplug,
 } from "lucide-react";
-import { invoke } from "@tauri-apps/api/core";
-import { open } from "@tauri-apps/plugin-dialog";
 
 import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
-import type { GitViewProps, RepoOverview } from "../types";
-
-interface RemoteInfo {
-  name: string;
-  url: string;
-  push_url: string | null;
-  repo_path: string | null;
-  source: string;
-  purpose: string[];
-  credential_mode: string;
-  credential_ref: string | null;
-  commit_name: string | null;
-  commit_email: string | null;
-  verify_status: string;
-  capabilities: string;
-}
-
-interface SyncConfigPayload {
-  url: string;
-  branch: string;
-  active_environment_id?: string | null;
-  local_database_path?: string | null;
-  auto_sync: boolean;
-  interval_seconds: number;
-}
-
-interface ConfigRepoCheckReport {
-  ok: boolean;
-  status: string;
-  message: string;
-  default_branch: string | null;
-  refs_count: number;
-}
-
-interface RemoteDraft {
-  url: string;
-  token: string;
-  commitName: string;
-  commitEmail: string;
-  showToken: boolean;
-}
-
-interface AddRemoteDraft {
-  name: string;
-  url: string;
-  token: string;
-  commitName: string;
-  commitEmail: string;
-  showToken: boolean;
-}
-
-function shortPath(path: string): string {
-  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
-  return parts.length > 2 ? `.../${parts.slice(-2).join("/")}` : path;
-}
-
-function remoteKey(remote: Pick<RemoteInfo, "name" | "repo_path">): string {
-  return `${remote.repo_path ?? "app"}:${remote.name}`;
-}
-
-function repositoryNameFromUrl(url: string): string {
-  const trimmed = url.trim().replace(/[/?#]+$/, "");
-  const lastSegment = trimmed.split(/[/:]/).filter(Boolean).pop() ?? "";
-  return lastSegment.replace(/\.git$/, "") || "remote";
-}
-
-function repositoryName(remote: Pick<RemoteInfo, "name" | "repo_path" | "url">): string {
-  const pathName = remote.repo_path
-    ?.replace(/\\/g, "/")
-    .split("/")
-    .filter(Boolean)
-    .pop();
-  return pathName || repositoryNameFromUrl(remote.url) || remote.name;
-}
-
-function sourceLabel(source: string): string {
-  switch (source) {
-    case "local_git_config": return "当前仓库 .git/config";
-    case "gittributary_config": return "GitTributary 配置";
-    case "system_discovered": return "系统发现";
-    case "imported": return "导入";
-    default: return source;
-  }
-}
-
-function purposeLabel(purpose: string): string {
-  switch (purpose) {
-    case "current_repo_remote": return "当前仓库 remote";
-    case "bound_repo_remote": return "绑定仓库 remote";
-    case "data_center_sync": return "数据中心同步";
-    case "backup_target": return "备份目标";
-    case "publish_target": return "发布目标";
-    case "mirror": return "镜像";
-    default: return purpose;
-  }
-}
-
-function credentialLabel(mode: string): string {
-  switch (mode) {
-    case "repo_token": return "项目 Token";
-    case "remote_token": return "Remote Token";
-    case "config_repo_token": return "配置中心 Token";
-    case "app_global_token": return "全局 Token";
-    case "ssh_key": return "指定 SSH Key";
-    case "ssh_agent": return "SSH Agent";
-    case "system": return "系统 Git 凭据";
-    case "none": return "未配置";
-    default: return mode;
-  }
-}
-
-function verifyLabel(status: string): string {
-  switch (status) {
-    case "unverified": return "未验证";
-    case "configured": return "已配置";
-    case "valid": return "可用";
-    case "auth_failed": return "认证失败";
-    case "network_failed": return "网络失败";
-    case "permission_denied": return "权限不足";
-    default: return status;
-  }
-}
+import type { GitViewProps } from "../types";
+import { RemoteViewHeader, RemoteViewNotices } from "../components/RemoteViewHeader";
+import {
+  credentialLabel, purposeLabel, remoteKey, repositoryName,
+  sourceLabel, useRemoteView, verifyLabel,
+} from "../hooks/useRemoteView";
 
 export function RemoteView({
   overview,
@@ -152,366 +21,45 @@ export function RemoteView({
   openRepository,
   refreshRepository,
 }: GitViewProps) {
-  const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
-  const [syncConfig, setSyncConfig] = useState<SyncConfigPayload | null>(null);
-  const [cloneUrl, setCloneUrl] = useState("");
-  const [cloneParentPath, setCloneParentPath] = useState("");
-  const [cloneToken, setCloneToken] = useState("");
-  const [cloneCommitName, setCloneCommitName] = useState("");
-  const [cloneCommitEmail, setCloneCommitEmail] = useState("");
-  const [showCloneToken, setShowCloneToken] = useState(false);
-  const [configUrl, setConfigUrl] = useState("");
-  const [configBranch, setConfigBranch] = useState("main");
-  const [configToken, setConfigToken] = useState("");
-  const [showConfigToken, setShowConfigToken] = useState(false);
-  const [checkingConfig, setCheckingConfig] = useState(false);
-  const [addingRemote, setAddingRemote] = useState(false);
-  const [addRemoteDraft, setAddRemoteDraft] = useState<AddRemoteDraft>({
-    name: "origin",
-    url: "",
-    token: "",
-    commitName: "",
-    commitEmail: "",
-    showToken: false,
+  const {
+    remotes, syncConfig,
+    cloneUrl, setCloneUrl, cloneParentPath, setCloneParentPath,
+    cloneToken, setCloneToken, cloneCommitName, setCloneCommitName,
+    cloneCommitEmail, setCloneCommitEmail, showCloneToken, setShowCloneToken,
+    configUrl, setConfigUrl, configBranch, setConfigBranch,
+    configToken, setConfigToken, showConfigToken, setShowConfigToken,
+    checkingConfig, addingRemote, addRemoteDraft, setAddRemoteDraft, savingNewRemote,
+    remoteDrafts, remoteBusyKey, expandedRemoteKeys, setExpandedRemoteKeys,
+    configCheck, status, error, refresh, openRepo, openFromDialog,
+    selectClonePathFromDialog, handleCloneRemote, handleAddRemote, updateRemoteDraft,
+    handleUpdateRemote, handleRemoveRemote, handleCheckConfigRepo,
+    handleSaveConfigRemote, handleUnbindConfigRemote, hasConfigRemote,
+  } = useRemoteView({
+    overview,
+    sessionGeneration,
+    openRepository,
+    refreshRepository,
   });
-  const [savingNewRemote, setSavingNewRemote] = useState(false);
-  const [remoteDrafts, setRemoteDrafts] = useState<Record<string, RemoteDraft>>({});
-  const [remoteBusyKey, setRemoteBusyKey] = useState<string | null>(null);
-  const [expandedRemoteKeys, setExpandedRemoteKeys] = useState<Record<string, boolean>>({});
-  const [configCheck, setConfigCheck] = useState<ConfigRepoCheckReport | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const loadedGenerationRef = useRef<number | null>(null);
-  useEffect(() => {
-    setRemoteDrafts((current) => {
-      const next = { ...current };
-      const activeKeys = new Set<string>();
-
-      remotes.forEach((remote) => {
-        if (remote.source !== "local_git_config") return;
-        const key = remoteKey(remote);
-        activeKeys.add(key);
-        if (!next[key]) {
-          next[key] = {
-            url: remote.url,
-            token: "",
-            commitName: remote.commit_name ?? "",
-            commitEmail: remote.commit_email ?? "",
-            showToken: false,
-          };
-        }
-      });
-
-      Object.keys(next).forEach((key) => {
-        if (!activeKeys.has(key)) delete next[key];
-      });
-
-      return next;
-    });
-  }, [remotes]);
-
-  const loadRemoteConfigs = useCallback(async () => {
-    const r = await invoke<RemoteInfo[]>("get_remote_configs");
-    setRemotes(r);
-  }, []);
-
-  const refresh = useCallback(async () => {
-    const requestedGeneration = sessionGeneration;
-    let nextError: string | null = null;
-    let nextRemotes: RemoteInfo[] | null = null;
-    let nextSyncConfig: SyncConfigPayload | null | undefined;
-
-    try {
-      nextRemotes = await invoke<RemoteInfo[]>("get_remote_configs");
-    } catch (e) {
-      nextError = nextError
-        ? `${nextError}; 远程配置读取失败: ${String(e)}`
-        : `远程配置读取失败: ${String(e)}`;
-    }
-
-    try {
-      nextSyncConfig = await invoke<SyncConfigPayload | null>("sync_get_config");
-    } catch (e) {
-      nextError = nextError
-        ? `${nextError}; 配置中心读取失败: ${String(e)}`
-        : `配置中心读取失败: ${String(e)}`;
-    }
-
-    if (loadedGenerationRef.current !== requestedGeneration) return;
-    if (nextRemotes) setRemotes(nextRemotes);
-    if (nextSyncConfig !== undefined) {
-      setSyncConfig(nextSyncConfig);
-      if (nextSyncConfig) {
-        setConfigUrl(nextSyncConfig.url);
-        setConfigBranch(nextSyncConfig.branch || "main");
-      }
-    }
-    setError(nextError);
-  }, [sessionGeneration]);
-
-  const openRepo = useCallback(async (path: string) => {
-    try {
-      await openRepository(path);
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-      return;
-    }
-  }, [openRepository]);
-
-  useEffect(() => {
-    if (loadedGenerationRef.current === sessionGeneration) return;
-    loadedGenerationRef.current = sessionGeneration;
-    void refresh();
-  }, [refresh, sessionGeneration]);
-
-  const flash = (msg: string) => {
-    setStatus(msg);
-    setTimeout(() => setStatus(null), 3000);
-  };
-
-  const openFromDialog = async () => {
-    const selected = await open({ directory: true, multiple: false });
-    if (!selected) return;
-    await openRepo(selected as string);
-  };
-
-  const selectClonePathFromDialog = async () => {
-    const selected = await open({ directory: true, multiple: false });
-    if (!selected) return;
-    setCloneParentPath(selected as string);
-  };
-
-  const handleCloneRemote = async () => {
-    if (!cloneParentPath.trim() || !cloneUrl.trim() || !cloneToken.trim()) return;
-    setAddingRemote(true);
-    try {
-      setError(null);
-      const ov = await invoke<RepoOverview>("clone_remote_repo", {
-        url: cloneUrl.trim(),
-        parentPath: cloneParentPath.trim(),
-        token: cloneToken.trim(),
-        commitName: cloneCommitName.trim() || null,
-        commitEmail: cloneCommitEmail.trim() || null,
-      });
-      await refreshRepository();
-      setCloneUrl(""); setCloneParentPath(""); setCloneToken(""); setCloneCommitName(""); setCloneCommitEmail("");
-      flash(`远程访问校验通过,仓库已 Clone 到 ${shortPath(ov.path)}`);
-      await loadRemoteConfigs();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setAddingRemote(false);
-    }
-  };
-
-  const handleAddRemote = async () => {
-    if (!overview || !addRemoteDraft.name.trim() || !addRemoteDraft.url.trim() || !addRemoteDraft.token.trim()) return;
-    setSavingNewRemote(true);
-    try {
-      setError(null);
-      await invoke("add_remote", {
-        name: addRemoteDraft.name.trim(),
-        url: addRemoteDraft.url.trim(),
-        token: addRemoteDraft.token.trim(),
-        commitName: addRemoteDraft.commitName.trim() || null,
-        commitEmail: addRemoteDraft.commitEmail.trim() || null,
-      });
-      setAddRemoteDraft({
-        name: "origin",
-        url: "",
-        token: "",
-        commitName: "",
-        commitEmail: "",
-        showToken: false,
-      });
-      flash("远程访问校验通过,远程仓库已新增");
-      await loadRemoteConfigs();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSavingNewRemote(false);
-    }
-  };
-
-  const updateRemoteDraft = (key: string, patch: Partial<RemoteDraft>) => {
-    setRemoteDrafts((current) => {
-      const currentDraft = current[key] ?? { url: "", token: "", commitName: "", commitEmail: "", showToken: false };
-      return {
-        ...current,
-        [key]: {
-          ...currentDraft,
-          ...patch,
-        },
-      };
-    });
-  };
-
-  const handleUpdateRemote = async (remote: RemoteInfo) => {
-    const key = remoteKey(remote);
-    const draft = remoteDrafts[key] ?? {
-      url: remote.url,
-      token: "",
-      commitName: remote.commit_name ?? "",
-      commitEmail: remote.commit_email ?? "",
-      showToken: false,
-    };
-    const repoPath = remote.repo_path ?? overview?.path ?? "";
-    if (!repoPath || !draft.url.trim() || !draft.token.trim()) return;
-
-    setRemoteBusyKey(key);
-    try {
-      setError(null);
-      await invoke("set_remote_url", {
-        name: remote.name,
-        url: draft.url.trim(),
-        repoPath,
-        token: draft.token.trim(),
-        commitName: draft.commitName.trim() || null,
-        commitEmail: draft.commitEmail.trim() || null,
-      });
-      updateRemoteDraft(key, { token: "" });
-      flash("远程访问校验通过,配置已更新");
-      await loadRemoteConfigs();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setRemoteBusyKey(null);
-    }
-  };
-
-  const handleRemoveRemote = async (remote: RemoteInfo) => {
-    const key = remoteKey(remote);
-    const repoPath = remote.repo_path ?? overview?.path ?? "";
-    if (!repoPath) return;
-    if (!window.confirm(`删除远程 ${remote.name}?`)) return;
-
-    setRemoteBusyKey(key);
-    try {
-      setError(null);
-      await invoke("remove_remote", { name: remote.name, repoPath });
-      flash("远程已删除");
-      await loadRemoteConfigs();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setRemoteBusyKey(null);
-    }
-  };
-
-  const configPayload = (): SyncConfigPayload => ({
-    url: configUrl.trim(),
-    branch: configBranch.trim() || "main",
-    active_environment_id: syncConfig?.active_environment_id ?? null,
-    local_database_path: syncConfig?.local_database_path ?? null,
-    auto_sync: syncConfig?.auto_sync ?? true,
-    interval_seconds: syncConfig?.interval_seconds ?? 300,
-  });
-
-  const handleCheckConfigRepo = async () => {
-    if (!configUrl.trim()) return;
-    try {
-      setCheckingConfig(true);
-      const report = await invoke<ConfigRepoCheckReport>("check_data_center_config_repo", {
-        url: configUrl.trim(),
-        token: configToken.trim() || null,
-      });
-      setConfigCheck(report);
-      if (report.ok && report.default_branch && !configBranch.trim()) {
-        setConfigBranch(report.default_branch);
-      }
-    } catch (e) {
-      setConfigCheck({
-        ok: false,
-        status: "error",
-        message: String(e),
-        default_branch: null,
-        refs_count: 0,
-      });
-    } finally {
-      setCheckingConfig(false);
-    }
-  };
-
-  const handleSaveConfigRemote = async () => {
-    if (!configUrl.trim()) return;
-    try {
-      await invoke("update_data_center_config_remote", {
-        config: configPayload(),
-        token: configToken.trim() || null,
-        clearToken: false,
-      });
-      setConfigToken("");
-      flash("配置中心远程已保存并拉取到本地工作副本");
-      await refresh();
-    } catch (e) { setError(String(e)); }
-  };
-
-  const handleUnbindConfigRemote = async () => {
-    try {
-      await invoke("unbind_data_center_config_remote", { clearToken: true });
-      setConfigUrl("");
-      setConfigBranch("main");
-      setConfigToken("");
-      setConfigCheck(null);
-      flash("配置中心远程已解绑");
-      await refresh();
-    } catch (e) { setError(String(e)); }
-  };
-
-  const hasConfigRemote = remotes.some((r) => r.source === "gittributary_config");
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 border-b border-border/50 px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Globe className="size-4 text-muted-foreground" />
-          <div className="min-w-0 flex-1">
-            <div className="text-sm font-semibold">远程配置</div>
-            <div className="text-[11px] text-muted-foreground">
-              {overview ? `${overview.current_branch} · ${shortPath(overview.path)}` : "管理当前仓库 remote 与 GitTributary 远程配置"}
-            </div>
-          </div>
-          {recentRepos[0] && !overview && (
-            <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => openRepo(recentRepos[0])} title="打开最近仓库">
-              <Clock className="size-3.5" />
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" className="h-7 px-2" onClick={openFromDialog} title="打开仓库">
-            <FolderOpen className="size-3.5" />
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 w-7 px-0" onClick={refresh} title="刷新">
-            <RefreshCw className="size-3.5" />
-          </Button>
-        </div>
-      </div>
+      <RemoteViewHeader
+        overview={overview}
+        recentRepos={recentRepos}
+        onOpenRepo={(path) => void openRepo(path)}
+        onOpenDialog={() => void openFromDialog()}
+        onRefresh={() => void refresh()}
+      />
 
       <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-      {status && <div className="rounded-md bg-primary/10 px-3 py-1.5 text-xs text-primary">{status}</div>}
-      {error && <div className="rounded-md bg-destructive/10 px-3 py-1.5 text-xs text-destructive">{error}</div>}
-      {!overview && (
-        <div className="flex flex-col gap-3 rounded-md border border-dashed px-3 py-4">
-          <div className="flex items-center gap-2">
-            <GitBranch className="size-4 text-muted-foreground" />
-            <div className="min-w-0 flex-1">
-              <div className="text-xs font-medium">未打开当前仓库</div>
-              <div className="truncate text-[11px] text-muted-foreground">
-                打开已有仓库后可管理 remote,也可以在下方 Clone 新仓库。
-              </div>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {recentRepos[0] && (
-              <Button variant="outline" size="sm" className="h-8" onClick={() => openRepo(recentRepos[0])}>
-                <Clock className="size-3.5" /> {shortPath(recentRepos[0])}
-              </Button>
-            )}
-            <Button variant="outline" size="sm" className="h-8" onClick={openFromDialog}>
-              <FolderOpen className="size-3.5" /> 选择仓库
-            </Button>
-          </div>
-        </div>
-      )}
+      <RemoteViewNotices
+        overview={overview}
+        recentRepos={recentRepos}
+        status={status}
+        error={error}
+        onOpenRepo={(path) => void openRepo(path)}
+        onOpenDialog={() => void openFromDialog()}
+      />
 
       {/* 远程配置列表 */}
       <Card>
