@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   CheckCircle2,
@@ -285,12 +285,12 @@ export function WorkspaceConfigPanel({
   // 参数/环境变量都只改本地 draft，不再实时写回 onUpdateGroup；点击「保存」
   // 才提交草稿。draft 随 viewingGroup.id 变化重新播种 (查看其它任务时)。
   const [draft, setDraft] = useState<SiteWorkspaceGroup | null>(viewingGroup);
+  const draftGroupIdRef = useRef(viewingGroup?.id);
   useEffect(() => {
+    if (draftGroupIdRef.current === viewingGroup?.id) return;
+    draftGroupIdRef.current = viewingGroup?.id;
     setDraft(viewingGroup);
-    // 只在切换到不同任务时重新播种，不随 viewingGroup 内容变化 (例如另一处
-    // 通过 onUpdateGroup 写入 documentScope) 而覆盖用户正在编辑的草稿。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewingGroup?.id]);
+  }, [viewingGroup]);
 
   const dirty = Boolean(draft && viewingGroup && !groupsEqual(draft, viewingGroup));
   const draftIsCurrent = Boolean(draft && draft.id === activeGroupId);

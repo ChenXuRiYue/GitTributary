@@ -493,7 +493,7 @@ export function SitePanel() {
     }
   }, []);
 
-  const scanRepo = useCallback(async (path = repoPath, documentScope?: string[]) => {
+  const scanRepo = useCallback(async (path: string, documentScope?: string[]) => {
     const cleanPath = path.trim();
     if (!cleanPath) return;
     setPhase("scanning");
@@ -516,7 +516,7 @@ export function SitePanel() {
       setPhase("failed");
       setError(String(err));
     }
-  }, [applyDocumentScope, loadRemoteConfigs, persistActiveRepo, repoPath, restoreConfig]);
+  }, [applyDocumentScope, loadRemoteConfigs, persistActiveRepo, restoreConfig]);
 
   useEffect(() => {
     if (!isTauriRuntime()) {
@@ -584,8 +584,7 @@ export function SitePanel() {
     // Run once per mount. In React StrictMode dev builds this effect is
     // intentionally mounted, cleaned up, and mounted again; the cancelled flag
     // lets the second run complete instead of permanently blocking init.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [loadRemoteConfigs, persistWorkspaceConfig, scanRepo]);
 
   useEffect(() => {
     let cancelled = false;
