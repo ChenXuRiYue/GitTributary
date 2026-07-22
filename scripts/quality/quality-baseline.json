@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "capturedAt": "2026-07-22T11:29:50.776Z",
+  "capturedAt": "2026-07-22T11:54:34.151Z",
   "policy": {
     "maxFileLines": 500,
     "largeFileWarningLines": 300,
@@ -10,21 +10,21 @@
   },
   "snapshot": {
     "totals": {
-      "files": 312,
-      "lines": 54933,
-      "testFiles": 56,
-      "testLines": 8231
+      "files": 318,
+      "lines": 55029,
+      "testFiles": 58,
+      "testLines": 8329
     },
     "zones": {
       "core-frontend": {
-        "files": 88,
-        "lines": 12381,
-        "testFiles": 8,
-        "testLines": 1624
+        "files": 90,
+        "lines": 12420,
+        "testFiles": 9,
+        "testLines": 1659
       },
       "core-rust-crates": {
-        "files": 58,
-        "lines": 13426,
+        "files": 61,
+        "lines": 13473,
         "testFiles": 15,
         "testLines": 2853
       },
@@ -48,7 +48,7 @@
       },
       "plugin-frontends": {
         "files": 76,
-        "lines": 11442,
+        "lines": 11441,
         "testFiles": 21,
         "testLines": 1950
       },
@@ -59,53 +59,36 @@
         "testLines": 0
       },
       "tauri-application": {
-        "files": 30,
+        "files": 31,
         "lines": 7320,
-        "testFiles": 0,
-        "testLines": 0
+        "testFiles": 1,
+        "testLines": 54
       },
       "tooling": {
         "files": 21,
-        "lines": 3762,
+        "lines": 3773,
         "testFiles": 8,
-        "testLines": 1396
+        "testLines": 1405
       }
     },
     "oversizedFiles": {
       "plugins/attachment-manager/backend/src/lib.rs": 2162,
       "plugins/site-publisher/frontend/src/site/components/WorkspaceConfigPanel.tsx": 784,
-      "plugins/site-publisher/frontend/src/site/SitePanel.tsx": 1317,
+      "plugins/site-publisher/frontend/src/site/SitePanel.tsx": 1316,
       "src-tauri/crates/gt-data/src/domain/run_journal.rs": 691,
       "src-tauri/crates/gt-data/src/storage/sync.rs": 588,
       "src-tauri/crates/gt-files/src/lib.rs": 871,
-      "src-tauri/crates/gt-flow/src/event.rs": 561,
       "src-tauri/crates/gt-flow/src/lib.rs": 764,
-      "src-tauri/crates/gt-flow/src/runner.rs": 692,
       "src-tauri/crates/gt-flow/tests/flow_parse_test.rs": 517,
       "src-tauri/crates/gt-git/src/path_update.rs": 707,
       "src-tauri/src/application/flow/commands.rs": 994,
       "src-tauri/src/application/git/remote.rs": 842,
-      "src-tauri/src/application/plugins/host.rs": 524,
       "src-tauri/src/application/plugins/market.rs": 616,
       "src-tauri/src/application/plugins/registry.rs": 2106,
       "src/modules/flow/hooks/useFlowPanel.ts": 560,
-      "src/modules/git/views/RemoteView.tsx": 941,
-      "src/modules/plugin-manager/PluginManagerPanel.tsx": 527
+      "src/modules/git/views/RemoteView.tsx": 941
     },
-    "exceptionMarkers": {
-      "plugins/site-publisher/frontend/src/site/components/WorkspaceConfigPanel.tsx": {
-        "eslint-disable": 1
-      },
-      "plugins/site-publisher/frontend/src/site/SitePanel.tsx": {
-        "eslint-disable": 1
-      },
-      "src-tauri/crates/gt-flow/src/runner.rs": {
-        "clippy-allow": 1
-      },
-      "vite.config.ts": {
-        "typescript-suppression": 1
-      }
-    },
+    "exceptionMarkers": {},
     "largestFiles": [
       {
         "path": "plugins/attachment-manager/backend/src/lib.rs",
@@ -121,7 +104,7 @@
       },
       {
         "path": "plugins/site-publisher/frontend/src/site/SitePanel.tsx",
-        "lines": 1317,
+        "lines": 1316,
         "test": false,
         "zone": "plugin-frontends"
       },
@@ -168,12 +151,6 @@
         "zone": "core-rust-crates"
       },
       {
-        "path": "src-tauri/crates/gt-flow/src/runner.rs",
-        "lines": 692,
-        "test": false,
-        "zone": "core-rust-crates"
-      },
-      {
         "path": "src-tauri/crates/gt-data/src/domain/run_journal.rs",
         "lines": 691,
         "test": false,
@@ -192,28 +169,10 @@
         "zone": "core-rust-crates"
       },
       {
-        "path": "src-tauri/crates/gt-flow/src/event.rs",
-        "lines": 561,
-        "test": false,
-        "zone": "core-rust-crates"
-      },
-      {
         "path": "src/modules/flow/hooks/useFlowPanel.ts",
         "lines": 560,
         "test": false,
         "zone": "core-frontend"
-      },
-      {
-        "path": "src/modules/plugin-manager/PluginManagerPanel.tsx",
-        "lines": 527,
-        "test": false,
-        "zone": "core-frontend"
-      },
-      {
-        "path": "src-tauri/src/application/plugins/host.rs",
-        "lines": 524,
-        "test": false,
-        "zone": "tauri-application"
       },
       {
         "path": "src-tauri/crates/gt-flow/tests/flow_parse_test.rs",
@@ -226,6 +185,30 @@
         "lines": 482,
         "test": false,
         "zone": "tooling"
+      },
+      {
+        "path": "plugins/site-publisher/frontend/src/site/components/BuildResultPanel.tsx",
+        "lines": 481,
+        "test": false,
+        "zone": "plugin-frontends"
+      },
+      {
+        "path": "scripts/test/report-lib.mjs",
+        "lines": 480,
+        "test": true,
+        "zone": "tooling"
+      },
+      {
+        "path": "src/modules/git/views/HistoryView.tsx",
+        "lines": 471,
+        "test": false,
+        "zone": "core-frontend"
+      },
+      {
+        "path": "src-tauri/src/application/plugins/host.rs",
+        "lines": 470,
+        "test": false,
+        "zone": "tauri-application"
       }
     ],
     "watchFiles": [
@@ -254,6 +237,12 @@
         "zone": "core-frontend"
       },
       {
+        "path": "src-tauri/src/application/plugins/host.rs",
+        "lines": 470,
+        "test": false,
+        "zone": "tauri-application"
+      },
+      {
         "path": "src/modules/data/DataPanel.tsx",
         "lines": 466,
         "test": false,
@@ -262,6 +251,12 @@
       {
         "path": "src/modules/flow/views/NodeCatalogView.tsx",
         "lines": 453,
+        "test": false,
+        "zone": "core-frontend"
+      },
+      {
+        "path": "src/modules/plugin-manager/PluginManagerPanel.tsx",
+        "lines": 451,
         "test": false,
         "zone": "core-frontend"
       },
@@ -302,6 +297,12 @@
         "zone": "plugin-frontends"
       },
       {
+        "path": "src-tauri/crates/gt-flow/src/runner.rs",
+        "lines": 407,
+        "test": false,
+        "zone": "core-rust-crates"
+      },
+      {
         "path": "scripts/test/run-report.mjs",
         "lines": 406,
         "test": true,
@@ -324,6 +325,12 @@
         "lines": 380,
         "test": false,
         "zone": "plugin-frontends"
+      },
+      {
+        "path": "src-tauri/crates/gt-flow/src/event.rs",
+        "lines": 372,
+        "test": false,
+        "zone": "core-rust-crates"
       },
       {
         "path": "src/modules/git/GitPanel.tsx",
@@ -387,7 +394,7 @@
       },
       {
         "path": "scripts/quality/quality-lib.mjs",
-        "lines": 326,
+        "lines": 328,
         "test": false,
         "zone": "tooling"
       },

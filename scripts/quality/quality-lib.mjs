@@ -250,11 +250,13 @@ function countLines(source) {
   return newlineCount + (source.endsWith("\n") ? 0 : 1);
 }
 
-function isDedicatedTest(filePath) {
+export function isDedicatedTest(filePath) {
+  const fileName = path.posix.basename(filePath);
   return filePath.startsWith("e2e/")
     || filePath.startsWith("tests/")
     || filePath.includes("/tests/")
     || filePath.includes("/test/")
+    || fileName === "tests.rs"
     || filePath.includes(".test.")
     || filePath.includes(".spec.");
 }

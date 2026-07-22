@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createBaseline, evaluateSnapshot } from "../quality/quality-lib.mjs";
+import {
+  createBaseline,
+  evaluateSnapshot,
+  isDedicatedTest,
+} from "../quality/quality-lib.mjs";
 
 const policy = {
   maxFileLines: 500,
@@ -70,6 +74,11 @@ test("quality baseline records debt reduction without forcing a baseline update"
   assert.equal(evaluation.status, "PASS");
   assert.ok(evaluation.improvements.some((item) => item.message.includes("shrank by 50")));
   assert.ok(evaluation.improvements.some((item) => item.message.includes("decreased by 1")));
+});
+
+test("quality baseline recognizes extracted Rust test modules", () => {
+  assert.equal(isDedicatedTest("src/application/plugins/host/tests.rs"), true);
+  assert.equal(isDedicatedTest("src/application/plugins/host/runtime.rs"), false);
 });
 
 function snapshot({ lines, files, oversizedFiles = {}, exceptionMarkers = {} }) {
