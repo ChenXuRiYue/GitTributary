@@ -25,6 +25,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Check code quality baseline and architecture boundaries
+        run: npm run quality
       - name: Test report infrastructure
         run: npm run test:report:self
       - name: Run frontend suites and collect report
@@ -45,6 +47,14 @@ jobs:
           path: test-reports/frontend/**
           if-no-files-found: warn
           retention-days: 14
+      - name: Upload code quality report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-quality-report
+          path: quality-reports/latest/**
+          if-no-files-found: warn
+          retention-days: 30
 
   rust:
     name: Rust nextest and property tests
@@ -59,6 +69,8 @@ jobs:
             build-essential curl file libayatana-appindicator3-dev librsvg2-dev \
             libssl-dev libwebkit2gtk-4.1-dev libxdo-dev pkg-config wget
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -74,6 +86,8 @@ jobs:
         run: npm run plugin:host:prepare
       - name: Prepare bundled plugin resources
         run: npm run plugin:bundle:prepare
+      - name: Check Rust formatting and clippy
+        run: npm run quality:rust
       - name: Run Rust suites and collect report
         run: >-
           npm run test:report --

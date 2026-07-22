@@ -231,7 +231,7 @@ mod tests {
         let (dir, store) = temp_store();
         let state = AppState {
             repo: std::sync::Mutex::new(None),
-            data: std::sync::Mutex::new(store.into()),
+            data: std::sync::Mutex::new(store),
             event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
             node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
             flow_execution: std::sync::Mutex::new(()),

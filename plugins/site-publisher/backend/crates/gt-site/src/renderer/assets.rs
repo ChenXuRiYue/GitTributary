@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::Path;
 
-use crate::renderer::shared::{relative_url, sanitize_file_name, stable_hash};
 use crate::renderer::script::site_js;
+use crate::renderer::shared::{relative_url, sanitize_file_name, stable_hash};
 use crate::renderer::style::site_css;
 use crate::types::{AssetContext, RenderedPage, Result, SearchRecord};
 use crate::utils::path_to_slash;
@@ -69,4 +69,3 @@ pub(crate) fn write_assets(
 pub(crate) fn site_asset_version(_theme: &str) -> String {
     format!("{:x}", stable_hash(&(site_css("") + site_js())))
 }
-

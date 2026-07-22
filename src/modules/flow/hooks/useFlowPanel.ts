@@ -1,20 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { EXTENSIONS_CHANGED_EVENT } from "@/platform/extensions/events";
-
 import { flowApi } from "../api";
 import { DEFAULT_FLOW_FOLDER, SAMPLE_WORKFLOW } from "../constants";
 import type { FlowContextMenuState, FlowFolderCreateDraft, FlowPoint, FlowTreeSelection } from "../components/flowBrowserTypes";
 import { FLOW_ACTION_MENU_WIDTH, flowActionMenuHeight } from "../components/flowMenuGeometry";
-import type { EventDefinition, FlowListItem, FlowListMode, FlowNodeDefinition, FlowNodeSpec, FlowRecord, FlowRunReport, FlowSection, ViewMode } from "../types";
+import type { FlowListItem, FlowListMode, FlowRecord, FlowRunReport, FlowSection, ViewMode } from "../types";
 import { normalizeFolder } from "../utils";
+import { useFlowCatalogs } from "./useFlowCatalogs";
 
 export function useFlowPanel() {
-const [section, setSection] = useState<FlowSection>("flows");
+  const [section, setSection] = useState<FlowSection>("flows");
   const [flows, setFlows] = useState<FlowListItem[]>([]);
-  const [events, setEvents] = useState<EventDefinition[]>([]);
-  const [nodeDefinitions, setNodeDefinitions] = useState<FlowNodeDefinition[]>([]);
-  const [flowNodes, setFlowNodes] = useState<FlowNodeSpec[]>([]);
   const [folders, setFolders] = useState<string[]>([DEFAULT_FLOW_FOLDER]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
@@ -32,13 +28,21 @@ const [section, setSection] = useState<FlowSection>("flows");
   const [editorError, setEditorError] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<FlowRunReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [isEventsLoading, setIsEventsLoading] = useState(true);
-  const [isNodeDefinitionsLoading, setIsNodeDefinitionsLoading] = useState(true);
-  const [isFlowNodesLoading, setIsFlowNodesLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isRunningFlow, setIsRunningFlow] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const flowMenuRef = useRef<HTMLDivElement | null>(null);
+  const {
+    events,
+    nodeDefinitions,
+    flowNodes,
+    isEventsLoading,
+    isNodeDefinitionsLoading,
+    isFlowNodesLoading,
+    loadEvents,
+    loadNodeDefinitions,
+    loadFlowNodes,
+  } = useFlowCatalogs(selectedId, setLoadError);
 
   const canOperate = mode === "operate";
   const enabledCount = flows.filter((flow) => flow.enabled).length;
@@ -80,51 +84,6 @@ const [section, setSection] = useState<FlowSection>("flows");
     }
   }, [clearRunIfDifferent]);
 
-  const loadEvents = useCallback(async () => {
-    setIsEventsLoading(true);
-    setLoadError(null);
-    try {
-      const list = await flowApi.eventCatalog();
-      setEvents(list);
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsEventsLoading(false);
-    }
-  }, []);
-
-  const loadNodeDefinitions = useCallback(async () => {
-    setIsNodeDefinitionsLoading(true);
-    setLoadError(null);
-    try {
-      const list = await flowApi.nodeCatalog();
-      setNodeDefinitions(list);
-    } catch (error) {
-      setLoadError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsNodeDefinitionsLoading(false);
-    }
-  }, []);
-
-  const loadFlowNodes = useCallback(async (id: string | null) => {
-    if (!id) {
-      setFlowNodes([]);
-      setIsFlowNodesLoading(false);
-      return;
-    }
-    setIsFlowNodesLoading(true);
-    setLoadError(null);
-    try {
-      const list = await flowApi.nodes(id);
-      setFlowNodes(list);
-    } catch (error) {
-      setFlowNodes([]);
-      setLoadError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setIsFlowNodesLoading(false);
-    }
-  }, []);
-
   const loadRecord = useCallback(async (id: string | null) => {
     if (!id) {
       setSelectedRecord(null);
@@ -150,29 +109,8 @@ const [section, setSection] = useState<FlowSection>("flows");
   }, [loadFlows]);
 
   useEffect(() => {
-    void loadEvents();
-  }, [loadEvents]);
-
-  useEffect(() => {
-    void loadNodeDefinitions();
-  }, [loadNodeDefinitions]);
-
-  useEffect(() => {
-    const handleExtensionsChanged = () => {
-      void loadNodeDefinitions();
-      void loadFlowNodes(selectedId);
-    };
-    window.addEventListener(EXTENSIONS_CHANGED_EVENT, handleExtensionsChanged);
-    return () => window.removeEventListener(EXTENSIONS_CHANGED_EVENT, handleExtensionsChanged);
-  }, [loadFlowNodes, loadNodeDefinitions, selectedId]);
-
-  useEffect(() => {
     void loadRecord(selectedId);
   }, [loadRecord, selectedId]);
-
-  useEffect(() => {
-    void loadFlowNodes(selectedId);
-  }, [loadFlowNodes, selectedId]);
 
   useEffect(() => {
     if (!editorYaml.trim()) {

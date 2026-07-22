@@ -127,7 +127,7 @@ impl NamespacePolicyRegistry {
         } else {
             self.prefixes.push((prefix, policy));
             self.prefixes
-                .sort_by(|(left, _), (right, _)| right.len().cmp(&left.len()));
+                .sort_by_key(|(prefix, _)| std::cmp::Reverse(prefix.len()));
         }
     }
 

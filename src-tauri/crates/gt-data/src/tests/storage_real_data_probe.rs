@@ -15,15 +15,18 @@ use crate::storage::Visibility;
 fn real_data_dir() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
     let dir = PathBuf::from(home).join(".git-tributary").join("data");
-    if dir.exists() { Some(dir) } else { None }
+    if dir.exists() {
+        Some(dir)
+    } else {
+        None
+    }
 }
 
 #[test]
 #[ignore]
 fn probe_workspace_config_replay() {
     let dir = real_data_dir().expect("~/.git-tributary/data 不存在，无法探测");
-    let ns = Namespace::open(&dir, "sites", Visibility::Public)
-        .expect("打开 sites 命名空间失败");
+    let ns = Namespace::open(&dir, "sites", Visibility::Public).expect("打开 sites 命名空间失败");
 
     let raw = ns.get("workspace.config");
     match raw {
@@ -32,7 +35,10 @@ fn probe_workspace_config_replay() {
             panic!("workspace.config 缺失 —— 这本身就是问题所在");
         }
         Some(value) => {
-            println!("[probe] workspace.config 重放结果 (原始 JSON):\n{}", serde_json::to_string_pretty(value).unwrap());
+            println!(
+                "[probe] workspace.config 重放结果 (原始 JSON):\n{}",
+                serde_json::to_string_pretty(value).unwrap()
+            );
             let groups = value.get("groups").and_then(|g| g.as_array());
             match groups {
                 None => panic!("[probe] groups 字段缺失或不是数组"),
@@ -77,17 +83,24 @@ fn probe_raw_jsonl_tail() {
             last_workspace_config_line = Some(line);
         }
     }
-    println!("[probe] workspace.config 记录条数: {}", workspace_config_count);
+    println!(
+        "[probe] workspace.config 记录条数: {}",
+        workspace_config_count
+    );
     match last_workspace_config_line {
         None => panic!("[probe] 文件里根本没有 workspace.config 记录"),
         Some(line) => {
-            let parsed: serde_json::Value = serde_json::from_str(line).expect("最后一条 workspace.config 记录不是合法 JSON");
+            let parsed: serde_json::Value =
+                serde_json::from_str(line).expect("最后一条 workspace.config 记录不是合法 JSON");
             let groups_len = parsed
                 .get("v")
                 .and_then(|v| v.get("groups"))
                 .and_then(|g| g.as_array())
                 .map(|a| a.len());
-            println!("[probe] 文件里最后一条 workspace.config 的 groups 长度: {:?}", groups_len);
+            println!(
+                "[probe] 文件里最后一条 workspace.config 的 groups 长度: {:?}",
+                groups_len
+            );
         }
     }
 }

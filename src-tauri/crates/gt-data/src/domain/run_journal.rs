@@ -1,4 +1,4 @@
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
@@ -8,6 +8,15 @@ use gt_flow::{
 use serde::{Deserialize, Serialize};
 
 use crate::{DataError, Result};
+
+mod storage;
+mod validation;
+
+use storage::{
+    read_run_dir, repair_torn_tail, segment_name, segment_number, segment_paths, sync_directory,
+    sync_directory_chain,
+};
+use validation::{is_terminal, summary_from_records, validate_lifecycle};
 
 const SCHEMA_VERSION: u16 = 1;
 const SEGMENT_PREFIX: &str = "segment-";
@@ -389,190 +398,6 @@ impl RunJournal {
     }
 }
 
-fn read_run_dir(run_dir: &Path) -> Result<Vec<RunJournalRecord>> {
-    let segments = segment_paths(run_dir)?;
-    let mut records = Vec::new();
-    for segment in segments {
-        let content = fs::read(&segment)?;
-        if !content.is_empty() && !content.ends_with(b"\n") {
-            return Err(DataError::RunJournal(format!(
-                "运行日志存在未修复的残行: {}",
-                segment.display()
-            )));
-        }
-        for line in content
-            .split(|byte| *byte == b'\n')
-            .filter(|line| !line.is_empty())
-        {
-            let frame: JournalFrame = serde_json::from_slice(line).map_err(|error| {
-                DataError::RunJournal(format!("运行日志损坏 {}: {error}", segment.display()))
-            })?;
-            let event_bytes = serde_json::to_vec(&frame.event)?;
-            if crc32fast::hash(&event_bytes) != frame.checksum_crc32 {
-                return Err(DataError::RunJournal(format!(
-                    "运行日志校验失败: {}",
-                    segment.display()
-                )));
-            }
-            records.push(frame.event);
-        }
-    }
-    validate_lifecycle(&records)?;
-    Ok(records)
-}
-
-fn validate_lifecycle(records: &[RunJournalRecord]) -> Result<()> {
-    let Some(first) = records.first() else {
-        return Ok(());
-    };
-    if first.kind != RunJournalEventKind::RunStarted || first.status != FlowRunStatus::Running {
-        return Err(DataError::RunJournal(
-            "运行日志必须以 running 状态的 run_started 开始".to_string(),
-        ));
-    }
-    let mut terminal_seen = false;
-    let mut active_job: Option<&str> = None;
-    let mut active_node: Option<&str> = None;
-    for (index, record) in records.iter().enumerate() {
-        if record.schema_version != SCHEMA_VERSION
-            || record.seq != index as u64 + 1
-            || record.run_id != first.run_id
-            || record.flow_id != first.flow_id
-            || (index > 0 && record.kind == RunJournalEventKind::RunStarted)
-            || terminal_seen
-        {
-            return Err(DataError::RunJournal(format!(
-                "运行日志生命周期无效: {}",
-                first.run_id
-            )));
-        }
-        validate_record_shape(record)?;
-        match record.kind {
-            RunJournalEventKind::RunStarted => {}
-            RunJournalEventKind::JobStarted if active_job.is_none() => {
-                active_job = record.job_id.as_deref();
-            }
-            RunJournalEventKind::NodeStarted
-                if active_job == record.job_id.as_deref() && active_node.is_none() =>
-            {
-                active_node = record.node_id.as_deref();
-            }
-            RunJournalEventKind::NodeFinished
-                if active_job == record.job_id.as_deref()
-                    && active_node == record.node_id.as_deref() =>
-            {
-                active_node = None;
-            }
-            RunJournalEventKind::JobFinished
-                if active_job == record.job_id.as_deref() && active_node.is_none() =>
-            {
-                active_job = None;
-            }
-            RunJournalEventKind::RunCompleted if active_job.is_none() && active_node.is_none() => {}
-            RunJournalEventKind::RunAbandoned => {}
-            _ => {
-                return Err(DataError::RunJournal(format!(
-                    "运行日志 job/node 生命周期无效: {} seq {}",
-                    first.run_id, record.seq
-                )));
-            }
-        }
-        if is_terminal(record.kind) {
-            let valid_status = match record.kind {
-                RunJournalEventKind::RunCompleted => matches!(
-                    record.status,
-                    FlowRunStatus::Succeeded | FlowRunStatus::Failed | FlowRunStatus::Skipped
-                ),
-                RunJournalEventKind::RunAbandoned => record.status == FlowRunStatus::Failed,
-                RunJournalEventKind::RunStarted
-                | RunJournalEventKind::JobStarted
-                | RunJournalEventKind::JobFinished
-                | RunJournalEventKind::NodeStarted
-                | RunJournalEventKind::NodeFinished => false,
-            };
-            if !valid_status {
-                return Err(DataError::RunJournal(format!(
-                    "运行日志终态 status 无效: {}",
-                    first.run_id
-                )));
-            }
-            terminal_seen = true;
-        }
-    }
-    Ok(())
-}
-
-fn validate_record_shape(record: &RunJournalRecord) -> Result<()> {
-    let valid = match record.kind {
-        RunJournalEventKind::RunStarted => {
-            record.status == FlowRunStatus::Running
-                && record.job_id.is_none()
-                && record.node_id.is_none()
-        }
-        RunJournalEventKind::JobStarted => {
-            record.status == FlowRunStatus::Running
-                && record.job_id.is_some()
-                && record.node_id.is_none()
-        }
-        RunJournalEventKind::JobFinished => {
-            is_finished_status(record.status) && record.job_id.is_some() && record.node_id.is_none()
-        }
-        RunJournalEventKind::NodeStarted => {
-            record.status == FlowRunStatus::Running
-                && record.job_id.is_some()
-                && record.node_id.is_some()
-        }
-        RunJournalEventKind::NodeFinished => {
-            is_finished_status(record.status) && record.job_id.is_some() && record.node_id.is_some()
-        }
-        RunJournalEventKind::RunCompleted => {
-            is_finished_status(record.status) && record.job_id.is_none() && record.node_id.is_none()
-        }
-        RunJournalEventKind::RunAbandoned => {
-            record.status == FlowRunStatus::Failed
-                && record.job_id.is_none()
-                && record.node_id.is_none()
-        }
-    };
-    if valid {
-        Ok(())
-    } else {
-        Err(DataError::RunJournal(format!(
-            "运行日志事件字段无效: {} seq {}",
-            record.run_id, record.seq
-        )))
-    }
-}
-
-fn is_finished_status(status: FlowRunStatus) -> bool {
-    matches!(
-        status,
-        FlowRunStatus::Succeeded | FlowRunStatus::Failed | FlowRunStatus::Skipped
-    )
-}
-
-fn summary_from_records(records: &[RunJournalRecord]) -> Result<RunJournalSummary> {
-    validate_lifecycle(records)?;
-    let first = records
-        .first()
-        .ok_or_else(|| DataError::RunJournal("运行日志为空".to_string()))?;
-    let terminal = records.iter().find(|record| is_terminal(record.kind));
-    Ok(RunJournalSummary {
-        run_id: first.run_id.clone(),
-        flow_id: first.flow_id.clone(),
-        status: terminal.map(|record| record.status).unwrap_or(first.status),
-        started_at: first.occurred_at.clone(),
-        finished_at: terminal.map(|record| record.occurred_at.clone()),
-    })
-}
-
-fn is_terminal(kind: RunJournalEventKind) -> bool {
-    matches!(
-        kind,
-        RunJournalEventKind::RunCompleted | RunJournalEventKind::RunAbandoned
-    )
-}
-
 /// 将执行器生命周期事件追加到 `RunJournal`，同时把写入失败留给调用方检查。
 pub struct RunJournalObserver<'a> {
     journal: &'a RunJournal,
@@ -610,82 +435,4 @@ impl FlowRunObserver for RunJournalObserver<'_> {
             self.first_error = Some(error.to_string());
         }
     }
-}
-
-fn segment_paths(run_dir: &Path) -> Result<Vec<PathBuf>> {
-    if !run_dir.exists() {
-        return Ok(Vec::new());
-    }
-    let mut paths = Vec::new();
-    for entry in fs::read_dir(run_dir)? {
-        let path = entry?.path();
-        if !path.is_file() || segment_number(&path).is_err() {
-            return Err(DataError::RunJournal(format!(
-                "运行日志目录包含非法文件: {}",
-                path.display()
-            )));
-        }
-        paths.push(path);
-    }
-    paths.sort();
-    Ok(paths)
-}
-
-fn segment_number(path: &Path) -> Result<u64> {
-    let name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| DataError::RunJournal("非法 segment 文件名".to_string()))?;
-    name.strip_prefix(SEGMENT_PREFIX)
-        .and_then(|value| value.strip_suffix(SEGMENT_SUFFIX))
-        .and_then(|value| value.parse().ok())
-        .ok_or_else(|| DataError::RunJournal(format!("非法 segment 文件名: {name}")))
-}
-
-fn segment_name(number: u64) -> String {
-    format!("{SEGMENT_PREFIX}{number:06}{SEGMENT_SUFFIX}")
-}
-
-fn repair_torn_tail(run_dir: &Path) -> Result<()> {
-    let Some(last) = segment_paths(run_dir)?.last().cloned() else {
-        return Ok(());
-    };
-    let content = fs::read(&last)?;
-    if content.is_empty() || content.ends_with(b"\n") {
-        return Ok(());
-    }
-    let valid_len = content
-        .iter()
-        .rposition(|byte| *byte == b'\n')
-        .map(|index| index + 1)
-        .unwrap_or(0);
-    let file = File::options().write(true).open(&last)?;
-    file.set_len(valid_len as u64)?;
-    file.sync_data()?;
-    Ok(())
-}
-
-#[cfg(unix)]
-fn sync_directory(path: &Path) -> Result<()> {
-    File::open(path)?.sync_all()?;
-    Ok(())
-}
-
-fn sync_directory_chain(path: &Path, max_depth: usize) -> Result<()> {
-    let mut current = Some(path);
-    for _ in 0..max_depth {
-        let Some(directory) = current else {
-            break;
-        };
-        if directory.exists() {
-            sync_directory(directory)?;
-        }
-        current = directory.parent();
-    }
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn sync_directory(_path: &Path) -> Result<()> {
-    Ok(())
 }

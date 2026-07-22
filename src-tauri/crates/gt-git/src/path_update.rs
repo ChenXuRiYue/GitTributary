@@ -1,13 +1,18 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use git2::{Direction, FetchOptions, PushOptions, Remote};
+use git2::{Direction, FetchOptions};
 use serde::Serialize;
 
 use crate::commit::CommitIdentity;
 use crate::error::{GitError, Result};
 use crate::remote::{build_callbacks, AuthMethod};
+
+mod transport;
+
+use transport::{
+    push_head, push_head_with_token_askpass, remote_for_direction, remote_url_for_direction,
+};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -330,191 +335,6 @@ fn fetch_target_branch(
     Ok(())
 }
 
-fn push_head(repo: &Path, remote_name: &str, branch: &str, auth: &AuthMethod) -> Result<()> {
-    let git_repo = git2::Repository::open(repo)?;
-    let push_url = remote_url_for_direction(&git_repo, remote_name, Direction::Push)?;
-    let mut remote = remote_for_direction(&git_repo, remote_name, Direction::Push)?;
-    let mut push_opts = PushOptions::new();
-    push_opts.remote_callbacks(build_callbacks(auth));
-    let refspec = format!("HEAD:refs/heads/{branch}");
-    match remote.push(&[refspec.as_str()], Some(&mut push_opts)) {
-        Ok(_) => Ok(()),
-        Err(err) if should_retry_with_system_git(err.message(), auth, &push_url) => {
-            push_head_with_token_askpass(repo, &push_url, &refspec, auth, false)
-        }
-        Err(err) => Err(GitError::Internal(format!(
-            "推送失败: {}",
-            explain_network_error(err.message())
-        ))),
-    }
-}
-
-fn should_retry_with_system_git(message: &str, auth: &AuthMethod, url: &str) -> bool {
-    matches!(auth, AuthMethod::Token(_))
-        && url.to_ascii_lowercase().starts_with("https://")
-        && is_auth_replay_error(message)
-}
-
-fn is_auth_replay_error(message: &str) -> bool {
-    let lower = message.to_ascii_lowercase();
-    lower.contains("too many redirects")
-        || lower.contains("authentication replays")
-        || lower.contains("authentication failed")
-}
-
-fn push_head_with_token_askpass(
-    repo: &Path,
-    push_url: &str,
-    refspec: &str,
-    auth: &AuthMethod,
-    dry_run: bool,
-) -> Result<()> {
-    let AuthMethod::Token(token) = auth else {
-        return Err(GitError::Internal(
-            "系统 Git 兜底推送需要 Token 认证".to_string(),
-        ));
-    };
-    let askpass_path = std::env::temp_dir().join(format!(
-        "gittributary-askpass-{}-{}.sh",
-        std::process::id(),
-        stable_hash(push_url)
-    ));
-    fs::write(
-        &askpass_path,
-        "#!/bin/sh\ncase \"$1\" in\n*Username*) printf '%s\\n' 'x-access-token' ;;\n*) printf '%s\\n' \"$GITTRIBUTARY_GIT_TOKEN\" ;;\nesac\n",
-    )
-    .map_err(|err| GitError::Internal(format!("创建临时 git askpass 失败: {err}")))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&askpass_path)
-            .map_err(|err| GitError::Internal(format!("读取临时 git askpass 权限失败: {err}")))?
-            .permissions();
-        perms.set_mode(0o700);
-        fs::set_permissions(&askpass_path, perms)
-            .map_err(|err| GitError::Internal(format!("设置临时 git askpass 权限失败: {err}")))?;
-    }
-
-    let args = if dry_run {
-        vec!["push", "--dry-run", push_url, refspec]
-    } else {
-        vec!["push", push_url, refspec]
-    };
-    let result = run_git_with_env(
-        repo,
-        &args,
-        &[
-            ("GIT_ASKPASS", askpass_path.to_string_lossy().as_ref()),
-            ("GIT_TERMINAL_PROMPT", "0"),
-            ("GITTRIBUTARY_GIT_TOKEN", token.as_str()),
-        ],
-    );
-    let _ = fs::remove_file(&askpass_path);
-    result.map(|_| ())
-}
-
-fn stable_hash(value: &str) -> u64 {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in value.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    hash
-}
-
-fn remote_url_for_direction(
-    repo: &git2::Repository,
-    remote_name: &str,
-    direction: Direction,
-) -> Result<String> {
-    let remote = repo
-        .find_remote(remote_name)
-        .map_err(|_| GitError::Internal(format!("远程 '{}' 不存在", remote_name)))?;
-    let raw_url = match direction {
-        Direction::Push => remote.pushurl().or_else(|| remote.url()),
-        Direction::Fetch => remote.url(),
-    }
-    .ok_or_else(|| GitError::Internal(format!("远程 '{}' 未配置 URL", remote_name)))?;
-    Ok(normalize_network_url(raw_url))
-}
-
-fn sanitize_error_detail(detail: &str) -> String {
-    let mut sanitized = Vec::new();
-    for line in detail.lines() {
-        if line.contains("GITTRIBUTARY_GIT_TOKEN") {
-            sanitized.push("<redacted>");
-        } else {
-            sanitized.push(line);
-        }
-    }
-    sanitized.join("\n")
-}
-
-fn run_git_with_env(repo: &Path, args: &[&str], envs: &[(&str, &str)]) -> Result<String> {
-    let mut command = Command::new("git");
-    command.args(args).current_dir(repo);
-    for (key, value) in envs {
-        command.env(key, value);
-    }
-    let output = command
-        .output()
-        .map_err(|err| GitError::Internal(format!("无法执行 git: {err}")))?;
-
-    if output.status.success() {
-        return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-    }
-
-    let stderr = sanitize_error_detail(String::from_utf8_lossy(&output.stderr).trim());
-    let stdout = sanitize_error_detail(String::from_utf8_lossy(&output.stdout).trim());
-    let detail = if !stderr.is_empty() { stderr } else { stdout };
-    Err(GitError::Internal(format!(
-        "推送失败: {}",
-        if detail.is_empty() {
-            "系统 Git 推送失败".to_string()
-        } else {
-            explain_network_error(&detail)
-        }
-    )))
-}
-
-fn explain_network_error(message: &str) -> String {
-    let lower = message.to_ascii_lowercase();
-    if lower.contains("too many redirects") || lower.contains("authentication replays") {
-        format!("{message}; Git 服务端拒绝了当前认证,请检查远程 URL 与 Token/SSH 权限")
-    } else {
-        message.to_string()
-    }
-}
-
-fn remote_for_direction<'repo>(
-    repo: &'repo git2::Repository,
-    remote_name: &str,
-    direction: Direction,
-) -> Result<Remote<'repo>> {
-    let remote = repo
-        .find_remote(remote_name)
-        .map_err(|_| GitError::Internal(format!("远程 '{}' 不存在", remote_name)))?;
-    let normalized = remote_url_for_direction(repo, remote_name, direction)?;
-    if remote.url() == Some(normalized.as_str()) {
-        return Ok(remote);
-    }
-    repo.remote_anonymous(&normalized).map_err(Into::into)
-}
-
-fn normalize_network_url(url: &str) -> String {
-    let trimmed = url.trim();
-    let lower = trimmed.to_ascii_lowercase();
-    if lower.starts_with("https://github.com/")
-        && !trimmed.ends_with(".git")
-        && !trimmed.contains('?')
-        && !trimmed.contains('#')
-    {
-        format!("{trimmed}.git")
-    } else {
-        trimmed.to_string()
-    }
-}
-
 fn status_count(repo: &Path, pathspec: &str) -> Result<usize> {
     let status = run_git(
         repo,
@@ -630,78 +450,4 @@ fn run_git_with_optional_env(repo: &Path, args: &[&str], envs: &[(&str, &str)]) 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn normalize_git_name_accepts_plain_names() {
-        assert_eq!(normalize_git_name(" feature ", "分支").unwrap(), "feature");
-        assert_eq!(normalize_git_name("origin", "远程").unwrap(), "origin");
-    }
-
-    #[test]
-    fn normalize_git_name_rejects_unsafe_names() {
-        assert!(normalize_git_name("", "分支").is_err());
-        assert!(normalize_git_name("-bad", "分支").is_err());
-        assert!(normalize_git_name("bad branch", "分支").is_err());
-        assert!(normalize_git_name("bad\nbranch", "分支").is_err());
-    }
-
-    #[test]
-    fn pathspec_rejects_absolute_and_parent_paths() {
-        assert!(validate_pathspec("docs").is_ok());
-        assert!(validate_pathspec(".").is_ok());
-        assert!(validate_pathspec("../docs").is_err());
-        assert!(validate_pathspec("/tmp/docs").is_err());
-        assert!(validate_pathspec("docs\\site").is_err());
-        assert!(validate_pathspec(":(top)docs").is_err());
-        assert!(validate_pathspec("docs/**").is_err());
-    }
-
-    #[test]
-    fn clean_except_allows_changes_inside_pathspec() {
-        let dir = tempfile::tempdir().unwrap();
-        run_git(dir.path(), &["init"]).unwrap();
-        std::fs::create_dir_all(dir.path().join("site/assets")).unwrap();
-        std::fs::write(dir.path().join("site/index.html"), "hello").unwrap();
-        std::fs::write(dir.path().join("site/assets/app.css"), "body{}").unwrap();
-
-        ensure_clean_repo_except(dir.path(), "site").unwrap();
-    }
-
-    #[test]
-    fn clean_except_rejects_changes_outside_pathspec() {
-        let dir = tempfile::tempdir().unwrap();
-        run_git(dir.path(), &["init"]).unwrap();
-        std::fs::create_dir_all(dir.path().join("site")).unwrap();
-        std::fs::write(dir.path().join("site/index.html"), "hello").unwrap();
-        std::fs::write(dir.path().join("README.md"), "outside").unwrap();
-
-        let err = ensure_clean_repo_except(dir.path(), "site").unwrap_err();
-        assert!(err.to_string().contains("允许路径之外"));
-    }
-
-    #[test]
-    fn path_commit_uses_explicit_identity() {
-        let dir = tempfile::tempdir().unwrap();
-        run_git(dir.path(), &["init"]).unwrap();
-        run_git(dir.path(), &["config", "user.name", "Repo Config"]).unwrap();
-        run_git(dir.path(), &["config", "user.email", "repo@example.com"]).unwrap();
-        std::fs::write(dir.path().join("index.html"), "hello").unwrap();
-        run_git(dir.path(), &["add", "index.html"]).unwrap();
-
-        run_git_commit(
-            dir.path(),
-            "test: path update explicit identity",
-            ".",
-            &CommitIdentity {
-                name: "Remote Config".to_string(),
-                email: "remote@example.com".to_string(),
-            },
-        )
-        .unwrap();
-
-        let author = run_git(dir.path(), &["log", "-1", "--format=%an <%ae>"]).unwrap();
-        assert_eq!(author.trim(), "Remote Config <remote@example.com>");
-    }
-}
+mod tests;

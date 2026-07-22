@@ -17,18 +17,18 @@ const NS_SETTINGS: &str = "settings";
 const NS_LOCAL: &str = "private.local";
 const DATA_CENTER_CONFIG_REPO_TOKEN: &str = "data_center.config_repo.token";
 
-/// 敏感数据安全级别
-///
-/// L0 — 绝对机密:access token、私钥、passphrase
-///      展示时完全掩码(••••••••),不露任何原始字符
-///      永不出现在日志、错误信息、前端响应中
-///
-/// L1 — 敏感:SSH 密钥路径、邮箱
-///      展示时可部分显示(如路径只显示文件名)
-///      不同步到远程
-///
-/// L2 — 普通 private:设备名等
-///      仅本地存储,可正常展示
+// 敏感数据安全级别
+//
+// L0 — 绝对机密:access token、私钥、passphrase
+//      展示时完全掩码(••••••••),不露任何原始字符
+//      永不出现在日志、错误信息、前端响应中
+//
+// L1 — 敏感:SSH 密钥路径、邮箱
+//      展示时可部分显示(如路径只显示文件名)
+//      不同步到远程
+//
+// L2 — 普通 private:设备名等
+//      仅本地存储,可正常展示
 
 /// Git 认证配置(完整视图,前端展示用)
 #[derive(Debug, Clone, Serialize, Deserialize)]
