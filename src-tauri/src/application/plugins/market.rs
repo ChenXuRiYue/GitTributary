@@ -1,4 +1,3 @@
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -7,16 +6,16 @@ use semver::Version;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+mod filesystem;
+
+use filesystem::{ensure_installed_root, remove_other_versions, stage_project_plugin};
+
 use crate::application::flow::commands::refresh_flow_node_registry;
 use crate::application::plugins::registry::{
-    backend_library_relative_path, read_manifest, validate_backend_exists, validate_manifest,
-    ExtensionManifest,
+    read_manifest, validate_backend_exists, validate_manifest, ExtensionManifest,
 };
 use crate::support::config_dir::store_base_dir;
 use crate::AppState;
-
-const MAX_PLUGIN_FILES: usize = 2_048;
-const MAX_PLUGIN_BYTES: u64 = 128 * 1024 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -392,119 +391,6 @@ fn validate_project_plugin(manifest: &ExtensionManifest, root: &Path) -> Result<
     validate_backend_exists(manifest, root)
 }
 
-fn stage_project_plugin(
-    source: &Path,
-    staging: &Path,
-    manifest: &ExtensionManifest,
-) -> Result<(), String> {
-    fs::create_dir(staging).map_err(|error| error.to_string())?;
-    let mut limits = CopyLimits::default();
-    copy_file_checked(
-        &source.join("manifest.json"),
-        &staging.join("manifest.json"),
-        &mut limits,
-    )?;
-    if let Some(icon) = &manifest.icon {
-        if !icon.starts_with("lucide:") {
-            copy_file_checked(&source.join(icon), &staging.join(icon), &mut limits)?;
-        }
-    }
-
-    let mut frontend_roots = BTreeSet::new();
-    for view in &manifest.contributes.views {
-        let entry = Path::new(&view.entry);
-        let parent = entry.parent().unwrap_or_else(|| Path::new(""));
-        frontend_roots.insert(parent.to_path_buf());
-        if let Some(icon) = &view.icon {
-            if !icon.starts_with("lucide:") {
-                copy_file_checked(&source.join(icon), &staging.join(icon), &mut limits)?;
-            }
-        }
-    }
-    for relative in frontend_roots {
-        copy_tree_checked(
-            &source.join(&relative),
-            &staging.join(&relative),
-            &mut limits,
-        )?;
-    }
-    if let Some(backend) = &manifest.backend {
-        let relative = backend_library_relative_path(backend);
-        copy_file_checked(
-            &source.join(&relative),
-            &staging.join(relative),
-            &mut limits,
-        )?;
-    }
-    Ok(())
-}
-
-#[derive(Default)]
-struct CopyLimits {
-    files: usize,
-    bytes: u64,
-}
-
-fn copy_tree_checked(source: &Path, target: &Path, limits: &mut CopyLimits) -> Result<(), String> {
-    let metadata = fs::symlink_metadata(source).map_err(|error| error.to_string())?;
-    if metadata.file_type().is_symlink() {
-        return Err("plugin_source_contains_symlink".to_string());
-    }
-    if metadata.is_file() {
-        return copy_file_checked(source, target, limits);
-    }
-    if !metadata.is_dir() {
-        return Err("plugin_source_contains_unsupported_entry".to_string());
-    }
-    fs::create_dir_all(target).map_err(|error| error.to_string())?;
-    for entry in fs::read_dir(source).map_err(|error| error.to_string())? {
-        let entry = entry.map_err(|error| error.to_string())?;
-        copy_tree_checked(&entry.path(), &target.join(entry.file_name()), limits)?;
-    }
-    Ok(())
-}
-
-fn copy_file_checked(source: &Path, target: &Path, limits: &mut CopyLimits) -> Result<(), String> {
-    let metadata = fs::symlink_metadata(source).map_err(|error| error.to_string())?;
-    if metadata.file_type().is_symlink() || !metadata.is_file() {
-        return Err("plugin_source_entry_is_not_regular_file".to_string());
-    }
-    limits.files += 1;
-    limits.bytes = limits.bytes.saturating_add(metadata.len());
-    if limits.files > MAX_PLUGIN_FILES || limits.bytes > MAX_PLUGIN_BYTES {
-        return Err("plugin_package_too_large".to_string());
-    }
-    if let Some(parent) = target.parent() {
-        fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    fs::copy(source, target).map_err(|error| error.to_string())?;
-    Ok(())
-}
-
-fn ensure_installed_root(plugins_root: &Path, installed_root: &Path) -> Result<(), String> {
-    let plugins_root = plugins_root
-        .canonicalize()
-        .map_err(|_| "plugins_root_missing".to_string())?;
-    let installed_root = installed_root
-        .canonicalize()
-        .map_err(|_| "extension_root_missing".to_string())?;
-    if !installed_root.starts_with(&plugins_root) {
-        return Err("extension_root_outside_plugins_directory".to_string());
-    }
-    Ok(())
-}
-
-fn remove_other_versions(plugin_root: &Path, active_version: &str) {
-    let Ok(entries) = fs::read_dir(plugin_root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        if entry.file_name() != active_version {
-            let _ = fs::remove_dir_all(entry.path());
-        }
-    }
-}
-
 fn operation_token() -> String {
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -527,90 +413,4 @@ fn ensure_install_version_allowed(candidate: &str, installed: Option<&str>) -> R
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::io::Write;
-
-    #[test]
-    fn rejects_symlinks_while_copying_plugin_payload() {
-        let directory = tempfile::tempdir().unwrap();
-        let source = directory.path().join("source");
-        let target = directory.path().join("target");
-        fs::create_dir(&source).unwrap();
-        fs::write(source.join("real.js"), "ok").unwrap();
-
-        #[cfg(unix)]
-        {
-            std::os::unix::fs::symlink(source.join("real.js"), source.join("link.js")).unwrap();
-            let error =
-                copy_tree_checked(&source, &target, &mut CopyLimits::default()).unwrap_err();
-            assert_eq!(error, "plugin_source_contains_symlink");
-        }
-    }
-
-    #[test]
-    fn enforces_total_copy_size() {
-        let directory = tempfile::tempdir().unwrap();
-        let source = directory.path().join("large.bin");
-        let mut file = fs::File::create(&source).unwrap();
-        file.write_all(b"large").unwrap();
-        let mut limits = CopyLimits {
-            files: 0,
-            bytes: MAX_PLUGIN_BYTES,
-        };
-        assert_eq!(
-            copy_file_checked(&source, &directory.path().join("copy.bin"), &mut limits)
-                .unwrap_err(),
-            "plugin_package_too_large"
-        );
-    }
-
-    #[test]
-    fn resolves_debug_catalog_from_project_root() {
-        let catalog = plugin_catalog_root_for_mode(
-            true,
-            Path::new("/workspace/GitTributary/src-tauri"),
-            Some(Path::new("/ignored/resources")),
-        )
-        .unwrap();
-        assert_eq!(catalog, Path::new("/workspace/GitTributary/plugins"));
-    }
-
-    #[test]
-    fn resolves_release_catalog_from_resource_directory() {
-        let catalog = plugin_catalog_root_for_mode(
-            false,
-            Path::new("/ignored/src-tauri"),
-            Some(Path::new("/Applications/GitTributary/Resources")),
-        )
-        .unwrap();
-        assert_eq!(
-            catalog,
-            Path::new("/Applications/GitTributary/Resources/plugins")
-        );
-    }
-
-    #[test]
-    fn allows_upgrade_and_same_version_reinstall_but_rejects_downgrade() {
-        assert!(ensure_install_version_allowed("0.1.3", None).is_ok());
-        assert!(ensure_install_version_allowed("0.1.3", Some("0.1.2")).is_ok());
-        assert!(ensure_install_version_allowed("0.1.3", Some("0.1.3")).is_ok());
-        assert_eq!(
-            ensure_install_version_allowed("0.1.2", Some("0.1.3")).unwrap_err(),
-            "plugin_downgrade_denied"
-        );
-        assert_eq!(
-            ensure_install_version_allowed("1.0.0-beta.1", Some("1.0.0")).unwrap_err(),
-            "plugin_downgrade_denied"
-        );
-    }
-
-    #[test]
-    fn discovers_site_publisher_from_project_plugins() {
-        let root = plugin_catalog_root_for_mode(true, Path::new(env!("CARGO_MANIFEST_DIR")), None)
-            .unwrap();
-        let (_, manifest) = plugin_source(&root, "dev.gittributary.site-publisher").unwrap();
-        assert!(manifest.store_namespaces.contains(&"sites".to_string()));
-        assert!(!manifest.store_namespaces.contains(&"ui-state".to_string()));
-    }
-}
+mod tests;
