@@ -103,7 +103,7 @@ pub(crate) fn collect_markdown_files(
         collect_markdown_files_in_dir(repo, &abs, &exclude, ignored, &mut seen, &mut files)?;
     }
 
-    files.sort_by(|a, b| natural_doc_key(&a.rel_path).cmp(&natural_doc_key(&b.rel_path)));
+    files.sort_by_key(|file| natural_doc_key(&file.rel_path));
     Ok(files)
 }
 

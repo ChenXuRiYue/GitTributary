@@ -51,7 +51,7 @@ pub(crate) fn render_nav_children(
     html: &mut String,
 ) {
     let mut dirs = node.children.values().collect::<Vec<_>>();
-    dirs.sort_by(|a, b| natural_component_key(&a.name).cmp(&natural_component_key(&b.name)));
+    dirs.sort_by_key(|dir| natural_component_key(&dir.name));
     for dir in dirs {
         let contains_active = nav_node_contains_active(dir, pages, active);
         let open_attr = if (active.is_none() && node.path.is_empty()) || contains_active {

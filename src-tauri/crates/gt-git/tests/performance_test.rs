@@ -108,12 +108,16 @@ struct Measurement {
     estimated_bytes: usize,
 }
 
+fn is_debug_build() -> bool {
+    cfg!(debug_assertions)
+}
+
 /// 一个测试依次跑完四种 fixture，确保测试 runner 即使忽略 `--test-threads=1`
 /// 也不会让这些磁盘密集型场景并发竞争。
 #[test]
 #[ignore = "large deterministic fixtures; run through the performance gate"]
 fn git_read_operations_stay_within_p95_budgets() {
-    assert!(cfg!(not(debug_assertions)), "性能门禁必须使用 --release");
+    assert!(!is_debug_build(), "性能门禁必须使用 --release");
 
     for profile in PROFILES {
         let fixture_started = Instant::now();
