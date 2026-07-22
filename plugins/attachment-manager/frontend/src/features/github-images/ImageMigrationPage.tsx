@@ -1,65 +1,75 @@
-import { AlertTriangle, ArrowLeft, GitBranch, Images } from "lucide-react";
+import { AlertTriangle } from "lucide-react";
 
-import { Button } from "@/shared/ui/button";
-
-import type { AttachmentScanReport, GitHubImageLibrary } from "../../types";
+import { ConfirmDialog } from "../../components/ConfirmDialog";
+import type {
+  AttachmentScanReport,
+  ImageMigrationFileScope,
+  ImageMigrationSettings,
+} from "../../types";
+import { defaultMigrationFileScope } from "./migration-file-scope";
 import { ImageMigrationList } from "./ImageMigrationList";
-import { ImageMigrationResult } from "./ImageMigrationResult";
 import { useGitHubImageMigration } from "./useGitHubImageMigration";
 
+const DEFAULT_FILE_SCOPE = defaultMigrationFileScope();
+
 export function ImageMigrationPage({
-  library,
   report,
-  onBack,
-  onCompleted,
+  settings,
+  running,
+  disabled,
+  onScopeChange,
+  onStart,
 }: {
-  library: GitHubImageLibrary;
   report: AttachmentScanReport | null;
-  onBack: () => void;
-  onCompleted: () => Promise<void>;
+  settings: ImageMigrationSettings;
+  running: boolean;
+  disabled?: boolean;
+  onScopeChange: (scope: ImageMigrationFileScope) => void;
+  onStart: (paths: string[], noteCount: number) => Promise<void>;
 }) {
-  const migration = useGitHubImageMigration(report, library, onCompleted);
+  const migration = useGitHubImageMigration(report);
+  const confirmMigration = () => {
+    const pending = migration.confirmMigration();
+    if (!pending) return;
+    void onStart(pending.paths, pending.noteCount).catch((reason) => {
+      migration.setError(reason instanceof Error ? reason.message : String(reason));
+    });
+  };
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4 pb-4">
-      <div className="border-border/50 flex min-h-12 items-center gap-2 border-b pb-3">
-        <Button variant="ghost" size="icon" onClick={onBack} title="返回图库">
-          <ArrowLeft />
-        </Button>
-        <Images className="size-4" />
-        <div className="min-w-0">
-          <h2 className="gt-title-panel">图片迁移 · {library.name}</h2>
-          <div className="text-muted-foreground gt-caption flex min-w-0 items-center gap-2">
-            <GitBranch className="size-3" />
-            <span className="truncate">{library.remote?.url}</span>
-            <span>{library.branch}</span>
-            <span>{library.directory ? `/${library.directory}` : "仓库根目录"}</span>
-          </div>
-        </div>
-      </div>
+    <div className="flex h-full min-h-0 flex-col gap-2">
       <ImageMigrationList
+        repoPath={report?.repoPath ?? ""}
         candidates={migration.candidates}
         selectedPaths={migration.selectedPaths}
-        selectedCount={migration.selectedCount}
         selectedNotes={migration.selectedNotes}
         selectedBytes={migration.selectedBytes}
-        migrating={migration.migrating}
-        onSelectAll={migration.selectAll}
-        onToggle={migration.togglePath}
+        scope={settings.fileScope ?? DEFAULT_FILE_SCOPE}
+        migrating={running}
+        disabled={disabled}
+        onScopeChange={onScopeChange}
+        onSelectPaths={migration.selectPaths}
+        onReplaceSelection={migration.replaceSelection}
         onMigrate={() => void migration.migrate()}
       />
       {migration.error && (
-        <div className="border-destructive/40 bg-destructive/5 text-destructive gt-body flex items-start gap-2 border px-4 py-3">
+        <div className="border-destructive/40 bg-destructive/5 text-destructive gt-body flex shrink-0 items-start gap-2 border px-3 py-2">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span className="break-all">{migration.error}</span>
         </div>
       )}
-      {migration.result && (
-        <ImageMigrationResult
-          result={migration.result}
-          retrying={migration.migrating}
-          onRetry={() => void migration.retryFailures()}
-        />
-      )}
+      <ConfirmDialog
+        open={migration.confirmation !== null}
+        title="确认附件迁移"
+        description={migration.confirmation
+          ? settings.localFilePolicy === "delete_after_success"
+            ? `将上传 ${migration.confirmation.imageCount} 张图片，并修改 ${migration.confirmation.noteCount} 篇 Markdown。迁移成功且引用替换完成后，将删除对应的本地图片。`
+            : `将上传 ${migration.confirmation.imageCount} 张图片，并修改 ${migration.confirmation.noteCount} 篇 Markdown。原图片会保留。`
+          : ""}
+        confirmLabel="确认迁移"
+        busy={running}
+        onCancel={migration.cancelMigration}
+        onConfirm={confirmMigration}
+      />
     </div>
   );
 }

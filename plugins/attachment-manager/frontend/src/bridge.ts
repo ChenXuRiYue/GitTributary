@@ -3,6 +3,9 @@ let hostSessionId: string | null = null;
 let resolveHostPort: ((port: MessagePort) => void) | null = null;
 let uiMounted = false;
 let readySent = false;
+const modalLayers = { standard: 0, immersive: 0 };
+
+export type PluginModalBackdrop = keyof typeof modalLayers;
 
 const hostPortReady = new Promise<MessagePort>((resolve) => {
   resolveHostPort = resolve;
@@ -15,6 +18,18 @@ function notifyPluginReady() {
     type: "gittributary:plugin-ready",
     apiVersion: 1,
     sessionId: hostSessionId,
+  });
+}
+
+function notifyModalState() {
+  if (!hostPort || !hostSessionId) return;
+  const backdrop: PluginModalBackdrop = modalLayers.immersive > 0 ? "immersive" : "standard";
+  hostPort.postMessage({
+    type: "gittributary:modal-state",
+    apiVersion: 1,
+    sessionId: hostSessionId,
+    open: modalLayers.standard + modalLayers.immersive > 0,
+    backdrop,
   });
 }
 
@@ -33,11 +48,24 @@ window.addEventListener("message", (event: MessageEvent) => {
   resolveHostPort?.(hostPort);
   resolveHostPort = null;
   notifyPluginReady();
+  notifyModalState();
 });
 
 export function markPluginReady() {
   uiMounted = true;
   notifyPluginReady();
+}
+
+export function registerPluginModal(backdrop: PluginModalBackdrop = "standard"): () => void {
+  modalLayers[backdrop] += 1;
+  notifyModalState();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    modalLayers[backdrop] = Math.max(0, modalLayers[backdrop] - 1);
+    notifyModalState();
+  };
 }
 
 export async function invokeHost<T>(method: string, payload: unknown = {}): Promise<T> {

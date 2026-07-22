@@ -26,7 +26,7 @@ describe("attachment presentation helpers", () => {
   });
 
   it("normalizes preview and repository errors without hiding unknown diagnostics", () => {
-    expect(attachmentErrorMessage(new Error("preview_file_too_large"))).toContain("24 MB");
+    expect(attachmentErrorMessage(new Error("preview_file_too_large"))).toBe("音频文件超过 24 MB，请使用系统应用打开");
     expect(attachmentErrorMessage("repository_not_open")).toBe("请先打开一个 Git 仓库");
     expect(attachmentErrorMessage("custom_failure")).toBe("custom_failure");
   });

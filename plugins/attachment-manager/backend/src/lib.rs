@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::ffi::{CStr, CString};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::os::raw::c_char;
 use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -22,7 +22,9 @@ use walkdir::{DirEntry, WalkDir};
 
 pub const PLUGIN_ABI_VERSION: u32 = 1;
 const MAX_NOTE_BYTES: u64 = 4 * 1024 * 1024;
-const MAX_PREVIEW_BYTES: u64 = 24 * 1024 * 1024;
+const MAX_INLINE_AUDIO_PREVIEW_BYTES: u64 = 24 * 1024 * 1024;
+// Divisible by three so separately encoded chunks form one valid Base64 payload.
+const PREVIEW_CHUNK_BYTES: usize = 384 * 1024;
 const MAX_UPLOAD_BYTES: u64 = 50 * 1024 * 1024;
 const MAX_MIGRATION_IMAGES: usize = 500;
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(1);
@@ -94,7 +96,18 @@ struct AttachmentScanReport {
 struct AttachmentPreview {
     path: String,
     mime_type: String,
-    data_url: String,
+    size: u64,
+    chunk_size: usize,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachmentPreviewChunk {
+    path: String,
+    offset: u64,
+    next_offset: u64,
+    data: String,
+    done: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -108,6 +121,15 @@ struct ScanRequest {
 struct PreviewRequest {
     repo_path: String,
     path: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PreviewChunkRequest {
+    repo_path: String,
+    path: String,
+    offset: u64,
+    expected_size: u64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -126,6 +148,16 @@ struct GitHubMigrationRequest {
     repo_path: String,
     image_paths: Vec<String>,
     config: GitHubImageConfig,
+    #[serde(default)]
+    local_file_policy: LocalFilePolicy,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum LocalFilePolicy {
+    #[default]
+    Keep,
+    DeleteAfterSuccess,
 }
 
 #[derive(Debug, Deserialize)]
@@ -165,6 +197,9 @@ struct GitHubMigrationReport {
     migrated: Vec<GitHubMigrationItem>,
     failed: Vec<GitHubMigrationFailure>,
     failed_notes: Vec<GitHubMigrationFailure>,
+    failed_deletes: Vec<GitHubMigrationFailure>,
+    changed_note_paths: Vec<String>,
+    deleted_local_paths: Vec<String>,
     changed_notes: usize,
     replaced_references: usize,
     duration_ms: u128,
@@ -187,6 +222,15 @@ pub fn handle_request(method: &str, payload: Value) -> Result<Value, String> {
         "attachments.preview" => {
             let request = deserialize::<PreviewRequest>(payload)?;
             serialize(read_preview(&request.repo_path, &request.path)?)
+        }
+        "attachments.previewChunk" => {
+            let request = deserialize::<PreviewChunkRequest>(payload)?;
+            serialize(read_preview_chunk(
+                &request.repo_path,
+                &request.path,
+                request.offset,
+                request.expected_size,
+            )?)
         }
         "attachments.checkGithubImageConfig" => {
             let request = deserialize::<GitHubConfigCheckRequest>(payload)?;
@@ -362,20 +406,62 @@ fn scan_repository(repo_path: &str) -> Result<AttachmentScanReport, String> {
 fn read_preview(repo_path: &str, relative: &str) -> Result<AttachmentPreview, String> {
     let root = canonical_root(repo_path)?;
     let path = resolve_existing_file(&root, relative)?;
+    let extension = extension(&path);
+    let Some(kind) = attachment_kind(&extension) else {
+        return Err("preview_type_not_supported".to_string());
+    };
     let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
-    if metadata.len() > MAX_PREVIEW_BYTES {
+    if kind == AttachmentKind::Audio && metadata.len() > MAX_INLINE_AUDIO_PREVIEW_BYTES {
         return Err("preview_file_too_large".to_string());
     }
-    let extension = extension(&path);
-    if attachment_kind(&extension).is_none() {
-        return Err("preview_type_not_supported".to_string());
-    }
     let mime_type = mime_type(&extension).to_string();
-    let bytes = fs::read(&path).map_err(|error| error.to_string())?;
     Ok(AttachmentPreview {
         path: relative_path(&root, &path)?,
-        data_url: format!("data:{mime_type};base64,{}", BASE64.encode(bytes)),
         mime_type,
+        size: metadata.len(),
+        chunk_size: PREVIEW_CHUNK_BYTES,
+    })
+}
+
+fn read_preview_chunk(
+    repo_path: &str,
+    relative: &str,
+    offset: u64,
+    expected_size: u64,
+) -> Result<AttachmentPreviewChunk, String> {
+    let root = canonical_root(repo_path)?;
+    let path = resolve_existing_file(&root, relative)?;
+    let extension = extension(&path);
+    let Some(kind) = attachment_kind(&extension) else {
+        return Err("preview_type_not_supported".to_string());
+    };
+    let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
+    if kind == AttachmentKind::Audio && metadata.len() > MAX_INLINE_AUDIO_PREVIEW_BYTES {
+        return Err("preview_file_too_large".to_string());
+    }
+    if metadata.len() != expected_size {
+        return Err("preview_file_changed".to_string());
+    }
+    if offset > expected_size {
+        return Err("invalid_preview_offset".to_string());
+    }
+
+    let mut file = fs::File::open(&path).map_err(|error| error.to_string())?;
+    file.seek(SeekFrom::Start(offset))
+        .map_err(|error| error.to_string())?;
+    let remaining = expected_size.saturating_sub(offset);
+    let read_size = remaining.min(PREVIEW_CHUNK_BYTES as u64) as usize;
+    let mut bytes = vec![0; read_size];
+    file.read_exact(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    let next_offset = offset + bytes.len() as u64;
+
+    Ok(AttachmentPreviewChunk {
+        path: relative_path(&root, &path)?,
+        offset,
+        next_offset,
+        data: BASE64.encode(bytes),
+        done: next_offset == expected_size,
     })
 }
 
@@ -476,6 +562,16 @@ where
     if selected.len() > MAX_MIGRATION_IMAGES {
         return Err("migration_images_too_many".to_string());
     }
+    let referenced_before = if request.local_file_policy == LocalFilePolicy::DeleteAfterSuccess {
+        scan_repository(&request.repo_path)?
+            .attachments
+            .into_iter()
+            .filter(|item| selected.contains(&item.path) && !item.references.is_empty())
+            .map(|item| item.path)
+            .collect::<BTreeSet<_>>()
+    } else {
+        BTreeSet::new()
+    };
 
     let mut migrated = Vec::new();
     let mut failed = Vec::new();
@@ -521,16 +617,92 @@ where
         }
     }
 
-    let (changed_notes, replaced_references, failed_notes) =
+    let (changed_note_paths, replaced_references, failed_notes) =
         rewrite_repository_notes(&root, &replacements)?;
+    let (deleted_local_paths, failed_deletes) =
+        if request.local_file_policy == LocalFilePolicy::DeleteAfterSuccess {
+            delete_migrated_images(&root, &migrated, &referenced_before, &failed_notes)
+        } else {
+            (Vec::new(), Vec::new())
+        };
     Ok(GitHubMigrationReport {
         migrated,
         failed,
         failed_notes,
-        changed_notes,
+        failed_deletes,
+        changed_notes: changed_note_paths.len(),
+        changed_note_paths,
+        deleted_local_paths,
         replaced_references,
         duration_ms: started.elapsed().as_millis(),
     })
+}
+
+fn delete_migrated_images(
+    root: &Path,
+    migrated: &[GitHubMigrationItem],
+    referenced_before: &BTreeSet<String>,
+    failed_notes: &[GitHubMigrationFailure],
+) -> (Vec<String>, Vec<GitHubMigrationFailure>) {
+    if !failed_notes.is_empty() {
+        return (
+            Vec::new(),
+            migrated
+                .iter()
+                .map(|item| GitHubMigrationFailure {
+                    path: item.local_path.clone(),
+                    error: "migration_delete_skipped_note_failures".to_string(),
+                })
+                .collect(),
+        );
+    }
+
+    let remaining_references = match scan_repository(&root.to_string_lossy()) {
+        Ok(report) => report
+            .attachments
+            .into_iter()
+            .filter(|item| item.kind == AttachmentKind::Image)
+            .map(|item| (item.path, item.references.len()))
+            .collect::<HashMap<_, _>>(),
+        Err(error) => {
+            return (
+                Vec::new(),
+                migrated
+                    .iter()
+                    .map(|item| GitHubMigrationFailure {
+                        path: item.local_path.clone(),
+                        error: format!("migration_delete_scan_failed:{error}"),
+                    })
+                    .collect(),
+            );
+        }
+    };
+
+    let mut deleted = Vec::new();
+    let mut failed = Vec::new();
+    for item in migrated {
+        let error = if !referenced_before.contains(&item.local_path) {
+            Some("migration_delete_skipped_no_references".to_string())
+        } else if remaining_references
+            .get(&item.local_path)
+            .is_some_and(|count| *count > 0)
+        {
+            Some("migration_delete_skipped_remaining_references".to_string())
+        } else {
+            resolve_existing_file(root, &item.local_path)
+                .and_then(|path| fs::remove_file(path).map_err(|error| error.to_string()))
+                .err()
+        };
+        if let Some(error) = error {
+            failed.push(GitHubMigrationFailure {
+                path: item.local_path.clone(),
+                error,
+            });
+        } else {
+            deleted.push(item.local_path.clone());
+        }
+    }
+    (deleted, failed)
 }
 
 fn normalize_github_config(config: &mut GitHubImageConfig) -> Result<(), String> {
@@ -748,9 +920,9 @@ fn github_response_error(status: StatusCode, body: &str) -> String {
 fn rewrite_repository_notes(
     root: &Path,
     replacements: &HashMap<String, String>,
-) -> Result<(usize, usize, Vec<GitHubMigrationFailure>), String> {
+) -> Result<(Vec<String>, usize, Vec<GitHubMigrationFailure>), String> {
     if replacements.is_empty() {
-        return Ok((0, 0, Vec::new()));
+        return Ok((Vec::new(), 0, Vec::new()));
     }
     let mut by_name = HashMap::<String, Option<String>>::new();
     for entry in WalkDir::new(root)
@@ -786,7 +958,7 @@ fn rewrite_repository_notes(
         .collect::<Vec<_>>();
     markdown_paths.sort();
 
-    let mut changed_notes = 0;
+    let mut changed_note_paths = Vec::new();
     let mut replaced_references = 0;
     let mut failed_notes = Vec::new();
     for note_path in markdown_paths {
@@ -830,10 +1002,10 @@ fn rewrite_repository_notes(
             });
             continue;
         }
-        changed_notes += 1;
+        changed_note_paths.push(note_relative);
         replaced_references += count;
     }
-    Ok((changed_notes, replaced_references, failed_notes))
+    Ok((changed_note_paths, replaced_references, failed_notes))
 }
 
 fn rewrite_markdown_links(
@@ -1469,6 +1641,67 @@ mod tests {
     }
 
     #[test]
+    fn previews_images_larger_than_the_legacy_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let image_path = directory.path().join("large.png");
+        let image = fs::File::create(&image_path).unwrap();
+        image.set_len(MAX_INLINE_AUDIO_PREVIEW_BYTES + 1).unwrap();
+
+        let preview = read_preview(directory.path().to_str().unwrap(), "large.png").unwrap();
+
+        assert_eq!(preview.mime_type, "image/png");
+        assert_eq!(preview.size, MAX_INLINE_AUDIO_PREVIEW_BYTES + 1);
+        assert_eq!(preview.chunk_size, PREVIEW_CHUNK_BYTES);
+    }
+
+    #[test]
+    fn streams_large_image_previews_in_frames_below_the_host_limit() {
+        const IMAGE_BYTES: usize = 1_480_225;
+        const HOST_FRAME_LIMIT: usize = 1024 * 1024;
+
+        let directory = tempfile::tempdir().unwrap();
+        let image_path = directory.path().join("large.png");
+        let expected = vec![0x5a; IMAGE_BYTES];
+        fs::write(&image_path, &expected).unwrap();
+
+        let preview = read_preview(directory.path().to_str().unwrap(), "large.png").unwrap();
+        let mut encoded = String::new();
+        let mut offset = 0;
+        loop {
+            let chunk = read_preview_chunk(
+                directory.path().to_str().unwrap(),
+                "large.png",
+                offset,
+                preview.size,
+            )
+            .unwrap();
+            assert!(serde_json::to_vec(&chunk).unwrap().len() < HOST_FRAME_LIMIT);
+            assert_eq!(chunk.offset, offset);
+            encoded.push_str(&chunk.data);
+            offset = chunk.next_offset;
+            if chunk.done {
+                break;
+            }
+        }
+
+        assert_eq!(offset, IMAGE_BYTES as u64);
+        assert_eq!(BASE64.decode(encoded).unwrap(), expected);
+    }
+
+    #[test]
+    fn retains_the_inline_limit_for_large_audio() {
+        let directory = tempfile::tempdir().unwrap();
+        let audio_path = directory.path().join("large.mp3");
+        let audio = fs::File::create(&audio_path).unwrap();
+        audio.set_len(MAX_INLINE_AUDIO_PREVIEW_BYTES + 1).unwrap();
+
+        assert_eq!(
+            read_preview(directory.path().to_str().unwrap(), "large.mp3").unwrap_err(),
+            "preview_file_too_large"
+        );
+    }
+
+    #[test]
     fn ignores_remote_and_data_references() {
         assert_eq!(
             resolve_reference("note.md", "https://example.com/a.png"),
@@ -1667,6 +1900,7 @@ mod tests {
             repo_path: directory.path().to_string_lossy().to_string(),
             image_paths: vec!["assets/photo.png".to_string()],
             config: github_config(),
+            local_file_policy: LocalFilePolicy::Keep,
         };
         let report = migrate_github_images_with(request, |config, image| {
             assert_eq!(config.token, "test-token");
@@ -1679,13 +1913,64 @@ mod tests {
         assert_eq!(report.migrated.len(), 1);
         assert!(report.migrated[0].uploaded);
         assert_eq!(report.changed_notes, 1);
+        assert_eq!(report.changed_note_paths, vec!["notes/demo.md"]);
         assert_eq!(report.replaced_references, 4);
         assert!(report.failed.is_empty());
         assert!(report.failed_notes.is_empty());
+        assert!(report.failed_deletes.is_empty());
+        assert!(report.deleted_local_paths.is_empty());
         let rewritten = fs::read_to_string(directory.path().join("notes/demo.md")).unwrap();
         assert_eq!(rewritten.matches(&report.migrated[0].url).count(), 4);
         assert!(rewritten.contains("![example](../assets/photo.png)"));
         assert!(directory.path().join("assets/photo.png").is_file());
+    }
+
+    #[test]
+    fn deletes_only_referenced_images_after_successful_rewrite() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("photo.png"), b"png-image").unwrap();
+        fs::write(directory.path().join("note.md"), "![photo](photo.png)\n").unwrap();
+        let request = GitHubMigrationRequest {
+            repo_path: directory.path().to_string_lossy().to_string(),
+            image_paths: vec!["photo.png".to_string()],
+            config: github_config(),
+            local_file_policy: LocalFilePolicy::DeleteAfterSuccess,
+        };
+
+        let report = migrate_github_images_with(request, |_, _| Ok(true)).unwrap();
+
+        assert_eq!(report.deleted_local_paths, vec!["photo.png"]);
+        assert!(report.failed_deletes.is_empty());
+        assert!(!directory.path().join("photo.png").exists());
+        assert!(fs::read_to_string(directory.path().join("note.md"))
+            .unwrap()
+            .contains("raw.githubusercontent.com"));
+    }
+
+    #[test]
+    fn keeps_local_images_when_any_markdown_write_is_not_safe() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("photo.png"), b"png-image").unwrap();
+        let mut note = "![photo](photo.png)\n".to_string();
+        note.push_str(&"x".repeat(MAX_NOTE_BYTES as usize));
+        fs::write(directory.path().join("note.md"), note).unwrap();
+        let request = GitHubMigrationRequest {
+            repo_path: directory.path().to_string_lossy().to_string(),
+            image_paths: vec!["photo.png".to_string()],
+            config: github_config(),
+            local_file_policy: LocalFilePolicy::DeleteAfterSuccess,
+        };
+
+        let report = migrate_github_images_with(request, |_, _| Ok(true)).unwrap();
+
+        assert_eq!(report.failed_notes.len(), 1);
+        assert_eq!(report.failed_deletes.len(), 1);
+        assert_eq!(
+            report.failed_deletes[0].error,
+            "migration_delete_skipped_note_failures"
+        );
+        assert!(report.deleted_local_paths.is_empty());
+        assert!(directory.path().join("photo.png").is_file());
     }
 
     #[test]
@@ -1697,6 +1982,7 @@ mod tests {
             repo_path: directory.path().to_string_lossy().to_string(),
             image_paths: vec!["photo.png".to_string()],
             config: github_config(),
+            local_file_policy: LocalFilePolicy::Keep,
         };
 
         let report =
@@ -1727,6 +2013,7 @@ mod tests {
             repo_path: directory.path().to_string_lossy().to_string(),
             image_paths: vec!["first.png".to_string(), "second.png".to_string()],
             config: github_config(),
+            local_file_policy: LocalFilePolicy::Keep,
         };
         let mut upload_count = 0;
 
@@ -1754,6 +2041,7 @@ mod tests {
             repo_path: directory.path().to_string_lossy().to_string(),
             image_paths: vec!["a/photo.png".to_string()],
             config: github_config(),
+            local_file_policy: LocalFilePolicy::Keep,
         };
 
         let report = migrate_github_images_with(request, |_, _| Ok(true)).unwrap();

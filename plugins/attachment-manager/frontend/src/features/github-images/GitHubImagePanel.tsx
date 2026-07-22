@@ -1,29 +1,18 @@
-import { AlertTriangle, LoaderCircle } from "lucide-react";
+import { LoaderCircle } from "lucide-react";
 import { useState } from "react";
 
-import type { AttachmentScanReport, GitHubImageLibrary } from "../../types";
+import type { GitHubImageLibrary } from "../../types";
 import { ImageLibraryHome } from "./ImageLibraryHome";
 import { ImageLibraryRepositoryPage } from "./ImageLibraryRepositoryPage";
-import { ImageMigrationPage } from "./ImageMigrationPage";
 import { useImageLibraries } from "./useImageLibraries";
 
 type GalleryPage =
   | { id: "home" }
-  | { id: "repository"; library: GitHubImageLibrary; existing: boolean }
-  | { id: "migration"; libraryId: string };
+  | { id: "repository"; library: GitHubImageLibrary; existing: boolean };
 
-export function GitHubImagePanel({
-  report,
-  onCompleted,
-}: {
-  report: AttachmentScanReport | null;
-  onCompleted: () => Promise<void>;
-}) {
+export function GitHubImagePanel() {
   const manager = useImageLibraries();
   const [page, setPage] = useState<GalleryPage>({ id: "home" });
-  const migrationLibrary = page.id === "migration"
-    ? manager.libraries.find((library) => library.id === page.libraryId) ?? null
-    : null;
 
   if (manager.loading) {
     return (
@@ -43,7 +32,6 @@ export function GitHubImagePanel({
           isBindingAvailable={(library) => manager.isBindingAvailable(library.remote)}
           onAdd={() => setPage({ id: "repository", library: manager.createLibrary(), existing: false })}
           onManage={(library) => setPage({ id: "repository", library, existing: true })}
-          onMigrate={(library) => setPage({ id: "migration", libraryId: library.id })}
         />
       )}
       {page.id === "repository" && (
@@ -65,20 +53,6 @@ export function GitHubImagePanel({
           onAddRemote={manager.addRemote}
           onRefresh={manager.refreshRemotes}
         />
-      )}
-      {page.id === "migration" && migrationLibrary && (
-        <ImageMigrationPage
-          library={migrationLibrary}
-          report={report}
-          onBack={() => setPage({ id: "home" })}
-          onCompleted={onCompleted}
-        />
-      )}
-      {page.id === "migration" && !migrationLibrary && (
-        <div className="text-destructive gt-body flex min-h-48 items-center justify-center gap-2">
-          <AlertTriangle className="size-4" />
-          图库不存在或已被删除
-        </div>
       )}
       {manager.error && page.id === "home" && (
         <div className="border-destructive/40 bg-destructive/5 text-destructive gt-body mx-auto mt-4 max-w-5xl border px-4 py-3">

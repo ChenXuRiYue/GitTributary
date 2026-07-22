@@ -1,4 +1,4 @@
-import { ArrowRight, Folder, GitBranch, Images, Plus, Settings2 } from "lucide-react";
+import { Folder, GitBranch, Images, Plus, Settings2 } from "lucide-react";
 
 import { Badge } from "@/shared/ui/badge";
 import { Button } from "@/shared/ui/button";
@@ -11,21 +11,19 @@ export function ImageLibraryHome({
   isBindingAvailable,
   onAdd,
   onManage,
-  onMigrate,
 }: {
   libraries: GitHubImageLibrary[];
   loading: boolean;
   isBindingAvailable: (library: GitHubImageLibrary) => boolean;
   onAdd: () => void;
   onManage: (library: GitHubImageLibrary) => void;
-  onMigrate: (library: GitHubImageLibrary) => void;
 }) {
   return (
     <div className="mx-auto w-full max-w-5xl">
       <div className="border-border/50 flex min-h-12 items-center gap-3 border-b px-1 pb-3">
         <Images className="size-4" />
         <div>
-          <h2 className="gt-title-panel">图库</h2>
+          <h2 className="gt-title-panel">图库配置</h2>
           <div className="text-muted-foreground gt-caption">{libraries.length} 个 Git 远程绑定</div>
         </div>
         <Button className="ml-auto" size="sm" onClick={onAdd} disabled={loading}>
@@ -70,10 +68,6 @@ export function ImageLibraryHome({
                 </div>
                 <Button variant="ghost" size="icon" onClick={() => onManage(library)} title="管理图库仓库">
                   <Settings2 />
-                </Button>
-                <Button size="sm" onClick={() => onMigrate(library)} disabled={!available}>
-                  迁移图片
-                  <ArrowRight />
                 </Button>
               </div>
             );
