@@ -1,7 +1,6 @@
-import { Blocks, GitBranch, Database, Settings, Workflow } from "lucide-react";
+import { Blocks, GitBranch, Settings, Workflow } from "lucide-react";
 
 import type { CoreModuleDescriptor } from "./types";
-import { DataPanel } from "@/modules/data/DataPanel";
 import { FlowPanel } from "@/modules/flow/FlowPanel";
 import { GitPanel } from "@/modules/git/GitPanel";
 import { PluginManagerPanel } from "@/modules/plugin-manager/PluginManagerPanel";
@@ -26,14 +25,6 @@ export const coreModules: CoreModuleDescriptor[] = [
     fullHeight: true,
   },
   {
-    id: "store",
-    name: "数据",
-    description: "配置浏览、环境切换与远程同步。",
-    icon: Database,
-    panel: DataPanel,
-    fullHeight: true,
-  },
-  {
     id: "plugins",
     name: "插件",
     description: "安装、更新和管理随应用提供的插件。",
@@ -46,7 +37,7 @@ export const coreModules: CoreModuleDescriptor[] = [
   {
     id: "settings",
     name: "设置",
-    description: "调整 GitTributary 的界面与行为。",
+    description: "管理数据同步、界面与应用行为。",
     icon: Settings,
     panel: SettingsPanel,
     group: "system",

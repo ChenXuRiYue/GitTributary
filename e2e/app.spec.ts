@@ -80,11 +80,40 @@ async function installTauriHarness(page: Page) {
       store_list_environments: ["default"],
       store_active_environment: "default",
       get_data_center_config_credential_status: {
-        has_token: false,
-        token_masked: null,
+        has_token: true,
+        token_masked: "***",
         credential_ref: "data-center-config-token",
       },
-      sync_get_config: null,
+      sync_get_config: {
+        url: "https://example.test/notes.git",
+        branch: "main",
+        active_environment_id: "default",
+        local_database_path: "/workspaces/data-sync",
+        auto_sync: true,
+        interval_seconds: 300,
+      },
+      sync_list_environments: ["default"],
+      check_data_center_config_repo: {
+        ok: true,
+        status: "valid",
+        message: "连接成功",
+        default_branch: "main",
+        refs_count: 1,
+      },
+      get_remote_configs: [{
+        name: "origin",
+        url: "https://example.test/notes.git",
+        push_url: null,
+        repo_path: "/workspaces/notes",
+        source: "local_git_config",
+        purpose: ["current_repo_remote"],
+        credential_mode: "repo_token",
+        credential_ref: "repo:/workspaces/notes",
+        commit_name: "Playwright",
+        commit_email: "playwright@example.test",
+        verify_status: "configured",
+        capabilities: "unknown",
+      }],
       store_entries: [
         { key: "theme", value: "dark" },
         { key: "editor.font_size", value: 14 },
@@ -180,17 +209,28 @@ test("loads Git history and branches only when their views become active", async
   expect(await tauri.callsFor("get_branches")).toHaveLength(1);
 });
 
-test("navigates across Flow, Store, and plugin management surfaces", async ({ page, tauri }) => {
+test("navigates across Flow, data sync settings, and plugin management", async ({ page, tauri }) => {
   await page.goto("/");
 
   await page.getByRole("button", { name: "Flow" }).click();
   await expect(page.getByText("Flow:0", { exact: false })).toBeVisible();
   await expect(page.getByText(/还没有 Flow/)).toBeVisible();
 
-  await page.getByRole("button", { name: "数据" }).click();
-  await expect(page.getByText("settings", { exact: true }).first()).toBeVisible();
-  await expect(page.getByText("editor.font_size", { exact: true })).toBeVisible();
-  expect(await tauri.callsFor("store_namespaces")).toHaveLength(1);
+  await page.getByRole("button", { name: "设置" }).click();
+  await expect(page.getByRole("heading", { name: "远程仓库" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "数据空间" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "远程仓库" })).toHaveValue("/workspaces/notes::origin");
+  await expect(page.getByRole("option", { name: "notes / origin" })).toBeAttached();
+  await expect(page.getByRole("button", { name: "直接绑定" })).toBeVisible();
+  await page.getByRole("button", { name: "新建空间" }).click();
+  await page.getByRole("textbox", { name: "空间名称" }).fill("staging");
+  await page.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(page.getByRole("combobox", { name: "当前空间" })).toHaveValue("staging");
+  expect(await tauri.callsFor("sync_create_space")).toEqual([{
+    cmd: "sync_create_space",
+    args: { spaceId: "staging" },
+  }]);
+  expect(await tauri.callsFor("store_namespaces")).toHaveLength(0);
 
   await page.getByRole("button", { name: "插件" }).click();
   await expect(page.getByText(/插件/).first()).toBeVisible();
@@ -205,6 +245,7 @@ test("configures primary sidebar visibility from settings", async ({ page, tauri
   const settingsNavigation = page.getByRole("navigation", { name: "设置分类" });
   await expect(settingsNavigation.getByRole("button", { name: "侧边栏" })).toBeVisible();
   await expect(settingsNavigation.locator("svg")).toHaveCount(0);
+  await settingsNavigation.getByRole("button", { name: "侧边栏" }).click();
   await expect(page.getByText("主导航", { exact: true })).toBeVisible();
   await expect(page.getByText("底部功能", { exact: true })).toBeVisible();
 
