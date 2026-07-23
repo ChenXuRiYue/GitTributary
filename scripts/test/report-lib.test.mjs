@@ -125,10 +125,11 @@ test("parsePlaywrightResult handles expected, flaky, skipped, and unexpected", (
 });
 
 test("parseRustOutput aggregates cargo summaries", () => {
-  const suite = parseRustOutput(`test result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.10s\ntest result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s`);
+  const suite = parseRustOutput(`test delegated_perf ... ignored, run through performance gate\ntest result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.10s\ntest result: FAILED. 1 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s`);
   assert.equal(suite.status, "FAIL");
-  assert.deepEqual(suite.counts, { total: 6, passed: 4, failed: 1, skipped: 1 });
+  assert.deepEqual(suite.counts, { total: 5, passed: 4, failed: 1, skipped: 0 });
   assert.equal(suite.durationMs, 300);
+  assert.deepEqual(suite.details.delegatedTests, [{ name: "delegated_perf", reason: "run through performance gate" }]);
 });
 
 test("parseRustOutput reads a nextest summary and includes skipped tests", () => {
@@ -161,15 +162,19 @@ test("parsePerformanceResult summarizes gates and collection errors", () => {
   assert.equal(parsePerformanceResult({ collectionError: "missing metrics", gates: [] }).status, "INFRA_ERROR");
 });
 
-test("applyPerformanceVerdict preserves budget failures and missing measurements", () => {
+test("applyPerformanceVerdict fails budgets but reports model gaps outside test counts", () => {
   const base = parsePerformanceResult({ gates: [{ status: "pass" }] });
   const failed = applyPerformanceVerdict(base, "结论: **FAIL** (15/16 项指标通过，4/4 项门禁通过，20 项未采集)");
   assert.equal(failed.status, "FAIL");
-  assert.deepEqual(failed.counts, { total: 40, passed: 19, failed: 1, skipped: 20 });
+  assert.deepEqual(failed.counts, { total: 20, passed: 19, failed: 1, skipped: 0 });
 
   const incomplete = applyPerformanceVerdict(base, "结论: **INCOMPLETE** (16/16 项指标通过，4/4 项门禁通过，20 项未采集)");
-  assert.equal(incomplete.status, "INCOMPLETE");
-  assert.deepEqual(incomplete.counts, { total: 40, passed: 20, failed: 0, skipped: 20 });
+  assert.equal(incomplete.status, "PASS");
+  assert.deepEqual(incomplete.counts, { total: 20, passed: 20, failed: 0, skipped: 0 });
+  assert.equal(incomplete.details.modelStatus, "INCOMPLETE"); assert.equal(incomplete.details.missingBudgets, 20);
+  const report = buildReport({ suites: [incomplete] });
+  assert.deepEqual(report.counts, { total: 0, passed: 0, failed: 0, skipped: 0 });
+  assert.match(renderMarkdown(report), /20 项尚未自动采集，不计入测试用例或跳过数/);
 });
 
 test("buildReport marks absent expected fragments as NOT_RUN or INFRA_ERROR", () => {
