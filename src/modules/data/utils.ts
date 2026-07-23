@@ -26,7 +26,13 @@ export function parseDataPanelUiState(value: unknown): DataPanelUiState | null {
   if (typeof state.namespace !== "string" || state.namespace.length === 0) return null;
   if (!isViewMode(state.viewMode)) return null;
   if (typeof state.updatedAt !== "number" || !Number.isFinite(state.updatedAt)) return null;
-  return { version: 1, namespace: state.namespace, viewMode: state.viewMode, updatedAt: state.updatedAt };
+  return {
+    version: 1,
+    namespace: state.namespace,
+    viewMode: state.viewMode,
+    searchQuery: typeof state.searchQuery === "string" ? state.searchQuery : "",
+    updatedAt: state.updatedAt,
+  };
 }
 
 export function parseStoredWidth(value: unknown): number | null {

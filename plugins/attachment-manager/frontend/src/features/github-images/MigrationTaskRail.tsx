@@ -34,15 +34,18 @@ const FULL_TIME = new Intl.DateTimeFormat("zh-CN", {
 export function MigrationTaskRail({
   repoPath,
   history,
+  selectedId,
+  onSelectedIdChange,
 }: {
   repoPath: string;
   history: ImageMigrationTaskRecord[];
+  selectedId: string | null;
+  onSelectedIdChange: (id: string | null) => void;
 }) {
   const tasks = useMemo(
     () => history.filter((task) => task.repoPath === repoPath),
     [history, repoPath],
   );
-  const [selectedId, setSelectedId] = useState<string | null>(tasks[0]?.id ?? null);
   const running = tasks.find((task) => task.status === "running") ?? null;
   const completed = tasks.filter((task) => task.status !== "running");
   const previousRunningId = useRef<string | null>(null);
@@ -51,16 +54,16 @@ export function MigrationTaskRail({
   useEffect(() => {
     const runningId = running?.id ?? null;
     if (runningId && previousRunningId.current !== runningId) {
-      setSelectedId(runningId);
+      onSelectedIdChange(runningId);
     }
     previousRunningId.current = runningId;
-  }, [running?.id]);
+  }, [onSelectedIdChange, running?.id]);
 
   useEffect(() => {
     if (selectedId && !tasks.some((task) => task.id === selectedId)) {
-      setSelectedId(tasks[0]?.id ?? null);
+      onSelectedIdChange(tasks[0]?.id ?? null);
     }
-  }, [selectedId, tasks]);
+  }, [onSelectedIdChange, selectedId, tasks]);
 
   useEffect(() => {
     if (!running) return;
@@ -72,13 +75,13 @@ export function MigrationTaskRail({
   return (
     <aside className="border-border/50 flex min-h-0 min-w-0 flex-col overflow-hidden border-t md:border-l md:border-t-0">
       {selected ? (
-        <TaskDetails task={selected} now={now} onBack={() => setSelectedId(null)} />
+        <TaskDetails task={selected} now={now} onBack={() => onSelectedIdChange(null)} />
       ) : (
         <TaskList
           tasks={tasks}
           running={running}
           completed={completed}
-          onSelect={setSelectedId}
+          onSelect={onSelectedIdChange}
         />
       )}
     </aside>

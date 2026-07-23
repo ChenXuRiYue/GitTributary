@@ -17,6 +17,12 @@ export function ImageMigrationPage({
   settings,
   running,
   disabled,
+  initialSelectedPaths,
+  onSelectedPathsChange,
+  query,
+  onQueryChange,
+  expandedFiles,
+  onExpandedFilesChange,
   onScopeChange,
   onStart,
 }: {
@@ -24,10 +30,16 @@ export function ImageMigrationPage({
   settings: ImageMigrationSettings;
   running: boolean;
   disabled?: boolean;
+  initialSelectedPaths?: Set<string> | null;
+  onSelectedPathsChange?: (paths: Set<string>) => void;
+  query?: string;
+  onQueryChange?: (query: string) => void;
+  expandedFiles?: Set<string>;
+  onExpandedFilesChange?: (paths: Set<string>) => void;
   onScopeChange: (scope: ImageMigrationFileScope) => void;
   onStart: (paths: string[], noteCount: number) => Promise<void>;
 }) {
-  const migration = useGitHubImageMigration(report);
+  const migration = useGitHubImageMigration(report, initialSelectedPaths, onSelectedPathsChange);
   const confirmMigration = () => {
     const pending = migration.confirmMigration();
     if (!pending) return;
@@ -46,6 +58,10 @@ export function ImageMigrationPage({
         scope={settings.fileScope ?? DEFAULT_FILE_SCOPE}
         migrating={running}
         disabled={disabled}
+        query={query}
+        onQueryChange={onQueryChange}
+        expandedFiles={expandedFiles}
+        onExpandedFilesChange={onExpandedFilesChange}
         onScopeChange={onScopeChange}
         onSelectPaths={migration.selectPaths}
         onReplaceSelection={migration.replaceSelection}

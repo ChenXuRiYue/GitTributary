@@ -70,6 +70,8 @@ export function DataPanel() {
   const [error, setError] = useState<string | null>(null);
   const selectedNsRef = useRef<string | null>(null);
   const viewModeRef = useRef<ViewMode>(DEFAULT_VIEW_MODE);
+  const searchQueryRef = useRef("");
+  const searchPersistTimerRef = useRef<number | null>(null);
   const initializedRef = useRef(false);
 
   const selectStoreView = useCallback((id: string) => {
@@ -92,7 +94,11 @@ export function DataPanel() {
     persistDomainWidth(next);
   }, [persistDomainWidth]);
 
-  const persistOpenState = useCallback((namespace: string, mode: ViewMode) => {
+  const persistOpenState = useCallback((
+    namespace: string,
+    mode: ViewMode,
+    query = searchQueryRef.current,
+  ) => {
     void invoke("store_set", {
       namespace: STORE_VIEW_STATE_NS,
       key: STORE_VIEW_STATE_KEY,
@@ -100,6 +106,7 @@ export function DataPanel() {
         version: 1,
         namespace,
         viewMode: mode,
+        searchQuery: query,
         updatedAt: Date.now(),
       } satisfies DataPanelUiState,
     }).catch(() => {
@@ -119,6 +126,10 @@ export function DataPanel() {
     ns: string,
     options: { mode?: ViewMode; persist?: boolean } = {},
   ) => {
+    if (searchPersistTimerRef.current !== null) {
+      window.clearTimeout(searchPersistTimerRef.current);
+      searchPersistTimerRef.current = null;
+    }
     try {
       const items = await invoke<KvEntry[]>("store_entries", { namespace: ns });
       const mode = options.mode ?? viewModeRef.current;
@@ -164,8 +175,11 @@ export function DataPanel() {
         : ns[0]?.name ?? null;
       const nextNs = fresh && cachedNsExists ? cached.namespace : fallbackNs;
       const nextMode = fresh && cached ? cached.viewMode : DEFAULT_VIEW_MODE;
+      const nextSearchQuery = fresh && cached ? cached.searchQuery : "";
 
       applyViewMode(nextMode, false);
+      searchQueryRef.current = nextSearchQuery;
+      setSearchQuery(nextSearchQuery);
 
       if (rawState != null && (!cached || !fresh || !cachedNsExists)) {
         void invoke("store_delete", {
@@ -222,6 +236,10 @@ export function DataPanel() {
     initializedRef.current = true;
     void refresh();
   }, [refresh]);
+
+  useEffect(() => () => {
+    if (searchPersistTimerRef.current !== null) window.clearTimeout(searchPersistTimerRef.current);
+  }, []);
 
   const activeEnvironmentValue = activeEnvironment ?? environments[0] ?? "";
   const activeEnvironmentLabel = activeEnvironmentValue || "默认";
@@ -383,7 +401,19 @@ export function DataPanel() {
               </div>
               <Input
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  searchQueryRef.current = next;
+                  setSearchQuery(next);
+                  if (searchPersistTimerRef.current !== null) window.clearTimeout(searchPersistTimerRef.current);
+                  const namespace = selectedNsRef.current;
+                  if (namespace) {
+                    searchPersistTimerRef.current = window.setTimeout(() => {
+                      searchPersistTimerRef.current = null;
+                      persistOpenState(namespace, viewModeRef.current, next);
+                    }, 200);
+                  }
+                }}
                 placeholder="搜索 key…"
                 className="h-7 max-w-72 flex-1 text-xs"
               />

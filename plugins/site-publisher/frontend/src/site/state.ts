@@ -1,4 +1,5 @@
 import type {
+  CaptureFilterState,
   CaptureViewMode,
   SiteActiveRepoState,
   SiteBuildUiState,
@@ -61,7 +62,7 @@ export function parseSiteActiveRepoState(value: unknown): SiteActiveRepoState | 
 export function parseSiteBuildUiState(value: unknown): SiteBuildUiState | null {
   if (!value || typeof value !== "object") return null;
   const state = value as Partial<SiteBuildUiState>;
-  if (state.version !== 1 && state.version !== 2) return null;
+  if (state.version !== 1 && state.version !== 2 && state.version !== 3) return null;
   if (typeof state.repoPath !== "string") return null;
   if (typeof state.outputDir !== "string") return null;
   if (typeof state.siteTitle !== "string") return null;
@@ -73,6 +74,7 @@ export function parseSiteBuildUiState(value: unknown): SiteBuildUiState | null {
   const openPaths = Array.isArray(state.openPaths) && state.openPaths.every((item) => typeof item === "string")
     ? state.openPaths
     : null;
+  const captureFilters = parseCaptureFilters(state.captureFilters);
   return {
     version: state.version,
     repoPath: state.repoPath,
@@ -81,11 +83,35 @@ export function parseSiteBuildUiState(value: unknown): SiteBuildUiState | null {
     include: state.include,
     hasSelectionState: state.version >= 2 ? state.hasSelectionState !== false : state.include.length > 0,
     captureViewMode: isCaptureViewMode(state.captureViewMode) ? state.captureViewMode : "tree",
+    captureFilters,
     openPaths,
     theme: state.theme,
     withSearch: state.withSearch,
     copyAssets: state.copyAssets,
     updatedAt: state.updatedAt,
+  };
+}
+
+function parseCaptureFilters(value: unknown): CaptureFilterState {
+  const defaults: CaptureFilterState = {
+    query: "",
+    kind: "all",
+    selection: "all",
+    defaultState: "all",
+    minMarkdownCount: 0,
+    sort: "path",
+  };
+  if (!value || typeof value !== "object") return defaults;
+  const filters = value as Partial<CaptureFilterState>;
+  return {
+    query: typeof filters.query === "string" ? filters.query : defaults.query,
+    kind: filters.kind === "dir" || filters.kind === "file" ? filters.kind : "all",
+    selection: filters.selection === "selected" || filters.selection === "unselected" ? filters.selection : "all",
+    defaultState: filters.defaultState === "default" || filters.defaultState === "custom" ? filters.defaultState : "all",
+    minMarkdownCount: typeof filters.minMarkdownCount === "number" && Number.isFinite(filters.minMarkdownCount)
+      ? Math.max(0, filters.minMarkdownCount)
+      : 0,
+    sort: filters.sort === "score-desc" || filters.sort === "markdown-desc" ? filters.sort : "path",
   };
 }
 

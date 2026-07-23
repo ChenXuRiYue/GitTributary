@@ -1,4 +1,3 @@
-import { useEffect, useMemo, useState } from "react";
 import { Badge } from "@/shared/ui/badge";
 import {
   CheckCircle2,
@@ -17,6 +16,7 @@ import { cn } from "@/shared/lib/utils";
 
 import { credentialLabel } from "../publish";
 import { formatDuration, shortPath } from "../state";
+import { usePersistedRunFocus } from "../hooks/usePersistedRunFocus";
 import type { SiteBuildReport, SitePublishReport, SiteRunRecord, SiteWorkspaceGroup } from "../types";
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -352,30 +352,7 @@ export function BuildResultPanel({
   onEditTask: () => void;
   onEditScope: () => void;
 }) {
-  const history = useMemo(() => task?.runHistory ?? [], [task?.runHistory]);
-  const [selectedRecordId, setSelectedRecordId] = useState<string | null>(history[0]?.id ?? null);
-  const hasRunningRecord = history.some(isRecordInProgress);
-  const [now, setNow] = useState(Date.now());
-
-  useEffect(() => {
-    if (history.length === 0) {
-      setSelectedRecordId(null);
-      return;
-    }
-    if (isRecordInProgress(history[0]) && selectedRecordId !== history[0].id) {
-      setSelectedRecordId(history[0].id);
-      return;
-    }
-    if (!selectedRecordId || !history.some((record) => record.id === selectedRecordId)) {
-      setSelectedRecordId(history[0].id);
-    }
-  }, [history, selectedRecordId]);
-
-  useEffect(() => {
-    if (!hasRunningRecord) return;
-    const intervalId = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => window.clearInterval(intervalId);
-  }, [hasRunningRecord]);
+  const { history, selectedRecordId, setSelectedRecordId, now } = usePersistedRunFocus(task);
 
   const selectedRecord = history.find((record) => record.id === selectedRecordId) ?? null;
   const hasPublishTarget = Boolean(task?.target);

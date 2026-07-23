@@ -8,6 +8,12 @@ import { ScrollArea } from "@/shared/ui/scroll-area";
 import { cn } from "@/shared/lib/utils";
 import { Metric, SectionHeader } from "../components/shared";
 import type { FlowNodeDefinition, FlowNodeSpec, FlowRecord } from "../types";
+import {
+  FLOW_NODE_UI_STATE_KEY,
+  flowUiStore,
+  parseFlowNodeUiState,
+  type FlowNodeUiState,
+} from "../uiState";
 import { groupNodeDefinitionsByType, nodeMatchesQuery, nodeTypeMeta, nodeTypeText, nodeTypeTone, sortedNodeDefinitions } from "../utils";
 
 function sourceText(definition: FlowNodeDefinition) {
@@ -33,10 +39,11 @@ export function NodeCatalogView({
 }) {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
-  const [sourceFilter, setSourceFilter] = useState("all");
-  const [usageFilter, setUsageFilter] = useState("all");
-  const [schemaFilter, setSchemaFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState<FlowNodeUiState["sourceFilter"]>("all");
+  const [usageFilter, setUsageFilter] = useState<FlowNodeUiState["usageFilter"]>("all");
+  const [schemaFilter, setSchemaFilter] = useState<FlowNodeUiState["schemaFilter"]>("all");
   const [selectedUses, setSelectedUses] = useState<string | null>(null);
+  const [uiStateHydrated, setUiStateHydrated] = useState(false);
   const usedUses = useMemo(() => new Set(nodes.map((node) => node.uses)), [nodes]);
   const sortedDefinitions = useMemo(() => sortedNodeDefinitions(definitions), [definitions]);
   const definitionsByUses = useMemo(
@@ -80,11 +87,51 @@ export function NodeCatalogView({
   const hasActiveFilters = Boolean(query.trim()) || typeFilter !== "all" || sourceFilter !== "all" || usageFilter !== "all" || schemaFilter !== "all";
 
   useEffect(() => {
-    if (!selectedUses) return;
+    let cancelled = false;
+    void flowUiStore.get<unknown>(FLOW_NODE_UI_STATE_KEY).then((raw) => {
+      if (cancelled) return;
+      const cached = parseFlowNodeUiState(raw);
+      if (!cached) return;
+      setQuery(cached.query);
+      setTypeFilter(cached.typeFilter);
+      setSourceFilter(cached.sourceFilter);
+      setUsageFilter(cached.usageFilter);
+      setSchemaFilter(cached.schemaFilter);
+      setSelectedUses(cached.selectedUses);
+    }).catch(() => undefined).finally(() => {
+      if (!cancelled) setUiStateHydrated(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!uiStateHydrated || isLoading) return;
+    if (typeFilter !== "all" && !nodeTypes.includes(typeFilter)) setTypeFilter("all");
+  }, [isLoading, nodeTypes, typeFilter, uiStateHydrated]);
+
+  useEffect(() => {
+    if (!uiStateHydrated) return;
+    const timeout = window.setTimeout(() => {
+      void flowUiStore.set(FLOW_NODE_UI_STATE_KEY, {
+        version: 1,
+        query,
+        typeFilter,
+        sourceFilter,
+        usageFilter,
+        schemaFilter,
+        selectedUses,
+        updatedAt: Date.now(),
+      } satisfies FlowNodeUiState).catch(() => undefined);
+    }, 200);
+    return () => window.clearTimeout(timeout);
+  }, [query, schemaFilter, selectedUses, sourceFilter, typeFilter, uiStateHydrated, usageFilter]);
+
+  useEffect(() => {
+    if (!uiStateHydrated || isLoading || !selectedUses) return;
     if (!filteredDefinitions.some((definition) => definition.uses === selectedUses)) {
       setSelectedUses(filteredDefinitions[0]?.uses ?? null);
     }
-  }, [filteredDefinitions, selectedUses]);
+  }, [filteredDefinitions, isLoading, selectedUses, uiStateHydrated]);
 
   const renderSchemaEntries = (schema: Record<string, string>) => {
     const entries = Object.entries(schema);
@@ -249,7 +296,7 @@ export function NodeCatalogView({
           </select>
           <select
             value={sourceFilter}
-            onChange={(event) => setSourceFilter(event.target.value)}
+            onChange={(event) => setSourceFilter(event.target.value as FlowNodeUiState["sourceFilter"])}
             className="h-8 min-w-0 rounded-md border bg-background px-2 text-sm"
             aria-label="节点来源筛选"
           >
@@ -259,7 +306,7 @@ export function NodeCatalogView({
           </select>
           <select
             value={usageFilter}
-            onChange={(event) => setUsageFilter(event.target.value)}
+            onChange={(event) => setUsageFilter(event.target.value as FlowNodeUiState["usageFilter"])}
             className="h-8 min-w-0 rounded-md border bg-background px-2 text-sm"
             aria-label="当前 Flow 使用筛选"
           >
@@ -269,7 +316,7 @@ export function NodeCatalogView({
           </select>
           <select
             value={schemaFilter}
-            onChange={(event) => setSchemaFilter(event.target.value)}
+            onChange={(event) => setSchemaFilter(event.target.value as FlowNodeUiState["schemaFilter"])}
             className="h-8 min-w-0 rounded-md border bg-background px-2 text-sm"
             aria-label="Schema 筛选"
           >

@@ -1,5 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { attachment, scanReport } from "../../test/fixtures";
 import { useGitHubImageMigration } from "./useGitHubImageMigration";
@@ -40,6 +40,21 @@ describe("useGitHubImageMigration", () => {
 
     act(() => result.current.replaceSelection(["assets/two.png", "missing.png"]));
     expect([...result.current.selectedPaths]).toEqual(["assets/two.png"]);
+  });
+
+  it("restores an explicit saved selection, including an empty selection", async () => {
+    const onSelectionChange = vi.fn();
+    const { result, unmount } = renderHook(() => useGitHubImageMigration(
+      report,
+      new Set(["assets/two.png", "missing.png"]),
+      onSelectionChange,
+    ));
+    await waitFor(() => expect([...result.current.selectedPaths]).toEqual(["assets/two.png"]));
+    expect(onSelectionChange).toHaveBeenCalledWith(new Set(["assets/two.png"]));
+    unmount();
+
+    const empty = renderHook(() => useGitHubImageMigration(report, new Set()));
+    await waitFor(() => expect(empty.result.current.selectedCount).toBe(0));
   });
 
   it("returns an immutable selection only after in-plugin confirmation", async () => {

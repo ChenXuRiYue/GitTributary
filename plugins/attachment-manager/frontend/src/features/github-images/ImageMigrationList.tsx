@@ -42,6 +42,10 @@ export function ImageMigrationList({
   scope,
   migrating,
   disabled = false,
+  query: controlledQuery,
+  onQueryChange,
+  expandedFiles: controlledExpandedFiles,
+  onExpandedFilesChange,
   onScopeChange,
   onSelectPaths,
   onReplaceSelection,
@@ -55,14 +59,29 @@ export function ImageMigrationList({
   scope: ImageMigrationFileScope;
   migrating: boolean;
   disabled?: boolean;
+  query?: string;
+  onQueryChange?: (query: string) => void;
+  expandedFiles?: Set<string>;
+  onExpandedFilesChange?: (paths: Set<string>) => void;
   onScopeChange: (scope: ImageMigrationFileScope) => void;
   onSelectPaths: (paths: string[], selected: boolean) => void;
   onReplaceSelection: (paths: string[]) => void;
   onMigrate: () => void;
 }) {
-  const [query, setQuery] = useState("");
+  const [localQuery, setLocalQuery] = useState("");
   const [scopeOpen, setScopeOpen] = useState(false);
-  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
+  const [localExpandedFiles, setLocalExpandedFiles] = useState<Set<string>>(new Set());
+  const query = controlledQuery ?? localQuery;
+  const expandedFiles = controlledExpandedFiles ?? localExpandedFiles;
+  const changeQuery = (next: string) => {
+    if (controlledQuery === undefined) setLocalQuery(next);
+    onQueryChange?.(next);
+  };
+  const changeExpandedFiles = (updater: (current: Set<string>) => Set<string>) => {
+    const next = updater(expandedFiles);
+    if (controlledExpandedFiles === undefined) setLocalExpandedFiles(next);
+    onExpandedFilesChange?.(next);
+  };
   const files = useMemo(() => buildMigrationContentFiles(candidates), [candidates]);
   const scoped = useMemo(() => resolveMigrationFileScope(files, scope), [files, scope]);
   const scopedImages = useMemo(() => uniqueMigrationImages(scoped.files), [scoped.files]);
@@ -84,7 +103,7 @@ export function ImageMigrationList({
       && file.images.some((item) => item.path.toLocaleLowerCase().includes(needle))
     ));
     if (imageMatches.length === 0) return;
-    setExpandedFiles((current) => {
+    changeExpandedFiles((current) => {
       const next = new Set(current);
       imageMatches.forEach((file) => next.add(file.path));
       return next;
@@ -119,7 +138,7 @@ export function ImageMigrationList({
             <Search className="text-muted-foreground pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2" />
             <Input
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => changeQuery(event.target.value)}
               placeholder="筛选文件或图片"
               className="gt-body h-7 pl-7 pr-2"
               aria-label="筛选引用文件或图片"
@@ -163,7 +182,7 @@ export function ImageMigrationList({
           selectedPaths={selectedPaths}
           allSelected={allSelected}
           someSelected={someSelected}
-          onToggleFile={(path) => setExpandedFiles((current) => {
+          onToggleFile={(path) => changeExpandedFiles((current) => {
             const next = new Set(current);
             if (next.has(path)) next.delete(path);
             else next.add(path);

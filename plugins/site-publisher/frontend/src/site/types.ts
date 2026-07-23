@@ -95,13 +95,14 @@ export interface SitePublishReport {
 }
 
 export interface SiteBuildUiState {
-  version: 1 | 2;
+  version: 1 | 2 | 3;
   repoPath: string;
   outputDir: string;
   siteTitle: string;
   include: string[];
   hasSelectionState: boolean;
   captureViewMode: CaptureViewMode;
+  captureFilters: CaptureFilterState;
   openPaths: string[] | null;
   theme: SiteTheme;
   withSearch: boolean;

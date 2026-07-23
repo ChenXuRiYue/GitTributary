@@ -4,11 +4,21 @@ import type { AttachmentScanReport } from "../../types";
 
 export function useGitHubImageMigration(
   report: AttachmentScanReport | null,
+  initialSelectedPaths: Set<string> | null = null,
+  onSelectedPathsChange?: (paths: Set<string>) => void,
 ) {
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [pendingPaths, setPendingPaths] = useState<string[] | null>(null);
   const initializedRepo = useRef<string | null>(null);
+  const availableSignatureRef = useRef("");
+  const initialSelectedPathsRef = useRef(initialSelectedPaths);
+  initialSelectedPathsRef.current = initialSelectedPaths;
+
+  const commitSelection = (next: Set<string>) => {
+    setSelectedPaths(next);
+    onSelectedPathsChange?.(next);
+  };
 
   const candidates = useMemo(
     () => (report?.attachments ?? []).filter(
@@ -43,12 +53,23 @@ export function useGitHubImageMigration(
   useEffect(() => {
     const repoPath = report?.repoPath ?? null;
     const available = new Set(candidates.map((item) => item.path));
+    const availableSignature = Array.from(available).sort().join("\n");
     if (repoPath && initializedRepo.current !== repoPath) {
       initializedRepo.current = repoPath;
-      setSelectedPaths(available);
+      availableSignatureRef.current = availableSignature;
+      const initial = initialSelectedPathsRef.current;
+      commitSelection(initial === null
+        ? available
+        : new Set([...initial].filter((path) => available.has(path))));
       return;
     }
-    setSelectedPaths((current) => new Set([...current].filter((path) => available.has(path))));
+    if (availableSignatureRef.current === availableSignature) return;
+    availableSignatureRef.current = availableSignature;
+    setSelectedPaths((current) => {
+      const next = new Set([...current].filter((path) => available.has(path)));
+      onSelectedPathsChange?.(next);
+      return next;
+    });
   }, [candidates, report?.repoPath]);
 
   const requestMigration = (paths: string[]) => {
@@ -80,11 +101,12 @@ export function useGitHubImageMigration(
       const next = new Set(current);
       if (next.has(path)) next.delete(path);
       else next.add(path);
+      onSelectedPathsChange?.(next);
       return next;
     });
   };
   const selectAll = (selected: boolean) => {
-    setSelectedPaths(selected ? new Set(candidates.map((item) => item.path)) : new Set());
+    commitSelection(selected ? new Set(candidates.map((item) => item.path)) : new Set());
   };
   const selectPaths = (paths: string[], selected: boolean) => {
     const available = new Set(candidates.map((item) => item.path));
@@ -95,12 +117,13 @@ export function useGitHubImageMigration(
         if (selected) next.add(path);
         else next.delete(path);
       }
+      onSelectedPathsChange?.(next);
       return next;
     });
   };
   const replaceSelection = (paths: string[]) => {
     const available = new Set(candidates.map((item) => item.path));
-    setSelectedPaths(new Set(paths.filter((path) => available.has(path))));
+    commitSelection(new Set(paths.filter((path) => available.has(path))));
   };
 
   return {

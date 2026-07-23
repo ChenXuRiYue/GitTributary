@@ -159,6 +159,7 @@ export function parsePlaywrightResult(input) {
 
 export function parseRustOutput(text) {
   const output = stripAnsi(text);
+  const ignoredTests = [...output.matchAll(/^test\s+(.+?)\s+\.\.\.\s+ignored(?:,\s*(.+))?$/gim)].map((match) => ({ name: match[1], reason: match[2]?.trim() || "未提供原因" }));
   const nextest = [...output.matchAll(/Summary\s+\[[^\]]+\]\s+(\d+)\s+tests? run:\s+(\d+)\s+passed(?:,\s+(\d+)\s+failed)?(?:,\s+(\d+)\s+skipped)?/gi)];
   let counts;
   let durationMs = 0;
@@ -178,13 +179,16 @@ export function parseRustOutput(text) {
 
   const infrastructureFailure = /(^|\n)(error: (could not compile|failed to|no such command)|Caused by:|process didn't exit successfully)/i.test(output)
     && counts.total === 0;
+  const delegatedTests = ignoredTests.filter((test) => /run through|performance fixture/i.test(test.reason));
+  const delegatedCount = Math.min(counts.skipped, delegatedTests.length);
+  counts = countsOf(counts.total - delegatedCount, counts.passed, counts.failed, counts.skipped - delegatedCount);
   const status = infrastructureFailure ? "INFRA_ERROR"
     : counts.failed > 0 || /test result:\s+FAILED/i.test(output) ? "FAIL"
       : counts.total > 0 ? "PASS" : "NOT_RUN";
   return parsedSuite("rust", "Rust tests", counts, {
     status,
     durationMs,
-    details: { runner: nextest.length > 0 ? "nextest" : "cargo", summaries: nextest.length || undefined },
+    details: { runner: nextest.length > 0 ? "nextest" : "cargo", summaries: nextest.length || undefined, ignoredTests: ignoredTests.filter((test) => !delegatedTests.includes(test)), delegatedTests },
   });
 }
 
@@ -225,12 +229,12 @@ export function applyPerformanceVerdict(suite, markdown) {
   if (!metrics && !gates) return { ...suite, status: verdict };
   const passed = Number(metrics?.[1] ?? 0) + Number(gates?.[1] ?? 0);
   const assessed = Number(metrics?.[2] ?? 0) + Number(gates?.[2] ?? 0);
-  const skipped = Number(missing?.[1] ?? 0);
+  const missingBudgets = Number(missing?.[1] ?? 0);
   return {
     ...suite,
-    status: verdict,
-    counts: { total: assessed + skipped, passed, failed: Math.max(0, assessed - passed), skipped },
-    details: { ...suite.details, missingBudgets: skipped },
+    status: verdict === "INCOMPLETE" ? "PASS" : verdict,
+    counts: { total: assessed, passed, failed: Math.max(0, assessed - passed), skipped: 0 },
+    details: { ...suite.details, modelStatus: verdict, missingBudgets, countInSummary: false },
   };
 }
 
@@ -250,7 +254,7 @@ export function buildReport({ profile = "quick", selection = {}, suites = [], st
   }
 
   const normalizedSuites = [...byId.values()];
-  const counts = normalizedSuites.reduce((total, suite) => addCounts(total, suite.counts), emptyCounts());
+  const counts = normalizedSuites.filter((suite) => suite.details.countInSummary !== false).reduce((total, suite) => addCounts(total, suite.counts), emptyCounts());
   const start = iso(startedAt);
   const finish = iso(finishedAt);
   const status = normalizedSuites.some((suite) => FAILURE_STATUSES.has(suite.status)) ? "FAIL"
@@ -273,23 +277,33 @@ export function buildReport({ profile = "quick", selection = {}, suites = [], st
 export function renderMarkdown(report) {
   const rows = report.suites.map((suite) => `| ${md(suite.label)} | ${suite.status} | ${suite.counts.total} | ${suite.counts.passed} | ${suite.counts.failed} | ${suite.counts.skipped} | ${formatDuration(suite.durationMs)} | ${markdownLinks(suite)} |`).join("\n");
   const failures = report.suites.filter((suite) => suite.status !== "PASS");
+  const ignored = ignoredTestsOf(report), delegated = delegatedTestsOf(report), missingBudgets = sum(report.suites.map((suite) => suite.details?.missingBudgets));
+  const ignoredSection = ignored.length ? `\n## 有意忽略的用例\n\n${ignored.map((test) => `- \`${md(test.name)}\`：${md(test.reason)}（${md(test.suite)}）`).join("\n")}\n` : "";
+  const delegatedSection = delegated.length ? `\n## 委托专项门禁\n\n${delegated.map((test) => `- \`${md(test.name)}\`：${md(test.reason)}（${md(test.suite)}）`).join("\n")}\n` : "";
+  const performanceNote = missingBudgets > 0 ? `  \n> 性能模型: ${missingBudgets} 项尚未自动采集，不计入测试用例或跳过数。` : "";
   const coverage = report.suites.filter((suite) => suite.details?.coverage).map((suite) => `| ${md(suite.label)} | ${percent(suite.details.coverage.statements)} | ${percent(suite.details.coverage.branches)} | ${percent(suite.details.coverage.functions)} | ${percent(suite.details.coverage.lines)} |`).join("\n");
   const coverageSection = coverage ? `\n## 覆盖率\n\n| 套件 | Statements | Branches | Functions | Lines |\n| --- | ---: | ---: | ---: | ---: |\n${coverage}\n` : "";
-  return `# GitTributary 测试报告\n\n> 结论: **${report.status}**  \n> Profile: \`${md(report.profile)}\`  \n> 用例: ${report.counts.passed}/${report.counts.total} 通过，${report.counts.failed} 失败，${report.counts.skipped} 跳过  \n> 耗时: ${formatDuration(report.durationMs)}\n\n## 测试套件\n\n| 套件 | 状态 | 总数 | 通过 | 失败 | 跳过 | 耗时 | 日志 |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |\n${rows || "| - | NOT_RUN | 0 | 0 | 0 | 0 | 0 ms | - |"}\n${coverageSection}\n## 异常与未运行\n\n${failures.length ? failures.map((suite) => `- **${md(suite.label)}**: ${suite.status}${suite.details?.reason ? ` - ${md(suite.details.reason)}` : ""}`).join("\n") : "无。"}\n`;
+  return `# GitTributary 测试报告\n\n> 结论: **${report.status}**  \n> Profile: \`${md(report.profile)}\`  \n> 用例: ${report.counts.passed}/${report.counts.total} 通过，${report.counts.failed} 失败，${report.counts.skipped} 跳过/忽略  \n> 耗时: ${formatDuration(report.durationMs)}${performanceNote}\n\n## 测试套件\n\n| 套件 | 状态 | 总数 | 通过 | 失败 | 跳过/忽略 | 耗时 | 日志 |\n| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |\n${rows || "| - | NOT_RUN | 0 | 0 | 0 | 0 | 0 ms | - |"}\n${ignoredSection}${delegatedSection}${coverageSection}\n## 异常与未运行\n\n${failures.length ? failures.map((suite) => `- **${md(suite.label)}**: ${suite.status}${suite.details?.reason ? ` - ${md(suite.details.reason)}` : ""}`).join("\n") : "无。"}\n`;
 }
 
 export function renderHtml(report) {
   const rows = report.suites.map((suite) => `<tr><td><strong>${html(suite.label)}</strong><small>${html(suite.id)}</small></td><td><span class="badge ${statusClass(suite.status)}">${html(suite.status)}</span></td><td>${suite.counts.total}</td><td>${suite.counts.passed}</td><td>${suite.counts.failed}</td><td>${suite.counts.skipped}</td><td>${html(formatDuration(suite.durationMs))}</td><td>${htmlLinks(suite)}</td></tr>`).join("");
   const coverageRows = report.suites.filter((suite) => suite.details?.coverage).map((suite) => `<tr><td>${html(suite.label)}</td><td>${percent(suite.details.coverage.statements)}</td><td>${percent(suite.details.coverage.branches)}</td><td>${percent(suite.details.coverage.functions)}</td><td>${percent(suite.details.coverage.lines)}</td></tr>`).join("");
   const coverageSection = coverageRows ? `<h2>覆盖率</h2><div class="table-wrap"><table><thead><tr><th>套件</th><th>Statements</th><th>Branches</th><th>Functions</th><th>Lines</th></tr></thead><tbody>${coverageRows}</tbody></table></div>` : "";
+  const ignored = ignoredTestsOf(report), delegated = delegatedTestsOf(report), missingBudgets = sum(report.suites.map((suite) => suite.details?.missingBudgets));
+  const transparencySection = ignored.length || delegated.length || missingBudgets ? `<h2>透明度说明</h2><ul>${[...ignored, ...delegated].map((test) => `<li><code>${html(test.name)}</code>: ${html(test.reason)} (${html(test.suite)})</li>`).join("")}${missingBudgets ? `<li>${missingBudgets} 项性能模型指标尚未自动采集，不计入测试用例或跳过数。</li>` : ""}</ul>` : "";
   const issues = report.suites.filter((suite) => suite.status !== "PASS").map((suite) => `<li><strong>${html(suite.label)}</strong>: ${html(suite.status)}${suite.details?.reason ? ` - ${html(suite.details.reason)}` : ""}</li>`).join("");
   const issueSection = issues ? `<h2>异常与未运行</h2><ul>${issues}</ul>` : "";
-  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GitTributary 测试报告</title><style>:root{color-scheme:light;--ink:#172033;--muted:#667085;--line:#d0d5dd;--paper:#fff;--wash:#f2f4f7;--pass:#067647;--fail:#b42318;--warn:#b54708}*{box-sizing:border-box}body{margin:0;background:var(--wash);color:var(--ink);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}main{max-width:1080px;min-height:100vh;margin:auto;padding:36px 42px;background:var(--paper)}h1{margin:0;font-size:30px;letter-spacing:0}h2{margin-top:28px}.meta{color:var(--muted)}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:24px 0}.tile{border:1px solid var(--line);border-radius:6px;padding:12px}.tile b{display:block;font-size:22px}table{width:100%;border-collapse:collapse}th,td{padding:9px;text-align:left;border-bottom:1px solid var(--line)}th{background:var(--wash)}td small{display:block;color:var(--muted)}.badge{font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px}.pass{color:var(--pass);background:#dcfae6}.fail{color:var(--fail);background:#fee4e2}.warn{color:var(--warn);background:#fef0c7}a{color:#175cd3}@media(max-width:720px){main{padding:24px 14px}.summary{grid-template-columns:1fr 1fr}.table-wrap{overflow:auto}}</style></head><body><main><h1>GitTributary 测试报告</h1><p class="meta">Profile: ${html(report.profile)} · ${html(report.startedAt ?? "时间未知")} · ${html(formatDuration(report.durationMs))}</p><div class="summary"><div class="tile">总体判定<b class="${statusClass(report.status)}">${html(report.status)}</b></div><div class="tile">总用例<b>${report.counts.total}</b></div><div class="tile">通过<b>${report.counts.passed}</b></div><div class="tile">失败<b>${report.counts.failed}</b></div></div><h2>测试套件</h2><div class="table-wrap"><table><thead><tr><th>套件</th><th>状态</th><th>总数</th><th>通过</th><th>失败</th><th>跳过</th><th>耗时</th><th>日志</th></tr></thead><tbody>${rows || '<tr><td colspan="8">没有测试结果。</td></tr>'}</tbody></table></div>${coverageSection}${issueSection}</main></body></html>`;
+  return `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GitTributary 测试报告</title><style>:root{color-scheme:light;--ink:#172033;--muted:#667085;--line:#d0d5dd;--paper:#fff;--wash:#f2f4f7;--pass:#067647;--fail:#b42318;--warn:#b54708}*{box-sizing:border-box}body{margin:0;background:var(--wash);color:var(--ink);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}main{max-width:1080px;min-height:100vh;margin:auto;padding:36px 42px;background:var(--paper)}h1{margin:0;font-size:30px;letter-spacing:0}h2{margin-top:28px}.meta{color:var(--muted)}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:24px 0}.tile{border:1px solid var(--line);border-radius:6px;padding:12px}.tile b{display:block;font-size:22px}table{width:100%;border-collapse:collapse}th,td{padding:9px;text-align:left;border-bottom:1px solid var(--line)}th{background:var(--wash)}td small{display:block;color:var(--muted)}.badge{font-size:11px;font-weight:700;padding:2px 6px;border-radius:3px}.pass{color:var(--pass);background:#dcfae6}.fail{color:var(--fail);background:#fee4e2}.warn{color:var(--warn);background:#fef0c7}a{color:#175cd3}@media(max-width:720px){main{padding:24px 14px}.summary{grid-template-columns:1fr 1fr}.table-wrap{overflow:auto}}</style></head><body><main><h1>GitTributary 测试报告</h1><p class="meta">Profile: ${html(report.profile)} · ${html(report.startedAt ?? "时间未知")} · ${html(formatDuration(report.durationMs))}</p><div class="summary"><div class="tile">总体判定<b class="${statusClass(report.status)}">${html(report.status)}</b></div><div class="tile">总用例<b>${report.counts.total}</b></div><div class="tile">通过<b>${report.counts.passed}</b></div><div class="tile">失败<b>${report.counts.failed}</b></div></div><h2>测试套件</h2><div class="table-wrap"><table><thead><tr><th>套件</th><th>状态</th><th>总数</th><th>通过</th><th>失败</th><th>跳过/忽略</th><th>耗时</th><th>日志</th></tr></thead><tbody>${rows || '<tr><td colspan="8">没有测试结果。</td></tr>'}</tbody></table></div>${transparencySection}${coverageSection}${issueSection}</main></body></html>`;
 }
 
 function parsedSuite(id, label, counts, options) {
   return normalizeSuite({ id, label, counts, command: null, logPath: null, ...options });
 }
+
+function ignoredTestsOf(report) { return testsWithSuite(report, "ignoredTests"); }
+function delegatedTestsOf(report) { return testsWithSuite(report, "delegatedTests"); }
+function testsWithSuite(report, key) { return report.suites.flatMap((suite) => (suite.details?.[key] ?? []).map((test) => ({ ...test, suite: suite.label }))); }
 
 function normalizeSuite(suite) {
   const suppliedCounts = suite.counts ?? {};

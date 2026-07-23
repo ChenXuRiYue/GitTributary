@@ -31,6 +31,7 @@ import { bindingKey, migrationError, remoteBinding, remoteEntryKey } from "./mod
 export function ImageLibraryRepositoryPage({
   initialLibrary,
   existing,
+  onDraftChange,
   remotes,
   saving,
   onBack,
@@ -41,6 +42,7 @@ export function ImageLibraryRepositoryPage({
 }: {
   initialLibrary: GitHubImageLibrary;
   existing: boolean;
+  onDraftChange: (library: GitHubImageLibrary) => void;
   remotes: GitRemoteConfigEntry[];
   saving: boolean;
   onBack: () => void;
@@ -63,10 +65,18 @@ export function ImageLibraryRepositoryPage({
     [remotes, selectedKey],
   );
 
+  const updateDraft = (updater: (current: GitHubImageLibrary) => GitHubImageLibrary) => {
+    setDraft((current) => {
+      const next = updater(current);
+      onDraftChange(next);
+      return next;
+    });
+  };
+
   const selectRemote = (entry: GitRemoteConfigEntry) => {
     const binding = remoteBinding(entry);
     if (!binding) return;
-    setDraft((current) => ({ ...current, remote: binding, suggestedRemoteUrl: undefined }));
+    updateDraft((current) => ({ ...current, remote: binding, suggestedRemoteUrl: undefined }));
     setCheck(null);
     setError(null);
   };
@@ -75,7 +85,7 @@ export function ImageLibraryRepositoryPage({
     setError(null);
     try {
       const binding = await onAddRemote(remoteDraft);
-      setDraft((current) => ({ ...current, remote: binding, suggestedRemoteUrl: undefined }));
+      updateDraft((current) => ({ ...current, remote: binding, suggestedRemoteUrl: undefined }));
       setRemoteDraft({ name: "image-cloud", url: "", token: "" });
       setAddingRemote(false);
     } catch (reason) {
@@ -142,9 +152,9 @@ export function ImageLibraryRepositoryPage({
       </div>
 
       <section className="border-border/50 grid gap-3 border-b py-4 sm:grid-cols-3">
-        <Field label="图库名称" value={draft.name} onChange={(name) => setDraft((current) => ({ ...current, name }))} />
-        <Field label="目标分支" value={draft.branch} onChange={(branch) => setDraft((current) => ({ ...current, branch }))} />
-        <Field label="图片目录" value={draft.directory} onChange={(directory) => setDraft((current) => ({ ...current, directory }))} />
+        <Field label="图库名称" value={draft.name} onChange={(name) => updateDraft((current) => ({ ...current, name }))} />
+        <Field label="目标分支" value={draft.branch} onChange={(branch) => updateDraft((current) => ({ ...current, branch }))} />
+        <Field label="图片目录" value={draft.directory} onChange={(directory) => updateDraft((current) => ({ ...current, directory }))} />
       </section>
 
       <section className="border-border/50 border-b py-4">

@@ -23,6 +23,7 @@ describe("attachment plugin host command mapping", () => {
     }],
     ["store_get", "store.get", { namespace: "plugin.dev.example.settings", key: "theme" }],
     ["store_set", "store.set", { namespace: "plugin.dev.example.settings", key: "theme", value: "dark" }],
+    ["store_delete", "store.delete", { namespace: "plugin.dev.example.settings", key: "theme" }],
   ])("maps %s to the published %s contract", async (command, method, payload) => {
     await invoke(command, payload);
     expect(mockedInvokeHost).toHaveBeenCalledWith(method, payload);

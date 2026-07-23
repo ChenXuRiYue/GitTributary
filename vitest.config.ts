@@ -10,6 +10,7 @@ export default defineConfig({
     allowOnly: false,
     restoreMocks: true,
     clearMocks: true,
+    maxWorkers: 4,
     pool: "threads",
     fileParallelism: true,
     coverage: {

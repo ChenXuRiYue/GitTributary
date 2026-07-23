@@ -39,6 +39,7 @@ export interface DataPanelUiState {
   version: 1;
   namespace: string;
   viewMode: ViewMode;
+  searchQuery: string;
   updatedAt: number;
 }
 

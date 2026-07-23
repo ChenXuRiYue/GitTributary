@@ -6,6 +6,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Badge } from "@/shared/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
+import { createJsonStore } from "@/shared/lib/store";
 
 interface GitCredentials {
   username: string | null;
@@ -17,6 +18,35 @@ interface GitCredentials {
   has_ssh_passphrase: boolean;
 }
 
+export interface SafetyViewUiState {
+  version: 1;
+  username: string;
+  email: string;
+  remoteUrl: string;
+  sshPath: string;
+  updatedAt: number;
+}
+
+const safetyUiStore = createJsonStore("ui-state");
+const SAFETY_UI_STATE_KEY = "git.safety.draft.v1";
+
+export function parseSafetyViewUiState(value: unknown): SafetyViewUiState | null {
+  if (!value || typeof value !== "object") return null;
+  const state = value as Partial<SafetyViewUiState>;
+  if (state.version !== 1) return null;
+  if (typeof state.username !== "string" || typeof state.email !== "string") return null;
+  if (typeof state.remoteUrl !== "string" || typeof state.sshPath !== "string") return null;
+  if (typeof state.updatedAt !== "number" || !Number.isFinite(state.updatedAt)) return null;
+  return {
+    version: 1,
+    username: state.username,
+    email: state.email,
+    remoteUrl: state.remoteUrl,
+    sshPath: state.sshPath,
+    updatedAt: state.updatedAt,
+  };
+}
+
 export function SafetyView() {
   const [creds, setCreds] = useState<GitCredentials | null>(null);
   const [username, setUsername] = useState("");
@@ -26,19 +56,54 @@ export function SafetyView() {
   const [showToken, setShowToken] = useState(false);
   const [sshPath, setSshPath] = useState("");
   const [status, setStatus] = useState<string | null>(null);
+  const [uiStateHydrated, setUiStateHydrated] = useState(false);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (updateDraft = true) => {
     try {
       const c = await invoke<GitCredentials>("get_git_credentials");
       setCreds(c);
-      setUsername(c.username ?? "");
-      setEmail(c.email ?? "");
-      setRemoteUrl(c.remote_url ?? "");
-      setSshPath(c.ssh_key_path ?? "");
+      if (updateDraft) {
+        setUsername(c.username ?? "");
+        setEmail(c.email ?? "");
+        setRemoteUrl(c.remote_url ?? "");
+        setSshPath(c.ssh_key_path ?? "");
+      }
     } catch { /* initial load */ }
   }, []);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.all([
+      invoke<GitCredentials>("get_git_credentials").catch(() => null),
+      safetyUiStore.get<unknown>(SAFETY_UI_STATE_KEY).catch(() => null),
+    ]).then(([nextCredentials, raw]) => {
+      if (cancelled) return;
+      if (nextCredentials) setCreds(nextCredentials);
+      const cached = parseSafetyViewUiState(raw);
+      setUsername(cached?.username ?? nextCredentials?.username ?? "");
+      setEmail(cached?.email ?? nextCredentials?.email ?? "");
+      setRemoteUrl(cached?.remoteUrl ?? nextCredentials?.remote_url ?? "");
+      setSshPath(cached?.sshPath ?? nextCredentials?.ssh_key_path ?? "");
+    }).finally(() => {
+      if (!cancelled) setUiStateHydrated(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!uiStateHydrated) return;
+    const timeout = window.setTimeout(() => {
+      void safetyUiStore.set(SAFETY_UI_STATE_KEY, {
+        version: 1,
+        username,
+        email,
+        remoteUrl,
+        sshPath,
+        updatedAt: Date.now(),
+      } satisfies SafetyViewUiState).catch(() => undefined);
+    }, 200);
+    return () => window.clearTimeout(timeout);
+  }, [email, remoteUrl, sshPath, uiStateHydrated, username]);
 
   const savePublic = async () => {
     try {
@@ -58,7 +123,7 @@ export function SafetyView() {
       setToken("");
       setStatus("Token 已保存(仅本地)");
       setTimeout(() => setStatus(null), 2000);
-      await refresh();
+      await refresh(false);
     } catch (e) { setStatus(String(e)); }
   };
 
@@ -67,7 +132,7 @@ export function SafetyView() {
       await invoke("clear_git_token");
       setStatus("Token 已清除");
       setTimeout(() => setStatus(null), 2000);
-      await refresh();
+      await refresh(false);
     } catch (e) { setStatus(String(e)); }
   };
 
@@ -77,7 +142,7 @@ export function SafetyView() {
       await invoke("set_git_ssh_key", { path: sshPath.trim(), passphrase: null });
       setStatus("SSH 密钥路径已保存(仅本地)");
       setTimeout(() => setStatus(null), 2000);
-      await refresh();
+      await refresh(false);
     } catch (e) { setStatus(String(e)); }
   };
 

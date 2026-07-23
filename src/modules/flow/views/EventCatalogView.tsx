@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Code2, Database, List, ListPlus, Radio, Search } from "lucide-react";
 
 import { Badge } from "@/shared/ui/badge";
@@ -8,6 +8,12 @@ import { ScrollArea } from "@/shared/ui/scroll-area";
 import { cn } from "@/shared/lib/utils";
 import { Metric, SectionHeader } from "../components/shared";
 import type { EventDefinition } from "../types";
+import {
+  FLOW_EVENT_UI_STATE_KEY,
+  flowUiStore,
+  parseFlowEventUiState,
+  type FlowEventUiState,
+} from "../uiState";
 import { eventDomainMeta, eventDomainText, eventMatchesQuery, eventStabilityTone, groupEventsByDomain, sortedEvents } from "../utils";
 
 export function EventCatalogView({
@@ -20,8 +26,9 @@ export function EventCatalogView({
   const [query, setQuery] = useState("");
   const [domainFilter, setDomainFilter] = useState("all");
   const [stabilityFilter, setStabilityFilter] = useState("all");
-  const [filterabilityFilter, setFilterabilityFilter] = useState("all");
+  const [filterabilityFilter, setFilterabilityFilter] = useState<FlowEventUiState["filterabilityFilter"]>("all");
   const [selectedType, setSelectedType] = useState<string | null>(null);
+  const [uiStateHydrated, setUiStateHydrated] = useState(false);
 
   const sorted = useMemo(() => sortedEvents(events), [events]);
   const domains = useMemo(() => Array.from(new Set(sorted.map((event) => event.domain))).sort(), [sorted]);
@@ -43,6 +50,48 @@ export function EventCatalogView({
   const filterCount = events.reduce((count, event) => count + event.filters.length, 0);
   const schemaFieldCount = events.reduce((count, event) => count + Object.keys(event.data_schema).length, 0);
   const hasActiveFilters = Boolean(query.trim()) || domainFilter !== "all" || stabilityFilter !== "all" || filterabilityFilter !== "all";
+
+  useEffect(() => {
+    let cancelled = false;
+    void flowUiStore.get<unknown>(FLOW_EVENT_UI_STATE_KEY).then((raw) => {
+      if (cancelled) return;
+      const cached = parseFlowEventUiState(raw);
+      if (!cached) return;
+      setQuery(cached.query);
+      setDomainFilter(cached.domainFilter);
+      setStabilityFilter(cached.stabilityFilter);
+      setFilterabilityFilter(cached.filterabilityFilter);
+      setSelectedType(cached.selectedType);
+    }).catch(() => undefined).finally(() => {
+      if (!cancelled) setUiStateHydrated(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!uiStateHydrated || isLoading) return;
+    if (domainFilter !== "all" && !domains.includes(domainFilter)) setDomainFilter("all");
+    if (stabilityFilter !== "all" && !stabilities.includes(stabilityFilter)) setStabilityFilter("all");
+    if (selectedType && !filteredEvents.some((event) => event.type === selectedType)) {
+      setSelectedType(filteredEvents[0]?.type ?? null);
+    }
+  }, [domainFilter, domains, filteredEvents, isLoading, selectedType, stabilities, stabilityFilter, uiStateHydrated]);
+
+  useEffect(() => {
+    if (!uiStateHydrated) return;
+    const timeout = window.setTimeout(() => {
+      void flowUiStore.set(FLOW_EVENT_UI_STATE_KEY, {
+        version: 1,
+        query,
+        domainFilter,
+        stabilityFilter,
+        filterabilityFilter,
+        selectedType,
+        updatedAt: Date.now(),
+      } satisfies FlowEventUiState).catch(() => undefined);
+    }, 200);
+    return () => window.clearTimeout(timeout);
+  }, [domainFilter, filterabilityFilter, query, selectedType, stabilityFilter, uiStateHydrated]);
 
   if (isLoading) {
     return (
@@ -130,7 +179,7 @@ export function EventCatalogView({
             </select>
             <select
               value={filterabilityFilter}
-              onChange={(event) => setFilterabilityFilter(event.target.value)}
+              onChange={(event) => setFilterabilityFilter(event.target.value as FlowEventUiState["filterabilityFilter"])}
               className="h-8 min-w-0 rounded-md border bg-background px-2 text-sm"
               aria-label="过滤能力筛选"
             >
