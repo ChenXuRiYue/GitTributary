@@ -173,7 +173,7 @@ function TreeRow({
             }
           }}
           className={cn(
-            "gt-tree flex h-7 min-w-0 items-center gap-1.5 px-2 pr-3 text-left text-muted-foreground transition-colors hover:bg-accent/45",
+            "na-tree flex h-7 min-w-0 items-center gap-1.5 px-2 pr-3 text-left text-muted-foreground transition-colors hover:bg-accent/45",
             allowHorizontalScroll ? "w-max min-w-full" : "w-full",
             selected && "bg-accent text-accent-foreground",
           )}
@@ -190,7 +190,7 @@ function TreeRow({
           </span>
           {node.leaf?.marker && <span className={cn("size-1.5 rounded-full", markerClass(node.leaf.marker))} />}
           {showFolderCount && (
-            <span className="gt-tree-meta rounded-sm px-1 font-mono text-muted-foreground/65">
+            <span className="na-tree-meta rounded-sm px-1 font-mono text-muted-foreground/65">
               {node.children.size}
             </span>
           )}
@@ -232,11 +232,11 @@ function TreeRow({
     >
       <LeafIcon className="size-3.5 shrink-0 text-muted-foreground" />
       <div className="min-w-0">
-        <p className={cn("gt-tree", allowHorizontalScroll ? "whitespace-nowrap" : "truncate")}>
+        <p className={cn("na-tree", allowHorizontalScroll ? "whitespace-nowrap" : "truncate")}>
           {node.leaf?.label ?? node.name}
         </p>
         {node.leaf?.subtitle && (
-          <p className={cn("gt-tree-meta text-muted-foreground", allowHorizontalScroll ? "whitespace-nowrap" : "truncate")}>
+          <p className={cn("na-tree-meta text-muted-foreground", allowHorizontalScroll ? "whitespace-nowrap" : "truncate")}>
             {node.leaf.subtitle}
           </p>
         )}

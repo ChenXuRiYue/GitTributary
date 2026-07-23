@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 pub const PLUGIN_ABI_VERSION: u32 = 1;
 
 #[no_mangle]
-pub extern "C" fn gittributary_plugin_abi_version() -> u32 {
+pub extern "C" fn noteaura_plugin_abi_version() -> u32 {
     PLUGIN_ABI_VERSION
 }
 
@@ -16,8 +16,8 @@ pub extern "C" fn gittributary_plugin_abi_version() -> u32 {
 /// # Safety
 ///
 /// `method` and `payload` must be non-null pointers to valid, NUL-terminated C strings. The
-/// returned pointer must be released exactly once with [`gittributary_plugin_free_string`].
-pub unsafe extern "C" fn gittributary_plugin_handle_request(
+/// returned pointer must be released exactly once with [`noteaura_plugin_free_string`].
+pub unsafe extern "C" fn noteaura_plugin_handle_request(
     method: *const c_char,
     payload: *const c_char,
 ) -> *mut c_char {
@@ -39,13 +39,13 @@ pub unsafe extern "C" fn gittributary_plugin_handle_request(
 }
 
 #[no_mangle]
-/// Releases a response allocated by [`gittributary_plugin_handle_request`].
+/// Releases a response allocated by [`noteaura_plugin_handle_request`].
 ///
 /// # Safety
 ///
-/// `value` must be null or a pointer returned by [`gittributary_plugin_handle_request`] that has
+/// `value` must be null or a pointer returned by [`noteaura_plugin_handle_request`] that has
 /// not already been released.
-pub unsafe extern "C" fn gittributary_plugin_free_string(value: *mut c_char) {
+pub unsafe extern "C" fn noteaura_plugin_free_string(value: *mut c_char) {
     if !value.is_null() {
         drop(CString::from_raw(value));
     }

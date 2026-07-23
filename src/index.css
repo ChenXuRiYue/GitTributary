@@ -3,7 +3,7 @@
 @custom-variant dark (&:is(.dark *));
 
 /* =========================================================================
-   GitTributary 全局设计 token —— macOS 风格
+   NoteAura 全局设计 token —— macOS 风格
    配色克制、圆角偏大、字体走 SF 字体栈、阴影柔和、支持毛玻璃。
    颜色使用 oklch 以获得更线性的明度过渡。
    ========================================================================= */
@@ -152,73 +152,73 @@
   -webkit-backdrop-filter: saturate(180%) blur(20px);
 }
 
-/* GitTributary typography roles.
+/* NoteAura typography roles.
    参考 Material 的角色化类型系统、Apple 平台字体语义和 Tailwind 默认刻度。
    组件优先使用这些角色类,避免任意字号导致层级漂移。 */
-@utility gt-title-app {
+@utility na-title-app {
   font-size: 1.125rem;
   line-height: 1.5rem;
   font-weight: 600;
   letter-spacing: 0;
 }
 
-@utility gt-title-panel {
+@utility na-title-panel {
   font-size: 0.9375rem;
   line-height: 1.25rem;
   font-weight: 600;
   letter-spacing: 0;
 }
 
-@utility gt-title-section {
+@utility na-title-section {
   font-size: 0.8125rem;
   line-height: 1.125rem;
   font-weight: 600;
   letter-spacing: 0;
 }
 
-@utility gt-body {
+@utility na-body {
   font-size: 0.8125rem;
   line-height: 1.125rem;
   font-weight: 400;
   letter-spacing: 0;
 }
 
-@utility gt-body-strong {
+@utility na-body-strong {
   font-size: 0.8125rem;
   line-height: 1.125rem;
   font-weight: 500;
   letter-spacing: 0;
 }
 
-@utility gt-caption {
+@utility na-caption {
   font-size: 0.6875rem;
   line-height: 0.875rem;
   font-weight: 400;
   letter-spacing: 0;
 }
 
-@utility gt-label {
+@utility na-label {
   font-size: 0.6875rem;
   line-height: 0.875rem;
   font-weight: 500;
   letter-spacing: 0;
 }
 
-@utility gt-tree {
+@utility na-tree {
   font-size: 0.8125rem;
   line-height: 1rem;
   font-weight: 400;
   letter-spacing: 0;
 }
 
-@utility gt-tree-meta {
+@utility na-tree-meta {
   font-size: 0.6875rem;
   line-height: 0.875rem;
   font-weight: 400;
   letter-spacing: 0;
 }
 
-@utility gt-metric {
+@utility na-metric {
   font-size: 1.125rem;
   line-height: 1.5rem;
   font-weight: 600;
@@ -226,7 +226,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-@utility gt-metric-compact {
+@utility na-metric-compact {
   font-size: 0.9375rem;
   line-height: 1.25rem;
   font-weight: 600;
@@ -234,7 +234,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-@utility gt-code {
+@utility na-code {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
   font-size: 0.75rem;
@@ -242,26 +242,26 @@
   letter-spacing: 0;
 }
 
-.gt-thin-scroll {
+.na-thin-scroll {
   scrollbar-color: color-mix(in oklch, var(--muted-foreground) 28%, transparent) transparent;
   scrollbar-width: thin;
 }
 
-.gt-thin-scroll::-webkit-scrollbar {
+.na-thin-scroll::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 
-.gt-thin-scroll::-webkit-scrollbar-track {
+.na-thin-scroll::-webkit-scrollbar-track {
   background: transparent;
 }
 
-.gt-thin-scroll::-webkit-scrollbar-thumb {
+.na-thin-scroll::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background-color: color-mix(in oklch, var(--muted-foreground) 24%, transparent);
 }
 
-.gt-thin-scroll::-webkit-scrollbar-thumb:hover {
+.na-thin-scroll::-webkit-scrollbar-thumb:hover {
   background-color: color-mix(in oklch, var(--muted-foreground) 42%, transparent);
 }
 

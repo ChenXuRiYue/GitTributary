@@ -262,7 +262,7 @@ export function DataSyncSettings() {
             <Cloud className="size-3.5" />
           </div>
           <div className="min-w-0 flex-1">
-            <h2 id="remote-repository-heading" className="gt-title-section">远程仓库</h2>
+            <h2 id="remote-repository-heading" className="na-title-section">远程仓库</h2>
           </div>
           <Badge variant={syncConfig ? "secondary" : "outline"} className="h-5 max-w-44 truncate px-1.5 text-[10px]">
             {syncConfig && <CheckCircle2 className="size-3" />}
@@ -271,7 +271,7 @@ export function DataSyncSettings() {
         </div>
 
         <div className="grid gap-2 sm:grid-cols-[96px_minmax(0,1fr)] sm:items-center">
-          <label htmlFor="data-sync-remote" className="gt-label text-muted-foreground">远程仓库</label>
+          <label htmlFor="data-sync-remote" className="na-label text-muted-foreground">远程仓库</label>
           <select
             id="data-sync-remote"
             value={selectedRemoteKey}
@@ -347,7 +347,7 @@ export function DataSyncSettings() {
               void handleDirectBind();
             }}
           >
-            <label htmlFor="data-sync-direct-url" className="gt-label text-muted-foreground">仓库地址</label>
+            <label htmlFor="data-sync-direct-url" className="na-label text-muted-foreground">仓库地址</label>
             <Input
               id="data-sync-direct-url"
               type="url"
@@ -358,7 +358,7 @@ export function DataSyncSettings() {
               disabled={busyAction !== null}
               autoFocus
             />
-            <label htmlFor="data-sync-direct-token" className="gt-label text-muted-foreground">Access Token</label>
+            <label htmlFor="data-sync-direct-token" className="na-label text-muted-foreground">Access Token</label>
             <div className="relative">
               <Input
                 id="data-sync-direct-token"
@@ -418,7 +418,7 @@ export function DataSyncSettings() {
         <div
           role={notice.tone === "error" ? "alert" : "status"}
           className={cn(
-            "flex items-center gap-2 border-t px-1 pt-3 gt-caption",
+            "flex items-center gap-2 border-t px-1 pt-3 na-caption",
             notice.tone === "error" && "text-destructive",
             notice.tone === "success" && "text-emerald-700 dark:text-emerald-300",
             notice.tone === "progress" && "text-muted-foreground",

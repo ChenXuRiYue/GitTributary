@@ -68,7 +68,7 @@ export function ImageMigrationPage({
         onMigrate={() => void migration.migrate()}
       />
       {migration.error && (
-        <div className="border-destructive/40 bg-destructive/5 text-destructive gt-body flex shrink-0 items-start gap-2 border px-3 py-2">
+        <div className="border-destructive/40 bg-destructive/5 text-destructive na-body flex shrink-0 items-start gap-2 border px-3 py-2">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span className="break-all">{migration.error}</span>
         </div>

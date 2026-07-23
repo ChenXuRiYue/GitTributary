@@ -28,7 +28,7 @@ const MIN_WIDTH = 180;
 const MAX_WIDTH = 360;
 const DEFAULT_WIDTH = 208;
 const COLLAPSE_THRESHOLD = 140;
-const PROJECT_REPO_URL = "https://github.com/ChenXuRiYue/GitTributary";
+const PROJECT_REPO_URL = "https://github.com/ChenXuRiYue/NoteAura";
 const NAV_MORE_STATE_NS = "ui-state";
 const NAV_MORE_STATE_KEY = "app.nav.more.open";
 const NAV_MORE_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
@@ -292,7 +292,7 @@ function App() {
                 className="text-sidebar-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground flex min-w-0 flex-1 items-center justify-between gap-2 overflow-hidden rounded-md px-2 py-1 text-left transition-colors"
                 title="打开项目仓库"
               >
-                <span className="block min-w-0 truncate text-sm font-semibold leading-4">Git Tributary</span>
+                <span className="block min-w-0 truncate text-sm font-semibold leading-4">NoteAura</span>
                 <ExternalLink className="text-muted-foreground size-4 shrink-0" />
               </button>
             )}
@@ -383,8 +383,8 @@ function App() {
         <main className="bg-background flex flex-1 flex-col overflow-hidden">
           {active && !isFullHeightPanel && (
             <header className="border-border flex flex-col gap-1 border-b px-7 py-4">
-              <h2 className="gt-title-app">{active.name}</h2>
-              <p className="gt-caption text-muted-foreground">{active.description}</p>
+              <h2 className="na-title-app">{active.name}</h2>
+              <p className="na-caption text-muted-foreground">{active.description}</p>
             </header>
           )}
           {isFullHeightPanel ? (

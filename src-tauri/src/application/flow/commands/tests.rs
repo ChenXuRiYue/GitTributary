@@ -12,7 +12,7 @@ use super::*;
 
 #[test]
 fn event_catalog_registers_journal_failure_notification() {
-    let pool = gt_flow::EventPool::new();
+    let pool = na_flow::EventPool::new();
     assert!(pool
         .catalog()
         .iter()
@@ -40,7 +40,7 @@ fn flow_run_persists_lifecycle_before_returning_report() {
     let mut data = DataHub::open(directory.path()).unwrap();
     let workflow = r#"
 name: Journal Demo
-gt:
+gn:
   id: journal-demo
   enabled: true
 on:
@@ -48,25 +48,25 @@ on:
 jobs:
   main:
     steps:
-      - uses: gittributary/files/assert-exists@v1
+      - uses: noteaura/files/assert-exists@v1
         with:
           path: README.md
 "#
     .trim()
     .to_string();
-    let summary = gt_flow::parse_workflow(&workflow).unwrap();
+    let summary = na_flow::parse_workflow(&workflow).unwrap();
     let record = FlowRecord::new(
         workflow,
         summary,
         None,
-        gt_flow::now_rfc3339(),
-        gt_flow::now_rfc3339(),
+        na_flow::now_rfc3339(),
+        na_flow::now_rfc3339(),
     );
     data.flows_mut().save(&record).unwrap();
     let state = AppState {
         repo: std::sync::Mutex::new(None),
         data: std::sync::Mutex::new(data),
-        event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
+        event_pool: std::sync::Mutex::new(na_flow::EventPool::new()),
         node_registry: std::sync::Mutex::new(FlowNodeRegistry::new()),
         flow_execution: std::sync::Mutex::new(()),
         extensions: ExtensionRegistry::default(),
@@ -76,16 +76,16 @@ jobs:
     };
 
     let report = flow_run_blocking("journal-demo".to_string(), None, &state).unwrap();
-    assert_eq!(report.status, gt_flow::FlowRunStatus::Failed);
+    assert_eq!(report.status, na_flow::FlowRunStatus::Failed);
     let data = state.data.lock().unwrap();
     let records = data.run_journal().read_run(&report.run_id).unwrap();
     assert_eq!(records.len(), 6);
-    assert_eq!(records[0].kind, gt_data::RunJournalEventKind::RunStarted);
-    assert_eq!(records[1].kind, gt_data::RunJournalEventKind::JobStarted);
-    assert_eq!(records[2].kind, gt_data::RunJournalEventKind::NodeStarted);
-    assert_eq!(records[3].kind, gt_data::RunJournalEventKind::NodeFinished);
-    assert_eq!(records[4].kind, gt_data::RunJournalEventKind::JobFinished);
-    assert_eq!(records[5].kind, gt_data::RunJournalEventKind::RunCompleted);
+    assert_eq!(records[0].kind, na_data::RunJournalEventKind::RunStarted);
+    assert_eq!(records[1].kind, na_data::RunJournalEventKind::JobStarted);
+    assert_eq!(records[2].kind, na_data::RunJournalEventKind::NodeStarted);
+    assert_eq!(records[3].kind, na_data::RunJournalEventKind::NodeFinished);
+    assert_eq!(records[4].kind, na_data::RunJournalEventKind::JobFinished);
+    assert_eq!(records[5].kind, na_data::RunJournalEventKind::RunCompleted);
     let result = data.run_results().read(&report.run_id).unwrap().unwrap();
     assert_eq!(result.status, report.status);
     assert_eq!(
@@ -103,11 +103,11 @@ fn inspects_only_executable_core_node_sources() {
         .map(|definition| definition.uses)
         .collect::<Vec<_>>();
     assert_eq!(uses.len(), 5);
-    assert!(uses.contains(&"gittributary/files/assert-exists@v1".to_string()));
-    assert!(uses.contains(&"gittributary/files/sync-dir@v1".to_string()));
-    assert!(uses.contains(&"gittributary/git/commit-all@v1".to_string()));
-    assert!(uses.contains(&"gittributary/git/push@v1".to_string()));
-    assert!(uses.contains(&"gittributary/store/sync-now@v1".to_string()));
+    assert!(uses.contains(&"noteaura/files/assert-exists@v1".to_string()));
+    assert!(uses.contains(&"noteaura/files/sync-dir@v1".to_string()));
+    assert!(uses.contains(&"noteaura/git/commit-all@v1".to_string()));
+    assert!(uses.contains(&"noteaura/git/push@v1".to_string()));
+    assert!(uses.contains(&"noteaura/store/sync-now@v1".to_string()));
     assert!(!uses.iter().any(|uses| uses.contains("build-html")));
     assert!(!uses.iter().any(|uses| uses.contains("notify")));
     assert!(!uses.iter().any(|uses| uses.contains("publish-context")));

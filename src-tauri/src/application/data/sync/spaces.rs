@@ -31,12 +31,12 @@ pub(super) fn initialize_space(checkout: &Path, space_id: &str) -> Result<PathBu
 #[tauri::command]
 pub(crate) fn sync_list_environments() -> Result<Vec<String>, String> {
     let base_dir = store_base_dir();
-    let engine = gt_data::SyncEngine::new(&base_dir);
+    let engine = na_data::SyncEngine::new(&base_dir);
     let Some(config) = engine.config().map_err(|error| error.to_string())? else {
         return Ok(vec!["default".to_string()]);
     };
 
-    let mut spaces = BTreeSet::from([gt_data::SyncEngine::active_environment(&config)]);
+    let mut spaces = BTreeSet::from([na_data::SyncEngine::active_environment(&config)]);
     let root = engine.config_repo_path(&config).join("environments");
     if root.exists() {
         for entry in std::fs::read_dir(root).map_err(|error| error.to_string())? {
@@ -65,7 +65,7 @@ pub(crate) fn sync_switch_environment(environment_id: String) -> Result<(), Stri
     }
 
     let base_dir = store_base_dir();
-    let engine = gt_data::SyncEngine::new(&base_dir);
+    let engine = na_data::SyncEngine::new(&base_dir);
     let mut config = engine
         .config()
         .map_err(|error| error.to_string())?
@@ -94,7 +94,7 @@ pub(crate) fn sync_create_space(
     }
 
     let base_dir = store_base_dir();
-    let engine = gt_data::SyncEngine::new(&base_dir);
+    let engine = na_data::SyncEngine::new(&base_dir);
     let mut config = engine
         .config()
         .map_err(|error| error.to_string())?
@@ -103,7 +103,7 @@ pub(crate) fn sync_create_space(
         let data = state.data.lock().unwrap();
         require_config_repo_url_and_token(&data, &config.url)?
     };
-    let auth = gt_data::ConfigRepoAuth { token: &token };
+    let auth = na_data::ConfigRepoAuth { token: &token };
     let checkout = engine
         .ensure_config_repo(&auth)
         .map_err(|error| error.to_string())?;

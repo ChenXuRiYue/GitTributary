@@ -1,5 +1,5 @@
 {
-  "name": "@gittributary/plugin-testkit",
+  "name": "@noteaura/plugin-testkit",
   "version": "0.1.0",
   "private": true,
   "type": "module",

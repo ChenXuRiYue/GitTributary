@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
-use gt_data::{DataHub, RunJournalObserver};
-use gt_flow::{EventDraft, FlowNodeOwner, FlowRunReport, FlowRunRequest};
+use na_data::{DataHub, RunJournalObserver};
+use na_flow::{EventDraft, FlowNodeOwner, FlowRunReport, FlowRunRequest};
 use serde_json::{json, Value};
 
 use super::executor::AppFlowActionExecutor;
@@ -54,11 +54,11 @@ pub(super) fn flow_run_blocking(
         intent: None,
         inputs: Value::Object(Default::default()),
     });
-    let run_id = gt_flow::resolve_run_id(&request);
+    let run_id = na_flow::resolve_run_id(&request);
     {
         let data = state.data.lock().unwrap();
         data.run_journal()
-            .start_run(&run_id, &record.summary.id, &gt_flow::now_rfc3339())
+            .start_run(&run_id, &record.summary.id, &na_flow::now_rfc3339())
             .map_err(|error| format!("flow_run_journal_start_failed: {error}"))?;
     }
 
@@ -68,7 +68,7 @@ pub(super) fn flow_run_blocking(
     };
     let mut observer = RunJournalObserver::new(&journal);
     let mut executor = AppFlowActionExecutor::new(state, plugin_bindings);
-    let report = gt_flow::run_flow_with_executor_for_run_id_and_observer(
+    let report = na_flow::run_flow_with_executor_for_run_id_and_observer(
         &record,
         request,
         run_id,
@@ -91,7 +91,7 @@ pub(super) fn flow_run_blocking(
         let _ = publish_flow_event(
             state,
             EventDraft {
-                source: "gittributary://gt-flow".to_string(),
+                source: "noteaura://na-flow".to_string(),
                 event_type: "flow.run.result_persistence_failed".to_string(),
                 subject: Some(format!("flow:{}", report.flow_id)),
                 data: json!({
@@ -107,7 +107,7 @@ pub(super) fn flow_run_blocking(
         let _ = publish_flow_event(
             state,
             EventDraft {
-                source: "gittributary://gt-flow".to_string(),
+                source: "noteaura://na-flow".to_string(),
                 event_type: "flow.run.journal_failed".to_string(),
                 subject: Some(format!("flow:{}", report.flow_id)),
                 data: json!({
@@ -122,10 +122,10 @@ pub(super) fn flow_run_blocking(
     let _ = publish_flow_event(
         state,
         EventDraft {
-            source: "gittributary://gt-flow".to_string(),
+            source: "noteaura://na-flow".to_string(),
             event_type: match report.status {
-                gt_flow::FlowRunStatus::Succeeded => "flow.run.succeeded",
-                gt_flow::FlowRunStatus::Skipped => "flow.run.skipped",
+                na_flow::FlowRunStatus::Succeeded => "flow.run.succeeded",
+                na_flow::FlowRunStatus::Skipped => "flow.run.skipped",
                 _ => "flow.run.failed",
             }
             .to_string(),

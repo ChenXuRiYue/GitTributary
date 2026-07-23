@@ -54,13 +54,13 @@ export function WorkspaceGroupRow({
       )} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="gt-body-strong truncate">{group.name || "未命名任务"}</span>
-          {current && <Badge variant="secondary" className="h-5 px-1.5 gt-caption">当前</Badge>}
+          <span className="na-body-strong truncate">{group.name || "未命名任务"}</span>
+          {current && <Badge variant="secondary" className="h-5 px-1.5 na-caption">当前</Badge>}
         </span>
-        <span className="gt-caption mt-1 block truncate text-muted-foreground">
+        <span className="na-caption mt-1 block truncate text-muted-foreground">
           {repoLabel(group.sourceRepoPath)}
         </span>
-        <span className="gt-caption mt-1 block truncate text-muted-foreground">
+        <span className="na-caption mt-1 block truncate text-muted-foreground">
           文档范围 {group.documentScope.length} 项 · {group.target ? "已配发布仓库" : "未配发布仓库"}
         </span>
       </span>
@@ -127,18 +127,18 @@ export function PublishCandidateRow({
       )} />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate gt-body-strong">{candidate.name}</span>
-          {candidate.status === "needs-local" && <Badge variant="outline" className="h-5 px-1.5 gt-caption">需本地副本</Badge>}
-          {candidate.status === "not-recommended" && <Badge variant="outline" className="h-5 px-1.5 gt-caption">不推荐</Badge>}
+          <span className="truncate na-body-strong">{candidate.name}</span>
+          {candidate.status === "needs-local" && <Badge variant="outline" className="h-5 px-1.5 na-caption">需本地副本</Badge>}
+          {candidate.status === "not-recommended" && <Badge variant="outline" className="h-5 px-1.5 na-caption">不推荐</Badge>}
         </span>
         <span className="mt-1 block truncate font-mono text-[11px] text-muted-foreground">
           {candidate.repoPath ?? candidate.url}
         </span>
         <span className="mt-2 flex flex-wrap gap-1">
-          <Badge variant="outline" className="h-5 px-1.5 gt-caption">{candidate.remoteName}</Badge>
-          <Badge variant="outline" className="h-5 px-1.5 gt-caption">{credentialLabel(candidate.credentialMode)}</Badge>
+          <Badge variant="outline" className="h-5 px-1.5 na-caption">{candidate.remoteName}</Badge>
+          <Badge variant="outline" className="h-5 px-1.5 na-caption">{credentialLabel(candidate.credentialMode)}</Badge>
           {candidate.purpose.slice(0, 3).map((purpose) => (
-            <Badge key={purpose} variant="outline" className="h-5 px-1.5 gt-caption">{purposeLabel(purpose)}</Badge>
+            <Badge key={purpose} variant="outline" className="h-5 px-1.5 na-caption">{purposeLabel(purpose)}</Badge>
           ))}
         </span>
       </span>
@@ -162,10 +162,10 @@ export function CollapsibleConfigSection({
       <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-3 py-2 transition-colors hover:bg-muted/40 [&::-webkit-details-marker]:hidden">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            <div className="truncate gt-body-strong">{title}</div>
+            <div className="truncate na-body-strong">{title}</div>
             {status}
           </div>
-          <div className="gt-caption mt-0.5 truncate text-muted-foreground" title={subtitle}>
+          <div className="na-caption mt-0.5 truncate text-muted-foreground" title={subtitle}>
             {subtitle}
           </div>
         </div>

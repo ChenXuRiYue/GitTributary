@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use gt_git::{AuthMethod, GitRepo};
+use na_git::{AuthMethod, GitRepo};
 use serde_json::Value;
 
 use crate::application::git::auth::resolve_auth_for_remote;
@@ -13,7 +13,7 @@ pub(super) fn enrich_backend_payload(
     mut payload: Value,
     state: &AppState,
 ) -> Result<Value, String> {
-    if plugin_id != "dev.gittributary.attachment-manager"
+    if plugin_id != "dev.noteaura.attachment-manager"
         || !matches!(
             method,
             "attachments.checkGithubImageConfig" | "attachments.migrateGithubImages"

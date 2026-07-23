@@ -9,14 +9,14 @@ vi.mock("./registry", () => ({ coreModules: [] }));
 vi.mock("@/platform/extensions", () => ({
   useExtensionContributions: () => ({
     contributions: [{
-      pluginId: "dev.gittributary.attachment-manager",
+      pluginId: "dev.noteaura.attachment-manager",
       generation: 1,
       pluginName: "附件",
       pluginVersion: "0.4.9",
       viewId: "attachment-manager.main",
       title: "附件",
       description: "附件管理",
-      entryUrl: "gt-plugin://localhost/attachment/index.html",
+      entryUrl: "na-plugin://localhost/attachment/index.html",
       iconUrl: null,
     }],
     loading: false,

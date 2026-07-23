@@ -1,6 +1,6 @@
 //! Workspace 相关命令:当前/最近打开的仓库、设备信息。
 //!
-//! 这些命令只通过 `gt-data` 的 WorkspaceRepository 读取工作区状态。
+//! 这些命令只通过 `na-data` 的 WorkspaceRepository 读取工作区状态。
 
 use tauri::State;
 

@@ -8,7 +8,7 @@ import test from "node:test";
 const ROOT = process.cwd();
 
 test("baseline regressions gate budgeted metrics but keep observations informational", () => {
-  const directory = mkdtempSync(path.join(os.tmpdir(), "gittributary-perf-report-"));
+  const directory = mkdtempSync(path.join(os.tmpdir(), "noteaura-perf-report-"));
   const output = path.join(directory, "report");
   const modelPath = path.join(directory, "model.json");
   const baselinePath = path.join(directory, "baseline.json");

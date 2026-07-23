@@ -2,8 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use gt_files::replace_tree;
-use gt_git::GitRepo;
+use na_files::replace_tree;
+use na_git::GitRepo;
 use serde_json::json;
 
 use super::super::backend_payload::enrich_backend_payload;
@@ -37,7 +37,7 @@ fn injects_git_remote_token_only_for_the_attachment_backend() {
     repo.add_remote("image-cloud", "https://github.com/octocat/images.git")
         .unwrap();
     let repo_path = repo.workdir().unwrap().to_string_lossy().to_string();
-    let mut data = gt_data::DataHub::open(store_directory.path()).unwrap();
+    let mut data = na_data::DataHub::open(store_directory.path()).unwrap();
     data.credentials_mut()
         .set_project_token(&repo_path, "project-token")
         .unwrap();
@@ -55,7 +55,7 @@ fn injects_git_remote_token_only_for_the_attachment_backend() {
     });
 
     let enriched = enrich_backend_payload(
-        "dev.gittributary.attachment-manager",
+        "dev.noteaura.attachment-manager",
         "attachments.migrateGithubImages",
         payload,
         &state,
@@ -71,7 +71,7 @@ fn scopes_extension_store_namespaces() {
     let registry = ExtensionRegistry::default();
     let manifest: ExtensionManifest = serde_json::from_value(json!({
         "schemaVersion": 1,
-        "id": "dev.gittributary.site-publisher",
+        "id": "dev.noteaura.site-publisher",
         "name": "Site",
         "version": "1.0.0",
         "storeNamespaces": ["sites"]
@@ -88,7 +88,7 @@ fn scopes_extension_store_namespaces() {
     assert_eq!(
         extension_store_namespace(
             &registry,
-            "dev.gittributary.site-publisher",
+            "dev.noteaura.site-publisher",
             &json!({ "namespace": "sites" })
         )
         .unwrap(),
@@ -116,7 +116,7 @@ fn authorizes_only_known_file_roots() {
     let store_directory = tempfile::tempdir().unwrap();
     let repository = tempfile::tempdir().unwrap();
     let unknown = tempfile::tempdir().unwrap();
-    let mut data = gt_data::DataHub::open(store_directory.path()).unwrap();
+    let mut data = na_data::DataHub::open(store_directory.path()).unwrap();
     data.workspace_mut().initialize().unwrap();
     let repository_path = repository.path().to_string_lossy().to_string();
     data.workspace_mut()
@@ -151,7 +151,7 @@ fn host_capabilities_replace_commit_and_push_a_path() {
         &target,
         &[
             "-c",
-            "user.name=GitTributary Test",
+            "user.name=NoteAura Test",
             "-c",
             "user.email=test@local",
             "commit",
@@ -165,7 +165,7 @@ fn host_capabilities_replace_commit_and_push_a_path() {
     );
     run_git(&target, &["push", "-u", "origin", "main"]);
 
-    let mut data = gt_data::DataHub::open(&temp.path().join("store")).unwrap();
+    let mut data = na_data::DataHub::open(&temp.path().join("store")).unwrap();
     data.workspace_mut().initialize().unwrap();
     data.workspace_mut()
         .sync(Some(&source.to_string_lossy()), Some("main"))

@@ -2,16 +2,16 @@
 
 use std::collections::BTreeMap;
 
-use gt_files::{
+use na_files::{
     FileWorkspace, ListOptions, ListReport, ScanOptions, ScanReport, SearchOptions, SearchReport,
     TextFile,
 };
-use gt_flow::FlowNodeDefinition;
+use na_flow::FlowNodeDefinition;
 
 pub(crate) fn flow_node_definitions() -> Vec<FlowNodeDefinition> {
     vec![
         FlowNodeDefinition {
-            uses: "gittributary/files/assert-exists@v1".to_string(),
+            uses: "noteaura/files/assert-exists@v1".to_string(),
             name: "校验文件存在".to_string(),
             node_type: "validate".to_string(),
             summary: "检查目标路径是否存在并可选校验非空".to_string(),
@@ -23,7 +23,7 @@ pub(crate) fn flow_node_definitions() -> Vec<FlowNodeDefinition> {
             outputs_schema: BTreeMap::from([("path".to_string(), "string".to_string())]),
         },
         FlowNodeDefinition {
-            uses: "gittributary/files/sync-dir@v1".to_string(),
+            uses: "noteaura/files/sync-dir@v1".to_string(),
             name: "同步目录".to_string(),
             node_type: "sync".to_string(),
             summary: "把源目录中的文件递归复制到目标目录".to_string(),

@@ -192,7 +192,7 @@ describe("GitHubImagePanel", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "删除图库" }));
 
     await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("store_set", {
-      namespace: "plugin.dev.gittributary.attachment-manager.settings",
+      namespace: "plugin.dev.noteaura.attachment-manager.settings",
       key: "github-image-libraries.v3",
       value: { version: 3, libraries: [] },
     }));

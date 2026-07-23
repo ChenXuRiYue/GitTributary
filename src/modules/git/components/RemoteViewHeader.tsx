@@ -28,7 +28,7 @@ export function RemoteViewHeader({
           <div className="text-[11px] text-muted-foreground">
             {overview
               ? `${overview.current_branch} · ${shortPath(overview.path)}`
-              : "管理当前仓库 remote 与 GitTributary 远程配置"}
+              : "管理当前仓库 remote 与 NoteAura 远程配置"}
           </div>
         </div>
         {recentRepos[0] && !overview && (

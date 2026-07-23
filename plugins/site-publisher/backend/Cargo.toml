@@ -5,14 +5,14 @@ edition = "2021"
 publish = false
 
 [workspace]
-members = ["crates/gt-site"]
+members = ["crates/na-site"]
 resolver = "2"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-gt-site = { path = "crates/gt-site" }
+na-site = { path = "crates/na-site" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

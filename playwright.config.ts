@@ -1,7 +1,7 @@
 import { defineConfig, devices, type ReporterDescription } from "@playwright/test";
 
 const port = 4173;
-const structuredReport = process.env.GT_PLAYWRIGHT_JSON_OUTPUT;
+const structuredReport = process.env.NA_PLAYWRIGHT_JSON_OUTPUT;
 const reporters: ReporterDescription[] = [[process.env.CI || structuredReport ? "line" : "list"]];
 if (structuredReport) reporters.push(["json", { outputFile: structuredReport }]);
 if (process.env.CI) reporters.push(["html", { open: "never" }]);

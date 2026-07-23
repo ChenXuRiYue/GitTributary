@@ -12,7 +12,7 @@ function notifyPluginReady() {
   if (!uiMounted || !hostPort || !hostSessionId || readySent) return;
   readySent = true;
   hostPort.postMessage({
-    type: "gittributary:plugin-ready",
+    type: "noteaura:plugin-ready",
     apiVersion: 1,
     sessionId: hostSessionId,
   });
@@ -20,7 +20,7 @@ function notifyPluginReady() {
 
 window.addEventListener("message", (event: MessageEvent) => {
   if (event.source !== window.parent
-    || event.data?.type !== "gittributary:host-ready"
+    || event.data?.type !== "noteaura:host-ready"
     || event.data?.apiVersion !== 1
     || typeof event.data?.sessionId !== "string"
     || (event.data?.theme !== "light" && event.data?.theme !== "dark")
@@ -42,7 +42,7 @@ export function markPluginReady() {
 
 export async function invokeHost<T>(method: string, payload: unknown = {}): Promise<T> {
   if (window.parent === window) {
-    throw new Error("该页面需要在 GitTributary 插件宿主中运行");
+    throw new Error("该页面需要在 NoteAura 插件宿主中运行");
   }
   const port = hostPort ?? await hostPortReady;
   const id = crypto.randomUUID();
@@ -55,14 +55,14 @@ export async function invokeHost<T>(method: string, payload: unknown = {}): Prom
         result?: T;
         error?: { message?: string };
       };
-      if (message.type !== "gittributary:response" || message.id !== id) return;
+      if (message.type !== "noteaura:response" || message.id !== id) return;
       port.removeEventListener("message", onMessage);
       if (message.ok) resolve(message.result as T);
       else reject(new Error(message.error?.message ?? "宿主调用失败"));
     };
     port.addEventListener("message", onMessage);
     port.postMessage({
-      type: "gittributary:request",
+      type: "noteaura:request",
       id,
       method,
       payload,

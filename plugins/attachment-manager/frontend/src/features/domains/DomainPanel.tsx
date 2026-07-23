@@ -88,8 +88,8 @@ export function DomainPanel({
             <ArrowLeft className="size-4" />
           </Button>
           <div className="min-w-0 flex-1">
-            <h2 className="gt-title-panel truncate" title={selectedDomain.domain}>{selectedDomain.domain}</h2>
-            <p className="text-muted-foreground gt-caption mt-0.5">
+            <h2 className="na-title-panel truncate" title={selectedDomain.domain}>{selectedDomain.domain}</h2>
+            <p className="text-muted-foreground na-caption mt-0.5">
               {selectedDomain.total} 个资源 · {selectedDomain.references} 次引用 · {selectedDomain.uniqueNotes} 篇笔记
               {` · 嵌入 ${selectedDomain.embed} · 导航 ${selectedDomain.navigation}`}
             </p>
@@ -107,7 +107,7 @@ export function DomainPanel({
           </select>
         </div>
         {pagedResources.length === 0 ? (
-          <div className="text-muted-foreground flex min-h-40 items-center justify-center gt-body">没有匹配的资源</div>
+          <div className="text-muted-foreground flex min-h-40 items-center justify-center na-body">没有匹配的资源</div>
         ) : (
           <div className="divide-border divide-y">
             {pagedResources.map((item) => (
@@ -153,18 +153,18 @@ export function DomainPanel({
           <option value="references">按引用数</option>
           <option value="notes">按笔记数</option>
         </select>
-        <span className="text-muted-foreground gt-caption hidden shrink-0 lg:inline">
+        <span className="text-muted-foreground na-caption hidden shrink-0 lg:inline">
           域名 {domainCount} / 资源 {remoteResourceCount} / 图片 {imageLinkCount} / 引用 {referenceCount}
         </span>
       </div>
       {domains.length === 0 ? (
         <div className="text-muted-foreground flex min-h-48 flex-col items-center justify-center text-center">
           <Globe2 className="mb-3 size-7" />
-          <span className="gt-body">{domainCount === 0 ? "没有可统计的链接域名" : "没有匹配的域名"}</span>
+          <span className="na-body">{domainCount === 0 ? "没有可统计的链接域名" : "没有匹配的域名"}</span>
         </div>
       ) : (
         <div className="border-border/50 min-w-0 overflow-x-auto border">
-          <div className="border-border/50 bg-muted/20 text-muted-foreground gt-label sticky top-0 grid min-w-[700px] grid-cols-[minmax(180px,1fr)_64px_repeat(6,52px)_64px_64px] items-center gap-2 border-b px-2 py-2">
+          <div className="border-border/50 bg-muted/20 text-muted-foreground na-label sticky top-0 grid min-w-[700px] grid-cols-[minmax(180px,1fr)_64px_repeat(6,52px)_64px_64px] items-center gap-2 border-b px-2 py-2">
             <span>域名</span>
             <span className="text-right">资源</span>
             <span className="text-right">图片</span>
@@ -182,9 +182,9 @@ export function DomainPanel({
                 key={item.domain}
                 type="button"
                 onClick={() => onSelectDomain(item.domain)}
-                className="hover:bg-accent/40 gt-caption grid h-10 w-full min-w-[700px] grid-cols-[minmax(180px,1fr)_64px_repeat(6,52px)_64px_64px] items-center gap-2 px-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
+                className="hover:bg-accent/40 na-caption grid h-10 w-full min-w-[700px] grid-cols-[minmax(180px,1fr)_64px_repeat(6,52px)_64px_64px] items-center gap-2 px-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50"
               >
-                <span className="gt-body-strong flex min-w-0 items-center gap-2 truncate" title={item.domain}>
+                <span className="na-body-strong flex min-w-0 items-center gap-2 truncate" title={item.domain}>
                   <Globe2 className="text-muted-foreground size-4 shrink-0" />
                   <span className="truncate">{item.domain}</span>
                 </span>

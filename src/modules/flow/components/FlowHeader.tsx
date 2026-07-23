@@ -81,7 +81,7 @@ export function FlowHeader({
     <header className="border-border flex shrink-0 items-center gap-4 border-b px-5 py-2">
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <DomainTrail items={trailItems} />
-        <span className="shrink-0 text-muted-foreground/60 gt-body">/</span>
+        <span className="shrink-0 text-muted-foreground/60 na-body">/</span>
         <div ref={menuRef} className="relative min-w-0 shrink">
           <button
             type="button"
@@ -92,7 +92,7 @@ export function FlowHeader({
             onClick={() => setMenuOpen((open) => !open)}
             title={contextTitle}
           >
-            <span className="min-w-0 truncate gt-body">{contextLabel}</span>
+            <span className="min-w-0 truncate na-body">{contextLabel}</span>
             <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", menuOpen && "rotate-180")} />
           </button>
 
@@ -103,8 +103,8 @@ export function FlowHeader({
             >
               <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
                 <div className="min-w-0">
-                  <div className="gt-body-strong truncate">{contextLabel}</div>
-                  <div className="gt-caption truncate text-muted-foreground">
+                  <div className="na-body-strong truncate">{contextLabel}</div>
+                  <div className="na-caption truncate text-muted-foreground">
                     {activeFolder ? `flows/${activeFolder}` : "未选择 Flow"}
                   </div>
                 </div>
@@ -127,8 +127,8 @@ export function FlowHeader({
                 {flows.length === 0 ? (
                   <div className="px-3 py-6 text-center">
                     <Workflow className="mx-auto size-6 text-muted-foreground" />
-                    <div className="gt-body-strong mt-2">暂无 Flow</div>
-                    <p className="gt-caption mt-1 text-muted-foreground">新建后会出现在这里。</p>
+                    <div className="na-body-strong mt-2">暂无 Flow</div>
+                    <p className="na-caption mt-1 text-muted-foreground">新建后会出现在这里。</p>
                   </div>
                 ) : (
                   flows.map((flow) => {
@@ -152,8 +152,8 @@ export function FlowHeader({
                           {isCurrent ? <Check className="size-3.5" /> : <Workflow className="size-3.5" />}
                         </span>
                         <span className="min-w-0 flex-1">
-                          <span className="gt-body-strong block truncate">{flow.summary.name}</span>
-                          <span className="gt-caption block truncate text-muted-foreground">
+                          <span className="na-body-strong block truncate">{flow.summary.name}</span>
+                          <span className="na-caption block truncate text-muted-foreground">
                             {folder} / {flowFileName(flow.id)}
                           </span>
                         </span>
@@ -176,8 +176,8 @@ export function FlowHeader({
       <div className="ml-auto hidden shrink-0 items-center gap-2 text-right md:flex">
         {[secondaryStats, primaryStats].map((stat, index) => (
           <div key={`${index}.${stat}`} className="flex items-center gap-2">
-            {index > 0 && <span className="text-muted-foreground/40 gt-caption">/</span>}
-            <span className="text-foreground gt-caption font-medium">{stat}</span>
+            {index > 0 && <span className="text-muted-foreground/40 na-caption">/</span>}
+            <span className="text-foreground na-caption font-medium">{stat}</span>
           </div>
         ))}
       </div>

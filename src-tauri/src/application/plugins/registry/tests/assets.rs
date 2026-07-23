@@ -47,7 +47,7 @@ fn registers_manifest_and_serves_scoped_assets() {
     );
 
     let request = Request::builder()
-        .uri("gt-plugin://localhost/com.example.demo/web/index.html")
+        .uri("na-plugin://localhost/com.example.demo/web/index.html")
         .body(Vec::new())
         .unwrap();
     let response = asset_response(&registry, &request);
@@ -89,7 +89,7 @@ fn network_permission_allows_remote_media_without_enabling_fetch() {
     let registry = ExtensionRegistry::default();
     registry.register_path(directory.path()).unwrap();
     let request = Request::builder()
-        .uri("gt-plugin://localhost/com.example.network/web/index.html")
+        .uri("na-plugin://localhost/com.example.network/web/index.html")
         .body(Vec::new())
         .unwrap();
     let response = asset_response(&registry, &request);

@@ -45,7 +45,7 @@ export function StoreHeader(props: StoreHeaderProps) {
     <header className="border-border flex shrink-0 items-center gap-4 border-b px-5 py-2">
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <DomainTrail items={props.trailItems} />
-        <span className="shrink-0 text-muted-foreground/60 gt-body">/</span>
+        <span className="shrink-0 text-muted-foreground/60 na-body">/</span>
         <div ref={menuRef} className="relative min-w-0 shrink">
           <button
             type="button"
@@ -56,7 +56,7 @@ export function StoreHeader(props: StoreHeaderProps) {
             onClick={() => setMenuOpen((open) => !open)}
             title={props.selectedNamespace ?? label}
           >
-            <span className="min-w-0 truncate gt-body">{label}</span>
+            <span className="min-w-0 truncate na-body">{label}</span>
             <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", menuOpen && "rotate-180")} />
           </button>
 
@@ -64,8 +64,8 @@ export function StoreHeader(props: StoreHeaderProps) {
             <div role="menu" className="absolute left-0 top-[calc(100%+0.5rem)] z-30 w-72 overflow-hidden rounded-md border bg-popover text-popover-foreground shadow-lg sm:w-80">
               <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
                 <div className="min-w-0">
-                  <div className="gt-body-strong truncate">{label}</div>
-                  <div className="gt-caption truncate text-muted-foreground">{selectedInfo ? `${selectedInfo.count} keys / ${selectedInfo.visibility}` : "未选择命名空间"}</div>
+                  <div className="na-body-strong truncate">{label}</div>
+                  <div className="na-caption truncate text-muted-foreground">{selectedInfo ? `${selectedInfo.count} keys / ${selectedInfo.visibility}` : "未选择命名空间"}</div>
                 </div>
                 <Button type="button" size="sm" variant="ghost" className="h-8 px-2" onClick={() => { setMenuOpen(false); props.onRefresh(); }}>
                   <RefreshCw className="size-3.5" />刷新
@@ -75,8 +75,8 @@ export function StoreHeader(props: StoreHeaderProps) {
                 {props.namespaces.length === 0 ? (
                   <div className="px-3 py-6 text-center">
                     <Database className="mx-auto size-6 text-muted-foreground" />
-                    <div className="gt-body-strong mt-2">暂无命名空间</div>
-                    <p className="gt-caption mt-1 text-muted-foreground">写入配置后会出现在这里。</p>
+                    <div className="na-body-strong mt-2">暂无命名空间</div>
+                    <p className="na-caption mt-1 text-muted-foreground">写入配置后会出现在这里。</p>
                   </div>
                 ) : props.namespaces.map((namespace) => {
                   const current = props.selectedNamespace === namespace.name;
@@ -92,8 +92,8 @@ export function StoreHeader(props: StoreHeaderProps) {
                         {current ? <Check className="size-3.5" /> : <Database className="size-3.5" />}
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="gt-body-strong block truncate">{domainLabel(namespace.name)}</span>
-                        <span className="gt-caption block truncate text-muted-foreground" title={namespace.name}>{namespace.count} keys / {namespace.visibility}</span>
+                        <span className="na-body-strong block truncate">{domainLabel(namespace.name)}</span>
+                        <span className="na-caption block truncate text-muted-foreground" title={namespace.name}>{namespace.count} keys / {namespace.visibility}</span>
                       </span>
                     </button>
                   );
@@ -106,8 +106,8 @@ export function StoreHeader(props: StoreHeaderProps) {
       <div className="ml-auto hidden shrink-0 items-center gap-2 text-right md:flex">
         {props.stats.map((stat, index) => (
           <div key={`${index}.${stat}`} className="flex items-center gap-2">
-            {index > 0 && <span className="text-muted-foreground/40 gt-caption">/</span>}
-            <span className="text-foreground gt-caption font-medium">{stat}</span>
+            {index > 0 && <span className="text-muted-foreground/40 na-caption">/</span>}
+            <span className="text-foreground na-caption font-medium">{stat}</span>
           </div>
         ))}
       </div>

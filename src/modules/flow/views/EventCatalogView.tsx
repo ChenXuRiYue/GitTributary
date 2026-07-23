@@ -105,12 +105,12 @@ export function EventCatalogView({
           <div className="flex flex-wrap items-start justify-between gap-4 border-b px-4 py-3">
             <div className="min-w-0">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <h3 className="gt-title-panel truncate">事件列表</h3>
+                <h3 className="na-title-panel truncate">事件列表</h3>
                 <Badge variant="outline" className="h-5 border-slate-200 bg-slate-50 text-slate-600">
                   {events.length} 个事件
                 </Badge>
               </div>
-              <p className="gt-body mt-1 text-muted-foreground">
+              <p className="na-body mt-1 text-muted-foreground">
                 当前事件池已登记的可触发信号,这些事件会作为 Flow 的入口。
               </p>
             </div>
@@ -133,13 +133,13 @@ export function EventCatalogView({
             />
             <div className="px-4 py-3">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <p className="gt-body-strong truncate">{selectedDomainMeta.label}</p>
+                <p className="na-body-strong truncate">{selectedDomainMeta.label}</p>
                 <Badge variant="outline" className="h-5 border-slate-200 bg-slate-50 text-slate-600">
                   {selectedEvent.domain}
                 </Badge>
               </div>
-              <p className="gt-caption mt-1 text-muted-foreground">{selectedDomainMeta.summary}</p>
-              <p className="gt-body mt-2 text-muted-foreground">{selectedDomainMeta.description}</p>
+              <p className="na-caption mt-1 text-muted-foreground">{selectedDomainMeta.summary}</p>
+              <p className="na-body mt-2 text-muted-foreground">{selectedDomainMeta.description}</p>
             </div>
           </section>
         )}
@@ -204,7 +204,7 @@ export function EventCatalogView({
             </Button>
           </div>
           <div className="border-t px-3 py-2">
-            <p className="gt-caption text-muted-foreground">
+            <p className="na-caption text-muted-foreground">
               当前显示 {filteredEvents.length} / {events.length} 个事件
             </p>
           </div>
@@ -212,11 +212,11 @@ export function EventCatalogView({
 
         {events.length === 0 ? (
           <section className="rounded-md border">
-            <p className="gt-body px-4 py-3 text-muted-foreground">暂无已注册事件。</p>
+            <p className="na-body px-4 py-3 text-muted-foreground">暂无已注册事件。</p>
           </section>
         ) : filteredEvents.length === 0 ? (
           <section className="rounded-md border">
-            <p className="gt-body px-4 py-3 text-muted-foreground">没有符合筛选条件的事件。</p>
+            <p className="na-body px-4 py-3 text-muted-foreground">没有符合筛选条件的事件。</p>
           </section>
         ) : (
           <section className="grid min-h-0 flex-1 overflow-hidden rounded-md border xl:grid-cols-[minmax(280px,0.42fr)_minmax(0,0.58fr)]">
@@ -224,15 +224,15 @@ export function EventCatalogView({
               <div className="flex items-center justify-between gap-3 border-b px-3 py-2.5">
                 <div className="flex min-w-0 items-center gap-2">
                   <List className="size-4 shrink-0 text-muted-foreground" />
-                  <h4 className="gt-title-section truncate">事件索引</h4>
+                  <h4 className="na-title-section truncate">事件索引</h4>
                 </div>
-                <span className="gt-caption shrink-0 text-muted-foreground">{filteredEvents.length}</span>
+                <span className="na-caption shrink-0 text-muted-foreground">{filteredEvents.length}</span>
               </div>
               <ScrollArea className="h-full" orientation="vertical">
                 {groupedFilteredEntries.map(([domain, domainEvents]) => (
                   <div key={domain} className="border-b last:border-b-0">
                     <div className="sticky top-0 z-10 border-b bg-muted/70 px-3 py-1.5 backdrop-blur">
-                      <p className="gt-label text-muted-foreground">{eventDomainText(domain)} · {domainEvents.length}</p>
+                      <p className="na-label text-muted-foreground">{eventDomainText(domain)} · {domainEvents.length}</p>
                     </div>
                     {domainEvents.map((event) => {
                       const selected = selectedEvent?.type === event.type;
@@ -247,15 +247,15 @@ export function EventCatalogView({
                           )}
                         >
                           <span className="min-w-0">
-                            <span className="gt-body-strong block truncate">{event.summary || event.description}</span>
-                            <span className="gt-code mt-0.5 block truncate text-muted-foreground">{event.type}</span>
+                            <span className="na-body-strong block truncate">{event.summary || event.description}</span>
+                            <span className="na-code mt-0.5 block truncate text-muted-foreground">{event.type}</span>
                           </span>
                           <span className="flex flex-col items-end gap-1">
                             <Badge variant="outline" className={cn("h-5 border", eventStabilityTone(event.stability))}>
                               {event.stability}
                             </Badge>
                             {event.filters.length > 0 && (
-                              <span className="gt-caption text-muted-foreground">{event.filters.length} filters</span>
+                              <span className="na-caption text-muted-foreground">{event.filters.length} filters</span>
                             )}
                           </span>
                         </button>
@@ -271,7 +271,7 @@ export function EventCatalogView({
                 <div className="flex h-full min-w-0 flex-col">
                   <div className="border-b px-4 py-3">
                     <div className="flex min-w-0 flex-wrap items-center gap-2">
-                      <h4 className="gt-title-panel truncate">{selectedEvent.summary || selectedEvent.description}</h4>
+                      <h4 className="na-title-panel truncate">{selectedEvent.summary || selectedEvent.description}</h4>
                       <Badge variant="outline" className={cn("h-5 border", eventStabilityTone(selectedEvent.stability))}>
                         {selectedEvent.stability}
                       </Badge>
@@ -279,8 +279,8 @@ export function EventCatalogView({
                         {eventDomainText(selectedEvent.domain)}
                       </Badge>
                     </div>
-                    <p className="gt-code mt-1 break-all text-muted-foreground">{selectedEvent.type}</p>
-                    <p className="gt-caption mt-1 break-all text-muted-foreground">{selectedEvent.source}</p>
+                    <p className="na-code mt-1 break-all text-muted-foreground">{selectedEvent.type}</p>
+                    <p className="na-caption mt-1 break-all text-muted-foreground">{selectedEvent.source}</p>
                   </div>
 
                   <ScrollArea className="min-h-0 flex-1" orientation="both">
@@ -289,26 +289,26 @@ export function EventCatalogView({
                         <div className="rounded-md border bg-muted/20 px-3 py-2.5">
                           <div className="flex min-w-0 items-center gap-2">
                             <Database className="size-3.5 shrink-0 text-muted-foreground" />
-                            <p className="gt-body-strong truncate">{selectedDomainMeta.label}</p>
+                            <p className="na-body-strong truncate">{selectedDomainMeta.label}</p>
                           </div>
-                          <p className="gt-caption mt-1 text-muted-foreground">{selectedDomainMeta.summary}</p>
-                          <p className="gt-body mt-2 text-muted-foreground">{selectedDomainMeta.description}</p>
+                          <p className="na-caption mt-1 text-muted-foreground">{selectedDomainMeta.summary}</p>
+                          <p className="na-body mt-2 text-muted-foreground">{selectedDomainMeta.description}</p>
                         </div>
                       )}
                       <div>
-                        <p className="gt-label text-muted-foreground">简要描述</p>
-                        <p className="gt-body mt-1">{selectedEvent.description}</p>
+                        <p className="na-label text-muted-foreground">简要描述</p>
+                        <p className="na-body mt-1">{selectedEvent.description}</p>
                       </div>
                       <div>
-                        <p className="gt-label text-muted-foreground">触发说明</p>
-                        <p className="gt-body mt-1 text-muted-foreground">{selectedEvent.trigger_description}</p>
+                        <p className="na-label text-muted-foreground">触发说明</p>
+                        <p className="na-body mt-1 text-muted-foreground">{selectedEvent.trigger_description}</p>
                       </div>
 
                       <div className="grid gap-4 lg:grid-cols-2">
                         <div className="rounded-md border">
                           <SectionHeader icon={ListPlus} title="过滤字段" aside={`${selectedEvent.filters.length}`} />
                           {selectedEvent.filters.length === 0 ? (
-                            <p className="gt-body px-4 py-3 text-muted-foreground">该事件没有声明过滤字段。</p>
+                            <p className="na-body px-4 py-3 text-muted-foreground">该事件没有声明过滤字段。</p>
                           ) : (
                             <div className="flex flex-wrap gap-1.5 p-3">
                               {selectedEvent.filters.map((filter) => (
@@ -322,13 +322,13 @@ export function EventCatalogView({
                         <div className="rounded-md border">
                           <SectionHeader icon={Code2} title="事件载荷" aside={`${Object.keys(selectedEvent.data_schema).length}`} />
                           {Object.keys(selectedEvent.data_schema).length === 0 ? (
-                            <p className="gt-body px-4 py-3 text-muted-foreground">该事件没有固定载荷字段。</p>
+                            <p className="na-body px-4 py-3 text-muted-foreground">该事件没有固定载荷字段。</p>
                           ) : (
                             <div className="divide-y">
                               {Object.entries(selectedEvent.data_schema).map(([key, value]) => (
                                 <div key={key} className="grid grid-cols-[minmax(100px,0.45fr)_1fr] gap-2 px-3 py-2">
-                                  <span className="gt-code truncate">{key}</span>
-                                  <span className="gt-caption truncate text-muted-foreground">{value}</span>
+                                  <span className="na-code truncate">{key}</span>
+                                  <span className="na-caption truncate text-muted-foreground">{value}</span>
                                 </div>
                               ))}
                             </div>

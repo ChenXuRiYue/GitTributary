@@ -81,12 +81,12 @@ export function CapturePanel({
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="flex min-w-0 items-center gap-2">
-                  <div className="gt-title-panel truncate">候选文档</div>
-                  <Badge variant="outline" className="h-5 shrink-0 px-1.5 gt-caption">
+                  <div className="na-title-panel truncate">候选文档</div>
+                  <Badge variant="outline" className="h-5 shrink-0 px-1.5 na-caption">
                     {filtersActive ? `显示 ${filteredCount} / 候选 ${totalCount}` : `${totalCount} 个候选`}
                   </Badge>
                 </div>
-                <p className="gt-caption mt-1 truncate text-muted-foreground">
+                <p className="na-caption mt-1 truncate text-muted-foreground">
                   {scanReport ? `扫描到 ${scanReport.markdownCount} 个 Markdown 文件` : "选择参与构建的入口目录或文件。"}
                 </p>
               </div>
@@ -157,7 +157,7 @@ export function CapturePanel({
                 </div>
               )}
               <details className="relative shrink-0">
-                <summary className="flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-md border bg-background px-2.5 gt-caption text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground [&::-webkit-details-marker]:hidden">
+                <summary className="flex h-8 cursor-pointer list-none items-center gap-1.5 rounded-md border bg-background px-2.5 na-caption text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground [&::-webkit-details-marker]:hidden">
                   <SlidersHorizontal className="size-3.5" />
                   筛选
                   {filtersActive && <span className="size-1.5 rounded-full bg-primary" />}
@@ -167,7 +167,7 @@ export function CapturePanel({
                     <select
                       value={filters.kind}
                       onChange={(event) => updateFilters({ kind: event.target.value as CaptureFilterState["kind"] })}
-                      className="h-8 rounded-md border bg-background px-2 gt-caption outline-none"
+                      className="h-8 rounded-md border bg-background px-2 na-caption outline-none"
                       aria-label="路径类型筛选"
                     >
                       <option value="all">全部类型</option>
@@ -177,7 +177,7 @@ export function CapturePanel({
                     <select
                       value={filters.selection}
                       onChange={(event) => updateFilters({ selection: event.target.value as CaptureFilterState["selection"] })}
-                      className="h-8 rounded-md border bg-background px-2 gt-caption outline-none"
+                      className="h-8 rounded-md border bg-background px-2 na-caption outline-none"
                       aria-label="选择状态筛选"
                     >
                       <option value="all">全部状态</option>
@@ -187,7 +187,7 @@ export function CapturePanel({
                     <select
                       value={filters.defaultState}
                       onChange={(event) => updateFilters({ defaultState: event.target.value as CaptureFilterState["defaultState"] })}
-                      className="h-8 rounded-md border bg-background px-2 gt-caption outline-none"
+                      className="h-8 rounded-md border bg-background px-2 na-caption outline-none"
                       aria-label="默认范围筛选"
                     >
                       <option value="all">全部来源</option>
@@ -197,14 +197,14 @@ export function CapturePanel({
                     <select
                       value={filters.sort}
                       onChange={(event) => updateFilters({ sort: event.target.value as CaptureFilterState["sort"] })}
-                      className="h-8 rounded-md border bg-background px-2 gt-caption outline-none"
+                      className="h-8 rounded-md border bg-background px-2 na-caption outline-none"
                       aria-label="排序方式"
                     >
                       <option value="path">按路径</option>
                       <option value="score-desc">按匹配度</option>
                       <option value="markdown-desc">按 Markdown 数</option>
                     </select>
-                    <label className="flex h-8 items-center gap-2 rounded-md border bg-background px-2 gt-caption text-muted-foreground">
+                    <label className="flex h-8 items-center gap-2 rounded-md border bg-background px-2 na-caption text-muted-foreground">
                       <span className="shrink-0">md ≥</span>
                       <Input
                         type="number"
@@ -239,7 +239,7 @@ export function CapturePanel({
             </div>
           </div>
 
-          <div className="gt-thin-scroll min-h-0 flex-1 overflow-auto">
+          <div className="na-thin-scroll min-h-0 flex-1 overflow-auto">
             {captureList.length ? (
               captureViewMode === "tree" ? (
                 <CaptureTree
@@ -265,8 +265,8 @@ export function CapturePanel({
             ) : (
               <div className="flex min-h-80 flex-col items-center justify-center gap-2 px-5 py-8 text-center">
                 <Search className="size-8 text-muted-foreground" />
-                <div className="gt-body-strong">{totalCount > 0 ? "没有符合条件的文档" : "还没有扫描结果"}</div>
-                <p className="gt-caption max-w-sm text-muted-foreground">
+                <div className="na-body-strong">{totalCount > 0 ? "没有符合条件的文档" : "还没有扫描结果"}</div>
+                <p className="na-caption max-w-sm text-muted-foreground">
                   {totalCount > 0 ? "调整筛选条件后再查看。" : "选择仓库后会自动识别 README、doc、docs、notes 等文档目录。"}
                 </p>
               </div>
@@ -277,8 +277,8 @@ export function CapturePanel({
         <aside className="flex min-w-0 flex-col bg-sidebar/70">
           <div className="flex items-start justify-between gap-3 border-b px-5 py-3">
             <div className="min-w-0">
-              <div className="gt-title-panel">发布范围</div>
-              <div className="gt-caption mt-1 truncate text-muted-foreground">
+              <div className="na-title-panel">发布范围</div>
+              <div className="na-caption mt-1 truncate text-muted-foreground">
                 {selectedCount > 0 ? `${selectedCount} 个入口,${selectedMarkdownCount} 个 Markdown` : "选择左侧入口后显示。"}
               </div>
             </div>
@@ -286,7 +286,7 @@ export function CapturePanel({
               <Badge
                 variant="outline"
                 className={cn(
-                  "h-6 px-2 gt-caption",
+                  "h-6 px-2 na-caption",
                   dirty ? "text-amber-600" : "text-muted-foreground",
                 )}
               >
@@ -303,14 +303,14 @@ export function CapturePanel({
               </Button>
             </div>
           </div>
-          <div className="gt-thin-scroll min-h-0 flex-1 overflow-auto">
+          <div className="na-thin-scroll min-h-0 flex-1 overflow-auto">
             {selectedCaptureTree.length ? (
               <CapturePreviewTree nodes={selectedCaptureTree} />
             ) : (
               <div className="flex min-h-80 flex-col items-center justify-center gap-2 px-5 py-8 text-center">
                 <FolderTree className="size-8 text-muted-foreground" />
-                <div className="gt-body-strong">暂无已选目录</div>
-                <p className="gt-caption max-w-xs text-muted-foreground">
+                <div className="na-body-strong">暂无已选目录</div>
+                <p className="na-caption max-w-xs text-muted-foreground">
                   勾选左侧候选目录后,这里会按目录层级展示将发布的文档范围。
                 </p>
               </div>

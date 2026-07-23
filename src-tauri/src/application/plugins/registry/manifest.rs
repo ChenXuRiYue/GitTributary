@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use gt_flow::FlowNodeDefinition;
+use na_flow::FlowNodeDefinition;
 use serde::Deserialize;
 
 const DEFAULT_API_VERSION: &str = "1";
@@ -361,7 +361,7 @@ fn default_api_version() -> String {
 }
 
 fn default_publisher() -> String {
-    "GitTributary".to_string()
+    "NoteAura".to_string()
 }
 
 fn default_view_location() -> String {

@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Git Tributary are documented in this file.
+All notable changes to NoteAura are documented in this file.
 
 This project follows a lightweight form of [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and uses semantic versioning while the public API and release process mature.
 
@@ -8,7 +8,7 @@ This project follows a lightweight form of [Keep a Changelog](https://keepachang
 
 ### Added
 
-- First public release of Git Tributary, a desktop companion for Git-backed Markdown note repositories.
+- First public release of NoteAura, a desktop companion for Git-backed Markdown note repositories.
 - Git workspace support: open repositories, inspect working tree changes, view file diffs, create commits, browse history, manage branches, and work with remotes.
 - Publishing support: configure publishing tasks, scan Markdown document scopes, build static HTML output, and push generated pages through a target repository workflow.
 - Flow support: create, save, enable, disable, delete, and manually run YAML-based local automation flows.

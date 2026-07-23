@@ -1,4 +1,4 @@
-//! 数据中心(`gt-data`)动态 KV、命名空间浏览、Profile/环境切换命令。
+//! 数据中心(`na-data`)动态 KV、命名空间浏览、Profile/环境切换命令。
 //!
 //! `store_set` / `store_delete` 根据数据层 `EventPolicy` 决定是否发出
 //! `store.key.changed` CloudEvent。同步、敏感性和事件暴露不再共享字符串判断。
@@ -8,7 +8,7 @@ use tauri::State;
 
 use crate::publish_flow_event;
 use crate::AppState;
-use gt_flow::EventDraft;
+use na_flow::EventDraft;
 
 #[derive(serde::Serialize)]
 pub(crate) struct NamespaceInfo {
@@ -55,7 +55,7 @@ pub(crate) fn store_set(
             &state,
             EventDraft {
                 // Stable event source identifier retained for existing Flow filters.
-                source: "gittributary://gt-store".to_string(),
+                source: "noteaura://na-store".to_string(),
                 event_type: "store.key.changed".to_string(),
                 subject: Some(format!("store:{namespace}/{key}")),
                 data: serde_json::json!({
@@ -87,7 +87,7 @@ pub(crate) fn store_delete(
             &state,
             EventDraft {
                 // Stable event source identifier retained for existing Flow filters.
-                source: "gittributary://gt-store".to_string(),
+                source: "noteaura://na-store".to_string(),
                 event_type: "store.key.changed".to_string(),
                 subject: Some(format!("store:{namespace}/{key}")),
                 data: serde_json::json!({
@@ -122,7 +122,7 @@ pub(crate) fn store_namespaces(state: State<'_, AppState>) -> Vec<NamespaceInfo>
         .into_iter()
         .map(|namespace| {
             let visibility = match namespace.visibility {
-                gt_data::Visibility::Private => "private",
+                na_data::Visibility::Private => "private",
                 _ => "public",
             };
             NamespaceInfo {
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn dynamic_store_api_rejects_secret_namespaces() {
         let directory = TempDir::new().unwrap();
-        let data = gt_data::DataHub::open(directory.path()).unwrap();
+        let data = na_data::DataHub::open(directory.path()).unwrap();
 
         assert!(data.dynamic().get("private.credentials", "key").is_err());
         assert!(data
@@ -269,7 +269,7 @@ mod tests {
     #[test]
     fn dynamic_store_writes_cannot_bypass_domain_repositories() {
         let directory = TempDir::new().unwrap();
-        let mut data = gt_data::DataHub::open(directory.path()).unwrap();
+        let mut data = na_data::DataHub::open(directory.path()).unwrap();
         let value = serde_json::json!(true);
 
         assert!(data
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn dynamic_store_compaction_cannot_touch_domain_namespaces() {
         let directory = TempDir::new().unwrap();
-        let mut data = gt_data::DataHub::open(directory.path()).unwrap();
+        let mut data = na_data::DataHub::open(directory.path()).unwrap();
         assert!(data.dynamic_mut().compact("settings").is_err());
         assert!(data.dynamic_mut().compact("flows").is_err());
         data.dynamic_mut()

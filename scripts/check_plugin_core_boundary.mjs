@@ -5,12 +5,12 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pluginsRoot = resolve(root, "plugins");
 const forbiddenPackages = [
-  "gt-git",
-  "gt-files",
-  "gt-data",
-  "gt-flow",
-  "gt-plugin-host",
-  "gt-plugin-protocol",
+  "na-git",
+  "na-files",
+  "na-data",
+  "na-flow",
+  "na-plugin-host",
+  "na-plugin-protocol",
 ];
 
 function cargoManifests(directory) {

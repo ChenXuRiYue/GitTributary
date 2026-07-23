@@ -1,14 +1,14 @@
 {
   "schemaVersion": 1,
   "apiVersion": "1",
-  "id": "dev.gittributary.site-publisher",
+  "id": "dev.noteaura.site-publisher",
   "name": "发布",
   "icon": "lucide:send",
   "description": "从仓库文档构建静态站点并发布到 GitHub Pages。",
   "version": "0.1.3",
-  "publisher": "GitTributary",
+  "publisher": "NoteAura",
   "engines": {
-    "gittributary": ">=0.1.3"
+    "noteaura": ">=0.1.3"
   },
   "contributes": {
     "views": [
@@ -22,7 +22,7 @@
     ],
     "flowNodes": [
       {
-        "uses": "dev.gittributary.site-publisher/scan@v1",
+        "uses": "dev.noteaura.site-publisher/scan@v1",
         "name": "扫描站点内容",
         "type": "scan",
         "summary": "扫描当前仓库中的 Markdown 与站点资源",
@@ -39,7 +39,7 @@
         "method": "flow.site.scan"
       },
       {
-        "uses": "dev.gittributary.site-publisher/build@v1",
+        "uses": "dev.noteaura.site-publisher/build@v1",
         "name": "构建静态站点",
         "type": "build",
         "summary": "把仓库中的 Markdown 构建成静态 HTML 站点",

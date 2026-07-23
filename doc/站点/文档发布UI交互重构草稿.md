@@ -298,7 +298,7 @@ useEffect(() => {
 - 2026-07-05: 修复"重启后发布任务列表拉取失败、每次都重新创建任务"的真实 bug (用户反馈)。
   - 根因: 一个竞态条件，不是持久化本身的问题 (本地 store 写入本就是同步落盘的)。挂载时有两条并行路径——「从 store 异步恢复任务列表」和「扫描仓库」；"自动创建默认任务" 的 effect 只用 `workspaceGroups.length > 0` 判断是否需要新建，但初次挂载 `workspaceGroups` 初始值是 `[]`。如果 `site_scan` 比 store 读取先返回 (常见)，`scanReport` 变化会立刻触发这个 effect，此时若「从 store 恢复」的 `setWorkspaceGroups(migratedGroups)` 还没被 React 应用，effect 看到的仍是空数组，于是抢先新建一个任务并立即 `persistWorkspaceConfig` **覆盖了刚从磁盘读出来、即将写入的已保存任务列表**——表现为"每次重启都拉取失败、重新创建任务"。
   - 修正: 新增 `workspaceRestoredRef`，在挂载 effect 里完成 store 恢复 (无论成功、为空还是异常) 后才置为 `true`；"自动创建默认任务" 的 effect 门控在 `workspaceRestoredRef.current` 上，关闭竞态窗口。
-  - 顺带用同一次修复验证: 本地持久化 (`gt-data`) 本身没有问题，`store_set`/`store_get` 是同步 write-through 的；用户提到的"远程"实际是数据中心模块的 `sync_now` (通过 Git 把 public 命名空间推送到远程配置数据库)，是独立的全局能力，与本次 bug 无关。
+  - 顺带用同一次修复验证: 本地持久化 (`na-data`) 本身没有问题，`store_set`/`store_get` 是同步 write-through 的；用户提到的"远程"实际是数据中心模块的 `sync_now` (通过 Git 把 public 命名空间推送到远程配置数据库)，是独立的全局能力，与本次 bug 无关。
 - 2026-07-05: 应用户要求，为「发布任务」和「文档范围」两个配置面板分别加保存按钮，语义为把当前编辑草稿整体覆盖写入本地存储；全局远程同步 (`sync_now`) 明确解耦，不在这两个面板里触碰。
   - 交互模式从"编辑即生效"改为"本地草稿 + 手动保存"：`WorkspaceConfigPanel.tsx` 内部新增 `draft` state (随 `activeGroup.id` 切换重新播种，不随其内容变化重播，避免覆盖用户正在编辑的草稿)，任务名/源仓库/发布仓库参数/环境变量的编辑全部只改草稿；`groupsEqual()` 判断草稿是否 dirty；点击「保存」才 `onUpdateGroup` 提交整份草稿。
   - `SitePanel.tsx` 同理：删除了原来对 `selectedPaths` 的去抖自动写回 `documentScope` 的 effect，改为 `documentScopeDirty` (对比排序后的草稿与已保存 `documentScope`) + 显式 `saveDocumentScope()`；`CapturePanel.tsx` 头部加"未保存/已保存"徽章与保存按钮。

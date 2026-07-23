@@ -188,7 +188,7 @@ export function BrandSplash({ className }: { className?: string }) {
       {/* ─── 品牌文字 ─── */}
       <div className="absolute bottom-6 z-20 flex flex-col items-center gap-1">
         <h1 className="text-2xl font-bold tracking-tight text-white drop-shadow-lg">
-          GitTributary
+          NoteAura
         </h1>
         <p className="text-xs text-white/60">
           海纳百川,有容乃大

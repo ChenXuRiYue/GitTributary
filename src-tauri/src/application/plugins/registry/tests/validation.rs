@@ -120,7 +120,7 @@ fn validates_headless_flow_node_plugins() {
     let first_binding = registry
         .flow_node_binding_snapshot("com.example.demo", "com.example.demo/scan@v1")
         .unwrap();
-    let mut nodes = gt_flow::FlowNodeRegistry::new();
+    let mut nodes = na_flow::FlowNodeRegistry::new();
     registry.contribute_active_flow_nodes(&mut nodes).unwrap();
     assert!(nodes.get("com.example.demo/scan@v1").is_some());
     registry.register_path(directory.path()).unwrap();
@@ -182,7 +182,7 @@ fn rejects_invalid_flow_node_bindings() {
         .unwrap()
     };
     assert!(validate_manifest(
-        &manifest("gittributary/files/override@v1", "flow.scan"),
+        &manifest("noteaura/files/override@v1", "flow.scan"),
         directory.path()
     )
     .is_err());

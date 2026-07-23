@@ -1,15 +1,15 @@
 [workspace]
 members = [
-    "crates/gt-git",
-    "crates/gt-files",
-    "crates/gt-data",
-    "crates/gt-flow",
-    "crates/gt-plugin-protocol",
-    "crates/gt-plugin-host",
+    "crates/na-git",
+    "crates/na-files",
+    "crates/na-data",
+    "crates/na-flow",
+    "crates/na-plugin-protocol",
+    "crates/na-plugin-host",
 ]
 
 [package]
-name = "gittributary"
+name = "noteaura"
 version = "0.1.3"
 description = "A Tauri App"
 authors = ["you"]
@@ -22,7 +22,7 @@ publish = false
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "gittributary_lib"
+name = "noteaura_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -35,11 +35,11 @@ tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 semver = "1"
-gt-git = { path = "crates/gt-git" }
-gt-files = { path = "crates/gt-files" }
-gt-data = { path = "crates/gt-data" }
-gt-flow = { path = "crates/gt-flow" }
-gt-plugin-protocol = { path = "crates/gt-plugin-protocol" }
+na-git = { path = "crates/na-git" }
+na-files = { path = "crates/na-files" }
+na-data = { path = "crates/na-data" }
+na-flow = { path = "crates/na-flow" }
+na-plugin-protocol = { path = "crates/na-plugin-protocol" }
 dirs-next = "2"
 
 [dev-dependencies]

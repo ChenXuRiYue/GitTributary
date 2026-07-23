@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use gt_data::DataHub;
-use gt_flow::{EventPool, FlowNodeRegistry};
+use na_data::DataHub;
+use na_flow::{EventPool, FlowNodeRegistry};
 use tempfile::TempDir;
 
 use super::config::{collect_remote_configs_with_base_dir, config_repo_remote_name};
@@ -41,16 +41,16 @@ fn init_repo_with_commit(dir: &Path) -> GitRepo {
 #[test]
 fn config_repo_remote_name_strips_git_suffix() {
     assert_eq!(
-        config_repo_remote_name("https://github.com/user/gt-config.git"),
-        "data-center/gt-config"
+        config_repo_remote_name("https://github.com/user/na-config.git"),
+        "data-center/na-config"
     );
 }
 
 #[test]
 fn config_repo_remote_name_handles_trailing_slash() {
     assert_eq!(
-        config_repo_remote_name("https://github.com/user/gt-config/"),
-        "data-center/gt-config"
+        config_repo_remote_name("https://github.com/user/na-config/"),
+        "data-center/na-config"
     );
 }
 
@@ -166,9 +166,9 @@ fn collect_remote_configs_includes_config_repo_local_path_when_checkout_exists()
     let repo = init_repo_with_commit(checkout_dir.path());
     repo.add_remote("origin", "https://github.com/a/config.git")
         .unwrap();
-    let engine = gt_data::SyncEngine::new(store_dir.path());
+    let engine = na_data::SyncEngine::new(store_dir.path());
     engine
-        .set_config(&gt_data::SyncConfig {
+        .set_config(&na_data::SyncConfig {
             url: "https://github.com/a/config.git".to_string(),
             branch: "main".to_string(),
             active_environment_id: None,

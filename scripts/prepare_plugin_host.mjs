@@ -14,19 +14,19 @@ if (!host) {
 
 execFileSync(
   "cargo",
-  ["build", "--release", "--manifest-path", resolve(tauriDir, "Cargo.toml"), "-p", "gt-plugin-host"],
+  ["build", "--release", "--manifest-path", resolve(tauriDir, "Cargo.toml"), "-p", "na-plugin-host"],
   { cwd: root, stdio: "inherit" },
 );
 
 const extension = process.platform === "win32" ? ".exe" : "";
-const source = resolve(tauriDir, "target", "release", `gt-plugin-host${extension}`);
+const source = resolve(tauriDir, "target", "release", `na-plugin-host${extension}`);
 const bundleDir = resolve(tauriDir, "binaries");
-const bundleTarget = resolve(bundleDir, `gt-plugin-host-${host}${extension}`);
-const developmentTarget = resolve(tauriDir, "target", "debug", `gt-plugin-host${extension}`);
+const bundleTarget = resolve(bundleDir, `na-plugin-host-${host}${extension}`);
+const developmentTarget = resolve(tauriDir, "target", "debug", `na-plugin-host${extension}`);
 
 mkdirSync(bundleDir, { recursive: true });
 mkdirSync(dirname(developmentTarget), { recursive: true });
 copyFileSync(source, bundleTarget);
 copyFileSync(source, developmentTarget);
 
-console.log(`Prepared gt-plugin-host for ${host}`);
+console.log(`Prepared na-plugin-host for ${host}`);

@@ -12,7 +12,7 @@ export default defineProject({
   plugins: [react()],
   resolve: {
     alias: [
-      { find: "@gittributary/plugin-testkit", replacement: path.resolve(workspaceRoot, "packages/plugin-testkit/src/index.ts") },
+      { find: "@noteaura/plugin-testkit", replacement: path.resolve(workspaceRoot, "packages/plugin-testkit/src/index.ts") },
       { find: "@tauri-apps/api/core", replacement: path.resolve(pluginSource, "tauri-core.ts") },
       { find: "@tauri-apps/plugin-opener", replacement: path.resolve(pluginSource, "tauri-opener.ts") },
       { find: /^@\//, replacement: `${path.resolve(workspaceRoot, "src")}/` },

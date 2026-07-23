@@ -105,7 +105,7 @@ export function MigrationScopeDialog({
         className="border-border bg-background flex h-[500px] max-h-[calc(100vh-2rem)] w-full max-w-xl flex-col overflow-hidden border shadow-xl"
       >
         <header className="border-border/60 flex min-h-11 shrink-0 items-center gap-3 border-b px-4">
-          <h2 id={titleId} className="gt-title-panel">配置文件范围</h2>
+          <h2 id={titleId} className="na-title-panel">配置文件范围</h2>
           <Button
             variant="ghost"
             size="icon"
@@ -139,7 +139,7 @@ export function MigrationScopeDialog({
 
         <div className="min-h-0 flex-1 overflow-hidden p-3">
           {draft.mode === "manual" ? (
-            <div className="border-border/60 gt-thin-scroll h-full overflow-y-auto border">
+            <div className="border-border/60 na-thin-scroll h-full overflow-y-auto border">
               <FolderScopeRow
                 node={folderTree}
                 depth={0}
@@ -161,14 +161,14 @@ export function MigrationScopeDialog({
                 autoFocus
               />
               {preview.error && (
-                <div className="text-destructive gt-caption mt-2 break-all">{preview.error}</div>
+                <div className="text-destructive na-caption mt-2 break-all">{preview.error}</div>
               )}
             </div>
           )}
         </div>
 
         <footer className="border-border/60 bg-muted/20 flex min-h-12 shrink-0 items-center gap-2 border-t px-4 py-2.5">
-          <span className="text-muted-foreground gt-caption tabular-nums">
+          <span className="text-muted-foreground na-caption tabular-nums">
             {preview.files.length} 个文件 · {previewImages.length} 张图片
           </span>
           <Button
@@ -222,7 +222,7 @@ function ScopeModeOption({
       aria-checked={selected}
       data-value={value}
       className={cn(
-        "gt-caption flex h-7 items-center justify-center gap-1.5 rounded-sm px-3 transition-colors",
+        "na-caption flex h-7 items-center justify-center gap-1.5 rounded-sm px-3 transition-colors",
         selected ? "bg-secondary text-secondary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
       )}
       onClick={onSelect}
@@ -285,9 +285,9 @@ function FolderScopeRow({
           {expanded && hasChildren
             ? <FolderOpen className="text-muted-foreground size-3.5 shrink-0" />
             : <Folder className="text-muted-foreground size-3.5 shrink-0" />}
-          <span className="gt-body min-w-0 truncate">{node.name}</span>
+          <span className="na-body min-w-0 truncate">{node.name}</span>
         </button>
-        <span className="text-muted-foreground gt-caption shrink-0 tabular-nums">{node.totalFileCount}</span>
+        <span className="text-muted-foreground na-caption shrink-0 tabular-nums">{node.totalFileCount}</span>
       </div>
       {expanded && node.children.map((child) => (
         <FolderScopeRow

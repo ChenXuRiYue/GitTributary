@@ -41,11 +41,11 @@ fn enforces_total_copy_size() {
 fn resolves_debug_catalog_from_project_root() {
     let catalog = plugin_catalog_root_for_mode(
         true,
-        Path::new("/workspace/GitTributary/src-tauri"),
+        Path::new("/workspace/NoteAura/src-tauri"),
         Some(Path::new("/ignored/resources")),
     )
     .unwrap();
-    assert_eq!(catalog, Path::new("/workspace/GitTributary/plugins"));
+    assert_eq!(catalog, Path::new("/workspace/NoteAura/plugins"));
 }
 
 #[test]
@@ -53,12 +53,12 @@ fn resolves_release_catalog_from_resource_directory() {
     let catalog = plugin_catalog_root_for_mode(
         false,
         Path::new("/ignored/src-tauri"),
-        Some(Path::new("/Applications/GitTributary/Resources")),
+        Some(Path::new("/Applications/NoteAura/Resources")),
     )
     .unwrap();
     assert_eq!(
         catalog,
-        Path::new("/Applications/GitTributary/Resources/plugins")
+        Path::new("/Applications/NoteAura/Resources/plugins")
     );
 }
 
@@ -81,7 +81,7 @@ fn allows_upgrade_and_same_version_reinstall_but_rejects_downgrade() {
 fn discovers_site_publisher_from_project_plugins() {
     let root =
         plugin_catalog_root_for_mode(true, Path::new(env!("CARGO_MANIFEST_DIR")), None).unwrap();
-    let (_, manifest) = plugin_source(&root, "dev.gittributary.site-publisher").unwrap();
+    let (_, manifest) = plugin_source(&root, "dev.noteaura.site-publisher").unwrap();
     assert!(manifest.store_namespaces.contains(&"sites".to_string()));
     assert!(!manifest.store_namespaces.contains(&"ui-state".to_string()));
 }

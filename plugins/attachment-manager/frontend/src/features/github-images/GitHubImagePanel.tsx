@@ -50,7 +50,7 @@ export function GitHubImagePanel() {
     return (
       <div className="text-muted-foreground flex min-h-48 items-center justify-center gap-2">
         <LoaderCircle className="size-4 animate-spin" />
-        <span className="gt-body">正在读取图库与 Git 远程</span>
+        <span className="na-body">正在读取图库与 Git 远程</span>
       </div>
     );
   }
@@ -90,7 +90,7 @@ export function GitHubImagePanel() {
         />
       )}
       {manager.error && page.id === "home" && (
-        <div className="border-destructive/40 bg-destructive/5 text-destructive gt-body mx-auto mt-4 max-w-5xl border px-4 py-3">
+        <div className="border-destructive/40 bg-destructive/5 text-destructive na-body mx-auto mt-4 max-w-5xl border px-4 py-3">
           {manager.error}
         </div>
       )}

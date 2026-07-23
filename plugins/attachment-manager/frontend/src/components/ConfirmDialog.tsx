@@ -58,8 +58,8 @@ export function ConfirmDialog({
         <div className="flex items-start gap-3 px-4 py-4">
           <AlertTriangle className={destructive ? "text-destructive mt-0.5 size-5 shrink-0" : "text-primary mt-0.5 size-5 shrink-0"} />
           <div className="min-w-0">
-            <h2 id={titleId} className="gt-title-panel">{title}</h2>
-            <div className="text-muted-foreground gt-body mt-1.5">{description}</div>
+            <h2 id={titleId} className="na-title-panel">{title}</h2>
+            <div className="text-muted-foreground na-body mt-1.5">{description}</div>
           </div>
         </div>
         <div className="border-border/60 bg-muted/20 flex justify-end gap-2 border-t px-4 py-3">

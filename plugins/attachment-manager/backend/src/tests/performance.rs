@@ -31,7 +31,7 @@ fn classifies_large_link_inventory_within_budget() {
     samples.sort_unstable();
     let p50 = samples[(SAMPLE_COUNT * 50).div_ceil(100) - 1];
     let p95 = samples[(SAMPLE_COUNT * 95).div_ceil(100) - 1];
-    let budget_ms = std::env::var("GT_PERF_ATTACHMENT_LINK_SCAN_P95_MS")
+    let budget_ms = std::env::var("NA_PERF_ATTACHMENT_LINK_SCAN_P95_MS")
         .ok()
         .map(|value| value.parse::<u64>().expect("budget must be an integer"))
         .unwrap_or(1_000);

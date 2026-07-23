@@ -41,18 +41,18 @@ export function MigrationSettingsPanel({
     return (
       <section className="border-border/50 flex min-h-10 shrink-0 items-center gap-2 border-b px-3 py-1.5">
         <Settings2 className="text-muted-foreground size-3.5 shrink-0" />
-        <span className="text-muted-foreground gt-label shrink-0">迁移设置</span>
-        <span className="text-muted-foreground/50 gt-caption">/</span>
-        <span className="gt-body-strong min-w-0 truncate">
+        <span className="text-muted-foreground na-label shrink-0">迁移设置</span>
+        <span className="text-muted-foreground/50 na-caption">/</span>
+        <span className="na-body-strong min-w-0 truncate">
           {selectedLibrary?.name ?? "未选择目标图库"}
           {selectedLibrary && (
-            <span className="text-muted-foreground gt-caption ml-1.5 font-normal">
+            <span className="text-muted-foreground na-caption ml-1.5 font-normal">
               {selectedLibrary.branch}/{selectedLibrary.directory || "root"}
             </span>
           )}
         </span>
-        <span className="text-muted-foreground/50 gt-caption">/</span>
-        <span className="text-muted-foreground gt-caption shrink-0">
+        <span className="text-muted-foreground/50 na-caption">/</span>
+        <span className="text-muted-foreground na-caption shrink-0">
           {settings.localFilePolicy === "keep" ? "保留本地图片" : "成功后删除本地图片"}
         </span>
         <Button
@@ -73,7 +73,7 @@ export function MigrationSettingsPanel({
     <section className="border-border/50 shrink-0 border-b">
       <div className="border-border/50 flex min-h-9 items-center gap-2 border-b px-3 py-1">
         <Settings2 className="size-3.5" />
-        <h3 className="gt-title-section">迁移设置</h3>
+        <h3 className="na-title-section">迁移设置</h3>
         <Button
           variant="ghost"
           size="icon"
@@ -145,7 +145,7 @@ function SettingRow({
 }) {
   return (
     <div className="flex min-w-0 items-center gap-2 py-1.5">
-      <div className="text-muted-foreground gt-label flex w-20 shrink-0 items-center gap-1.5">
+      <div className="text-muted-foreground na-label flex w-20 shrink-0 items-center gap-1.5">
         <Icon className="size-3.5" />
         {label}
       </div>
@@ -169,7 +169,7 @@ function PolicyOption({
 }) {
   return (
     <label className={cn(
-      "gt-caption flex h-6 cursor-pointer items-center justify-center gap-1.5 rounded-sm px-2.5 transition-colors",
+      "na-caption flex h-6 cursor-pointer items-center justify-center gap-1.5 rounded-sm px-2.5 transition-colors",
       selected ? "bg-secondary text-secondary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
     )}>
       <input

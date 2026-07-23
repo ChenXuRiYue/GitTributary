@@ -197,7 +197,7 @@ export function createBaseline(snapshot, policy = DEFAULT_POLICY, capturedAt = n
 
 export function renderMarkdownReport(current, baseline, evaluation) {
   const lines = [
-    "# GitTributary code quality baseline",
+    "# NoteAura code quality baseline",
     "",
     `> Status: **${evaluation.status}**`,
     `> Baseline: ${baseline.capturedAt}`,

@@ -1,8 +1,8 @@
 use std::sync::{Arc, Mutex};
 
-use gt_data::DataHub;
-use gt_flow::{EventPool, FlowNodeRegistry};
-use gt_git::GitRepo;
+use na_data::DataHub;
+use na_flow::{EventPool, FlowNodeRegistry};
+use na_git::GitRepo;
 
 use crate::application::plugins::host::PluginHostSupervisor;
 use crate::application::plugins::registry::ExtensionRegistry;

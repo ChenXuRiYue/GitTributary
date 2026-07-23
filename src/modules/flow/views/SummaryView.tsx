@@ -33,15 +33,15 @@ export function SummaryView({
         <div className="flex flex-wrap items-start justify-between gap-4 border-b px-4 py-3">
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h3 className="gt-title-panel truncate">{summary.name}</h3>
+              <h3 className="na-title-panel truncate">{summary.name}</h3>
               <Badge variant="outline" className={cn("h-5 border", statusTone(record.enabled))}>
                 {record.enabled ? "已启用" : "已暂停"}
               </Badge>
             </div>
             {summary.description && (
-              <p className="gt-body mt-1 text-muted-foreground">{summary.description}</p>
+              <p className="na-body mt-1 text-muted-foreground">{summary.description}</p>
             )}
-            <p className="gt-code mt-1 truncate text-muted-foreground">{summary.id}</p>
+            <p className="na-code mt-1 truncate text-muted-foreground">{summary.id}</p>
           </div>
           {canOperate && (
             <div className="flex shrink-0 items-center gap-2">
@@ -68,16 +68,16 @@ export function SummaryView({
       <section className="rounded-md border">
         <SectionHeader icon={Radio} title="触发入口" />
         {summary.triggers.length === 0 ? (
-          <p className="gt-body px-4 py-3 text-muted-foreground">未声明触发器。</p>
+          <p className="na-body px-4 py-3 text-muted-foreground">未声明触发器。</p>
         ) : summary.triggers.map((trigger) => (
           <div key={trigger.kind} className="border-b px-4 py-3 last:border-b-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <p className="gt-body-strong">{trigger.label}</p>
+              <p className="na-body-strong">{trigger.label}</p>
               <Badge variant="outline" className="h-5 border-slate-200 bg-slate-50 text-slate-600">
                 {triggerText(trigger)}
               </Badge>
             </div>
-            {trigger.detail && <p className="gt-caption mt-0.5 text-muted-foreground">{trigger.detail}</p>}
+            {trigger.detail && <p className="na-caption mt-0.5 text-muted-foreground">{trigger.detail}</p>}
             {trigger.filters && Object.keys(trigger.filters).length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {Object.entries(trigger.filters).map(([key, values]) => (
@@ -96,15 +96,15 @@ export function SummaryView({
         {summary.jobs.map((job) => (
           <div key={job.id} className="border-b last:border-b-0">
             <div className="border-b bg-muted/25 px-4 py-2">
-              <p className="gt-body-strong">{job.name || job.id}</p>
+              <p className="na-body-strong">{job.name || job.id}</p>
             </div>
             {job.steps.map((step, index) => (
               <div key={`${job.id}-${step.id ?? step.uses}-${index}`} className="grid grid-cols-[2rem_1fr] gap-3 border-b px-4 py-2.5 last:border-b-0">
-                <span className="gt-caption text-muted-foreground">{index + 1}</span>
+                <span className="na-caption text-muted-foreground">{index + 1}</span>
                 <div className="min-w-0">
-                  <p className="gt-code truncate">{step.uses}</p>
+                  <p className="na-code truncate">{step.uses}</p>
                   {(step.id || step.name) && (
-                    <p className="gt-caption mt-0.5 text-muted-foreground">{step.name || step.id}</p>
+                    <p className="na-caption mt-0.5 text-muted-foreground">{step.name || step.id}</p>
                   )}
                 </div>
               </div>
@@ -120,7 +120,7 @@ export function SummaryView({
           aside={lastRun ? formatTime(lastRun.finished_at || lastRun.started_at) : "尚未运行"}
         />
         {!lastRun ? (
-          <p className="gt-body px-4 py-3 text-muted-foreground">
+          <p className="na-body px-4 py-3 text-muted-foreground">
             操作模式下点击“运行一次”后,这里会展示本次 run 的触发来源、节点状态和错误信息。
           </p>
         ) : (
@@ -139,23 +139,23 @@ export function SummaryView({
             {lastRun.jobs.map((job) => (
               <div key={job.job_id} className="border-b last:border-b-0">
                 <div className="flex items-center justify-between gap-3 border-b bg-muted/25 px-4 py-2">
-                  <p className="gt-body-strong">{job.job_id}</p>
+                  <p className="na-body-strong">{job.job_id}</p>
                   <Badge variant="outline" className={cn("h-5 border", runStatusTone(job.status))}>
                     {runStatusText(job.status)}
                   </Badge>
                 </div>
                 {job.nodes.map((node, index) => (
                   <div key={`${node.job_id}-${node.node_id}-${index}`} className="grid grid-cols-[2rem_1fr_auto] gap-3 border-b px-4 py-2.5 last:border-b-0">
-                    <span className="gt-caption text-muted-foreground">{index + 1}</span>
+                    <span className="na-caption text-muted-foreground">{index + 1}</span>
                     <div className="min-w-0">
                       <div className="flex min-w-0 flex-wrap items-center gap-2">
-                        <p className="gt-code truncate">{node.node_id}</p>
-                        <span className="gt-caption truncate text-muted-foreground">{node.uses}</span>
+                        <p className="na-code truncate">{node.node_id}</p>
+                        <span className="na-caption truncate text-muted-foreground">{node.uses}</span>
                       </div>
-                      {node.message && <p className="gt-caption mt-0.5 text-muted-foreground">{node.message}</p>}
-                      {node.error && <p className="gt-caption mt-0.5 text-red-700">{node.error}</p>}
+                      {node.message && <p className="na-caption mt-0.5 text-muted-foreground">{node.message}</p>}
+                      {node.error && <p className="na-caption mt-0.5 text-red-700">{node.error}</p>}
                       {node.outputs !== undefined && (
-                        <p className="gt-caption mt-0.5 truncate text-muted-foreground">outputs: {shortJson(node.outputs)}</p>
+                        <p className="na-caption mt-0.5 truncate text-muted-foreground">outputs: {shortJson(node.outputs)}</p>
                       )}
                     </div>
                     <Badge variant="outline" className={cn("h-5 border", runStatusTone(node.status))}>
@@ -173,12 +173,12 @@ export function SummaryView({
         <SectionHeader icon={FilePenLine} title="存储信息" />
         <div className="grid md:grid-cols-2">
           <div className="border-b px-4 py-3 md:border-b-0 md:border-r">
-            <p className="gt-label text-muted-foreground">创建时间</p>
-            <p className="gt-body mt-1">{formatTime(record.created_at)}</p>
+            <p className="na-label text-muted-foreground">创建时间</p>
+            <p className="na-body mt-1">{formatTime(record.created_at)}</p>
           </div>
           <div className="px-4 py-3">
-            <p className="gt-label text-muted-foreground">更新时间</p>
-            <p className="gt-body mt-1">{formatTime(record.updated_at)}</p>
+            <p className="na-label text-muted-foreground">更新时间</p>
+            <p className="na-body mt-1">{formatTime(record.updated_at)}</p>
           </div>
         </div>
       </section>

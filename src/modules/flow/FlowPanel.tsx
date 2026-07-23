@@ -119,7 +119,7 @@ export function FlowPanel() {
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2">
-            <span className="min-w-0 truncate gt-caption text-muted-foreground">{toolbarSummary}</span>
+            <span className="min-w-0 truncate na-caption text-muted-foreground">{toolbarSummary}</span>
             <div className="flex shrink-0 items-center gap-2">
               <Button
                 variant="outline"
@@ -215,10 +215,10 @@ export function FlowPanel() {
                     <div className="mx-auto flex size-10 items-center justify-center rounded-md bg-muted">
                       <FolderTree className="size-5 text-muted-foreground" />
                     </div>
-                    <h3 className="gt-title-panel mt-3">{selectedFolder}</h3>
+                    <h3 className="na-title-panel mt-3">{selectedFolder}</h3>
                     {canOperate && (
                       <>
-                        <p className="gt-body mt-2 text-muted-foreground">选中文件夹后添加 Flow,会直接保存到这个目录。</p>
+                        <p className="na-body mt-2 text-muted-foreground">选中文件夹后添加 Flow,会直接保存到这个目录。</p>
                         <Button className="mt-4" size="sm" onClick={startCreate}>
                           <Plus className="size-3.5" />
                           添加 Flow

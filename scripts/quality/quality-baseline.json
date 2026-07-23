@@ -133,7 +133,7 @@
         "zone": "core-frontend"
       },
       {
-        "path": "src-tauri/crates/gt-files/src/lib.rs",
+        "path": "src-tauri/crates/na-files/src/lib.rs",
         "lines": 462,
         "test": false,
         "zone": "core-rust-crates"
@@ -145,7 +145,7 @@
         "zone": "plugin-frontends"
       },
       {
-        "path": "src-tauri/crates/gt-git/src/path_update.rs",
+        "path": "src-tauri/crates/na-git/src/path_update.rs",
         "lines": 453,
         "test": false,
         "zone": "core-rust-crates"
@@ -175,13 +175,13 @@
         "zone": "tooling"
       },
       {
-        "path": "src-tauri/crates/gt-data/src/domain/run_journal.rs",
+        "path": "src-tauri/crates/na-data/src/domain/run_journal.rs",
         "lines": 438,
         "test": false,
         "zone": "core-rust-crates"
       },
       {
-        "path": "src-tauri/crates/gt-flow/src/builder.rs",
+        "path": "src-tauri/crates/na-flow/src/builder.rs",
         "lines": 428,
         "test": false,
         "zone": "core-rust-crates"
@@ -255,7 +255,7 @@
         "zone": "core-frontend"
       },
       {
-        "path": "src-tauri/crates/gt-files/src/lib.rs",
+        "path": "src-tauri/crates/na-files/src/lib.rs",
         "lines": 462,
         "test": false,
         "zone": "core-rust-crates"
@@ -267,7 +267,7 @@
         "zone": "plugin-frontends"
       },
       {
-        "path": "src-tauri/crates/gt-git/src/path_update.rs",
+        "path": "src-tauri/crates/na-git/src/path_update.rs",
         "lines": 453,
         "test": false,
         "zone": "core-rust-crates"
@@ -297,13 +297,13 @@
         "zone": "tooling"
       },
       {
-        "path": "src-tauri/crates/gt-data/src/domain/run_journal.rs",
+        "path": "src-tauri/crates/na-data/src/domain/run_journal.rs",
         "lines": 438,
         "test": false,
         "zone": "core-rust-crates"
       },
       {
-        "path": "src-tauri/crates/gt-flow/src/builder.rs",
+        "path": "src-tauri/crates/na-flow/src/builder.rs",
         "lines": 428,
         "test": false,
         "zone": "core-rust-crates"
@@ -333,7 +333,7 @@
         "zone": "tauri-application"
       },
       {
-        "path": "src-tauri/crates/gt-plugin-host/src/lib.rs",
+        "path": "src-tauri/crates/na-plugin-host/src/lib.rs",
         "lines": 413,
         "test": false,
         "zone": "core-rust-crates"
@@ -351,7 +351,7 @@
         "zone": "plugin-frontends"
       },
       {
-        "path": "src-tauri/crates/gt-flow/src/runner.rs",
+        "path": "src-tauri/crates/na-flow/src/runner.rs",
         "lines": 407,
         "test": false,
         "zone": "core-rust-crates"
@@ -393,7 +393,7 @@
         "zone": "tauri-application"
       },
       {
-        "path": "src-tauri/crates/gt-flow/src/event.rs",
+        "path": "src-tauri/crates/na-flow/src/event.rs",
         "lines": 372,
         "test": false,
         "zone": "core-rust-crates"
@@ -405,19 +405,19 @@
         "zone": "core-frontend"
       },
       {
-        "path": "src-tauri/crates/gt-flow/src/node.rs",
+        "path": "src-tauri/crates/na-flow/src/node.rs",
         "lines": 365,
         "test": false,
         "zone": "core-rust-crates"
       },
       {
-        "path": "src-tauri/crates/gt-git/tests/performance_test.rs",
+        "path": "src-tauri/crates/na-git/tests/performance_test.rs",
         "lines": 365,
         "test": true,
         "zone": "core-rust-crates"
       },
       {
-        "path": "src-tauri/crates/gt-git/src/remote.rs",
+        "path": "src-tauri/crates/na-git/src/remote.rs",
         "lines": 352,
         "test": false,
         "zone": "core-rust-crates"
@@ -435,13 +435,13 @@
         "zone": "tauri-application"
       },
       {
-        "path": "plugins/site-publisher/backend/crates/gt-site/src/utils.rs",
+        "path": "plugins/site-publisher/backend/crates/na-site/src/utils.rs",
         "lines": 343,
         "test": false,
         "zone": "plugin-backends"
       },
       {
-        "path": "src-tauri/crates/gt-data/src/storage/store.rs",
+        "path": "src-tauri/crates/na-data/src/storage/store.rs",
         "lines": 342,
         "test": false,
         "zone": "core-rust-crates"
@@ -477,13 +477,13 @@
         "zone": "tooling"
       },
       {
-        "path": "src-tauri/crates/gt-data/tests/run_journal_test.rs",
+        "path": "src-tauri/crates/na-data/tests/run_journal_test.rs",
         "lines": 324,
         "test": true,
         "zone": "core-rust-crates"
       },
       {
-        "path": "src-tauri/crates/gt-flow/src/parser.rs",
+        "path": "src-tauri/crates/na-flow/src/parser.rs",
         "lines": 324,
         "test": false,
         "zone": "core-rust-crates"
@@ -501,7 +501,7 @@
         "zone": "core-frontend"
       },
       {
-        "path": "src-tauri/crates/gt-data/src/storage/policy.rs",
+        "path": "src-tauri/crates/na-data/src/storage/policy.rs",
         "lines": 316,
         "test": false,
         "zone": "core-rust-crates"
@@ -513,7 +513,7 @@
         "zone": "tauri-application"
       },
       {
-        "path": "src-tauri/crates/gt-data/src/domain/plugin_containers.rs",
+        "path": "src-tauri/crates/na-data/src/domain/plugin_containers.rs",
         "lines": 314,
         "test": false,
         "zone": "core-rust-crates"
@@ -531,13 +531,13 @@
         "zone": "tauri-application"
       },
       {
-        "path": "src-tauri/crates/gt-data/src/storage/sync/git.rs",
+        "path": "src-tauri/crates/na-data/src/storage/sync/git.rs",
         "lines": 304,
         "test": false,
         "zone": "core-rust-crates"
       },
       {
-        "path": "src-tauri/crates/gt-git/tests/basic_test.rs",
+        "path": "src-tauri/crates/na-git/tests/basic_test.rs",
         "lines": 302,
         "test": true,
         "zone": "core-rust-crates"

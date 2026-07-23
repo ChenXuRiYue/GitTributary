@@ -1,6 +1,6 @@
 # 安装说明
 
-本文档面向 Git Tributary 的正式发布包。安装包本身由发布 Flow 生成，请以 GitHub Release 页面提供的文件为准。
+本文档面向 NoteAura 的正式发布包。安装包本身由发布 Flow 生成，请以 GitHub Release 页面提供的文件为准。
 
 ## 系统要求
 
@@ -19,7 +19,7 @@
 如果 Release 同时提供 `SHA256SUMS.txt`，建议下载后校验安装包：
 
 ```bash
-shasum -a 256 /path/to/GitTributary-0.1.0-macos-arm64.dmg
+shasum -a 256 /path/to/NoteAura-0.1.0-macos-arm64.dmg
 ```
 
 将输出与 Release 页面或 `SHA256SUMS.txt` 中的值对比。
@@ -27,14 +27,14 @@ shasum -a 256 /path/to/GitTributary-0.1.0-macos-arm64.dmg
 ## 安装
 
 1. 打开下载的 DMG 文件。
-2. 将 `Git Tributary.app` 拖入 `Applications`。
-3. 从 `Applications` 启动 Git Tributary。
+2. 将 `NoteAura.app` 拖入 `Applications`。
+3. 从 `Applications` 启动 NoteAura。
 
 如果 macOS 提示无法验证开发者，请优先确认你下载的是官方 Release 文件，并检查 Release 是否声明已经签名和公证。首次发布阶段若尚未完成 Apple 公证，可能需要在系统设置中手动允许启动。
 
 ## 首次使用
 
-Git Tributary 不替代 Markdown 编辑器。建议先准备一个已有的 Git + Markdown 笔记仓库，然后在应用中打开该仓库。
+NoteAura 不替代 Markdown 编辑器。建议先准备一个已有的 Git + Markdown 笔记仓库，然后在应用中打开该仓库。
 
 常见首用流程：
 
@@ -46,39 +46,39 @@ Git Tributary 不替代 Markdown 编辑器。建议先准备一个已有的 Git 
 
 ## 本地数据位置
 
-Git Tributary 会在本机保存应用配置、Profile、环境、发布任务、数据中心记录和部分凭据状态。
+NoteAura 会在本机保存应用配置、Profile、环境、发布任务、数据中心记录和部分凭据状态。
 
 主要目录：
 
 ```text
-~/.git-tributary/
+~/.noteaura/
 ```
 
 发布构建过程中，应用也可能在用户选择的笔记仓库内生成临时或输出目录，例如：
 
 ```text
-<note-repo>/.gittributary/
+<note-repo>/.noteaura/
 ```
 
 请根据自己的备份策略决定是否将这些目录加入仓库的 `.gitignore`。
 
 ## 升级
 
-1. 退出正在运行的 Git Tributary。
+1. 退出正在运行的 NoteAura。
 2. 下载新版本 DMG。
-3. 用新版本 `Git Tributary.app` 替换 `Applications` 中的旧版本。
+3. 用新版本 `NoteAura.app` 替换 `Applications` 中的旧版本。
 4. 重新启动应用。
 
 建议升级前确认重要笔记仓库已经提交或备份。
 
 ## 卸载
 
-1. 退出 Git Tributary。
-2. 删除 `Applications/Git Tributary.app`。
+1. 退出 NoteAura。
+2. 删除 `Applications/NoteAura.app`。
 3. 如需完全清理应用配置，可删除：
 
 ```bash
-rm -rf ~/.git-tributary/
+rm -rf ~/.noteaura/
 ```
 
-删除 `~/.git-tributary/` 会移除 Git Tributary 的本地配置、Profile、同步状态和本地保存的私有记录。执行前请确认不再需要这些数据。
+删除 `~/.noteaura/` 会移除 NoteAura 的本地配置、Profile、同步状态和本地保存的私有记录。执行前请确认不再需要这些数据。

@@ -333,7 +333,7 @@ export function HistoryView({ overview, sessionGeneration }: GitViewProps) {
         </div>
         {error && <p className="border-b border-border/30 px-3 py-1 text-[11px] text-destructive">{error}</p>}
         {/* 列表 */}
-        <div className="gt-thin-scroll min-h-0 flex-1 overflow-auto overscroll-contain" data-history-commit-list>
+        <div className="na-thin-scroll min-h-0 flex-1 overflow-auto overscroll-contain" data-history-commit-list>
           <div className="flex w-max min-w-full flex-col">
             {entries.map((entry) => {
               const isFocused = focusedId === entry.id;

@@ -93,8 +93,8 @@ export function PluginManagerPanel() {
       return;
     }
     const permissions = plugin.permissions.length > 0
-      ? `GitTributary API 权限：\n${plugin.permissions.map((permission) => `- ${permissionLabel(permission)}`).join("\n")}\n\n`
-      : "该插件未申请 GitTributary API 权限。\n\n";
+      ? `NoteAura API 权限：\n${plugin.permissions.map((permission) => `- ${permissionLabel(permission)}`).join("\n")}\n\n`
+      : "该插件未申请 NoteAura API 权限。\n\n";
     const storeNamespaces = plugin.storeNamespaces.length > 0
       ? `Store 命名空间：\n${plugin.storeNamespaces.map((namespace) => `- ${namespace}`).join("\n")}\n\n`
       : "";
@@ -146,22 +146,22 @@ export function PluginManagerPanel() {
       <header className="border-border flex shrink-0 items-center gap-4 border-b px-5 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <DomainTrail items={trailItems} />
-          <span className="shrink-0 text-muted-foreground/60 gt-body">/</span>
-          <span className="min-w-0 truncate text-muted-foreground gt-body">
+          <span className="shrink-0 text-muted-foreground/60 na-body">/</span>
+          <span className="min-w-0 truncate text-muted-foreground na-body">
             {selected?.name ?? "目录"}
           </span>
         </div>
         <div className="ml-auto hidden shrink-0 items-center gap-2 text-right md:flex">
-          <span className="text-foreground gt-caption font-medium">可用:{plugins.length}</span>
-          <span className="text-muted-foreground/40 gt-caption">/</span>
-          <span className="text-foreground gt-caption font-medium">已安装:{installedCount}</span>
+          <span className="text-foreground na-caption font-medium">可用:{plugins.length}</span>
+          <span className="text-muted-foreground/40 na-caption">/</span>
+          <span className="text-foreground na-caption font-medium">已安装:{installedCount}</span>
         </div>
       </header>
 
       {error && (
         <div className="bg-destructive/8 text-destructive flex shrink-0 items-center gap-2 border-b px-4 py-2">
           <AlertTriangle className="size-4 shrink-0" />
-          <span className="gt-body min-w-0 flex-1 truncate">{error}</span>
+          <span className="na-body min-w-0 flex-1 truncate">{error}</span>
           <Button type="button" variant="ghost" size="sm" onClick={() => void loadPlugins()}>重试</Button>
         </div>
       )}
@@ -202,7 +202,7 @@ export function PluginManagerPanel() {
                   type="button"
                   onClick={() => setFilter(value)}
                   className={cn(
-                    "gt-caption h-7 rounded-sm font-medium transition-colors",
+                    "na-caption h-7 rounded-sm font-medium transition-colors",
                     filter === value
                       ? "bg-background text-foreground shadow-sm"
                       : "text-muted-foreground hover:text-foreground",
@@ -216,9 +216,9 @@ export function PluginManagerPanel() {
 
           <ScrollArea className="min-h-0 flex-1">
             {loading && plugins.length === 0 ? (
-              <p className="gt-body px-4 py-5 text-muted-foreground">正在加载插件...</p>
+              <p className="na-body px-4 py-5 text-muted-foreground">正在加载插件...</p>
             ) : filteredPlugins.length === 0 ? (
-              <p className="gt-body px-4 py-5 text-muted-foreground">没有符合条件的插件。</p>
+              <p className="na-body px-4 py-5 text-muted-foreground">没有符合条件的插件。</p>
             ) : filteredPlugins.map((plugin) => {
               const current = selected?.id === plugin.id;
               const updateAvailable = isUpdateAvailable(plugin);
@@ -246,17 +246,17 @@ export function PluginManagerPanel() {
                   </div>
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 items-center gap-2">
-                      <span className="gt-body-strong truncate">{plugin.name}</span>
+                      <span className="na-body-strong truncate">{plugin.name}</span>
                       {updateAvailable ? (
                         <Badge variant="secondary" className="shrink-0">可更新</Badge>
                       ) : plugin.installedVersion !== null ? (
                         <Check className="size-3.5 shrink-0 text-primary" />
                       ) : null}
                     </span>
-                    <span className="gt-caption mt-0.5 block truncate text-muted-foreground">
+                    <span className="na-caption mt-0.5 block truncate text-muted-foreground">
                       {plugin.publisher} · {plugin.version}
                     </span>
-                    <span className="gt-caption mt-1 line-clamp-2 text-muted-foreground">{plugin.description}</span>
+                    <span className="na-caption mt-1 line-clamp-2 text-muted-foreground">{plugin.description}</span>
                   </span>
                 </button>
               );
@@ -286,7 +286,7 @@ export function PluginManagerPanel() {
                       </div>
                       <div className="min-w-0">
                         <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <h3 className="gt-title-panel truncate">{selected.name}</h3>
+                          <h3 className="na-title-panel truncate">{selected.name}</h3>
                           {isUpdateAvailable(selected) ? (
                             <Badge variant="secondary"><RefreshCw />可更新</Badge>
                           ) : selected.installedVersion !== null ? (
@@ -294,7 +294,7 @@ export function PluginManagerPanel() {
                           ) : null}
                           {selected.nativeCode && <Badge variant="outline"><Code2 />原生代码</Badge>}
                         </div>
-                        <p className="gt-caption mt-1 text-muted-foreground">{selected.id}</p>
+                        <p className="na-caption mt-1 text-muted-foreground">{selected.id}</p>
                       </div>
                     </div>
                     {selected.installedVersion !== null && !isUpdateAvailable(selected) ? (
@@ -350,17 +350,17 @@ export function PluginManagerPanel() {
                   </div>
 
                   <div className="px-4 py-4">
-                    <p className="gt-body text-muted-foreground">{selected.description}</p>
+                    <p className="na-body text-muted-foreground">{selected.description}</p>
                     <div className="mt-4 grid gap-px overflow-hidden rounded-md border bg-border sm:grid-cols-3">
                       <div className="flex items-center gap-2 bg-background px-3 py-2.5">
                         <UserRound className="size-4 text-muted-foreground" />
-                        <div className="min-w-0"><p className="gt-label text-muted-foreground">维护者</p><p className="gt-body-strong truncate">{selected.publisher}</p></div>
+                        <div className="min-w-0"><p className="na-label text-muted-foreground">维护者</p><p className="na-body-strong truncate">{selected.publisher}</p></div>
                       </div>
                       <div className="flex items-center gap-2 bg-background px-3 py-2.5">
                         <PackageCheck className="size-4 text-muted-foreground" />
                         <div className="min-w-0">
-                          <p className="gt-label text-muted-foreground">版本</p>
-                          <p className="gt-body-strong truncate">
+                          <p className="na-label text-muted-foreground">版本</p>
+                          <p className="na-body-strong truncate">
                             {isUpdateAvailable(selected)
                               ? `${selected.installedVersion} -> ${selected.version}`
                               : selected.installedVersion ?? selected.version}
@@ -369,7 +369,7 @@ export function PluginManagerPanel() {
                       </div>
                       <div className="flex items-center gap-2 bg-background px-3 py-2.5">
                         <Box className="size-4 text-muted-foreground" />
-                        <div className="min-w-0"><p className="gt-label text-muted-foreground">来源</p><p className="gt-body-strong truncate">{selected.sourceLabel}</p></div>
+                        <div className="min-w-0"><p className="na-label text-muted-foreground">来源</p><p className="na-body-strong truncate">{selected.sourceLabel}</p></div>
                       </div>
                     </div>
                   </div>
@@ -378,17 +378,17 @@ export function PluginManagerPanel() {
                 <div className="mt-4 grid gap-4 lg:grid-cols-2">
                   <section className="rounded-md border border-border/70">
                     <div className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
-                      <div className="flex items-center gap-2"><ShieldCheck className="size-4 text-muted-foreground" /><h4 className="gt-title-section">申请权限</h4></div>
-                      <span className="gt-caption text-muted-foreground">{selected.permissions.length}</span>
+                      <div className="flex items-center gap-2"><ShieldCheck className="size-4 text-muted-foreground" /><h4 className="na-title-section">申请权限</h4></div>
+                      <span className="na-caption text-muted-foreground">{selected.permissions.length}</span>
                     </div>
                     {selected.permissions.length === 0 ? (
-                      <p className="gt-body px-4 py-3 text-muted-foreground">该插件未申请基础设施权限。</p>
+                      <p className="na-body px-4 py-3 text-muted-foreground">该插件未申请基础设施权限。</p>
                     ) : (
                       <div className="divide-y">
                         {selected.permissions.map((permission) => (
                           <div key={permission} className="px-4 py-2.5">
-                            <p className="gt-body-strong">{permissionLabel(permission)}</p>
-                            <p className="gt-code mt-0.5 text-muted-foreground">{permission}</p>
+                            <p className="na-body-strong">{permissionLabel(permission)}</p>
+                            <p className="na-code mt-0.5 text-muted-foreground">{permission}</p>
                           </div>
                         ))}
                       </div>
@@ -397,39 +397,39 @@ export function PluginManagerPanel() {
 
                   <section className="rounded-md border border-border/70">
                     <div className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
-                      <div className="flex items-center gap-2"><PanelsTopLeft className="size-4 text-muted-foreground" /><h4 className="gt-title-section">工作台视图</h4></div>
-                      <span className="gt-caption text-muted-foreground">{selected.views.length}</span>
+                      <div className="flex items-center gap-2"><PanelsTopLeft className="size-4 text-muted-foreground" /><h4 className="na-title-section">工作台视图</h4></div>
+                      <span className="na-caption text-muted-foreground">{selected.views.length}</span>
                     </div>
                     {selected.views.length === 0 ? (
-                      <p className="gt-body px-4 py-3 text-muted-foreground">该插件没有贡献页面。</p>
+                      <p className="na-body px-4 py-3 text-muted-foreground">该插件没有贡献页面。</p>
                     ) : (
                       <div className="divide-y">
                         {selected.views.map((view) => (
                           <div key={view.id} className="px-4 py-2.5">
-                            <p className="gt-body-strong">{view.title}</p>
-                            <p className="gt-code mt-0.5 text-muted-foreground">{view.id}</p>
+                            <p className="na-body-strong">{view.title}</p>
+                            <p className="na-code mt-0.5 text-muted-foreground">{view.id}</p>
                           </div>
                         ))}
                       </div>
                     )}
                     <div className="border-t px-4 py-2.5">
-                      <p className="gt-label text-muted-foreground">后端运行时</p>
-                      <p className="gt-code mt-0.5">{selected.backendRuntime ?? "无后端"}</p>
+                      <p className="na-label text-muted-foreground">后端运行时</p>
+                      <p className="na-code mt-0.5">{selected.backendRuntime ?? "无后端"}</p>
                     </div>
                     <div className="border-t px-4 py-2.5">
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2">
                           <Workflow className="size-4 text-muted-foreground" />
-                          <p className="gt-label text-muted-foreground">Flow 节点</p>
+                          <p className="na-label text-muted-foreground">Flow 节点</p>
                         </div>
-                        <span className="gt-caption text-muted-foreground">{selected.flowNodes.length}</span>
+                        <span className="na-caption text-muted-foreground">{selected.flowNodes.length}</span>
                       </div>
                       {selected.flowNodes.length > 0 && (
                         <div className="mt-2 space-y-2">
                           {selected.flowNodes.map((node) => (
                             <div key={node.uses}>
-                              <p className="gt-body-strong">{node.name}</p>
-                              <p className="gt-code mt-0.5 break-all text-muted-foreground">{node.uses}</p>
+                              <p className="na-body-strong">{node.name}</p>
+                              <p className="na-code mt-0.5 break-all text-muted-foreground">{node.uses}</p>
                             </div>
                           ))}
                         </div>

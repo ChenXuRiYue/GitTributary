@@ -1,5 +1,5 @@
 // 探针脚本: 直接调用真正的 state.ts 里的 parseSiteWorkspaceConfigState，
-// 喂入从 ~/.git-tributary/data/sites.jsonl 里提取出的真实最新 workspace.config
+// 喂入从 ~/.noteaura/data/sites.jsonl 里提取出的真实最新 workspace.config
 // 值，验证解析是否成功、结果是否符合预期。用 tsx 直接跑 TS 源码，不依赖
 // vite/tauri 环境。
 //

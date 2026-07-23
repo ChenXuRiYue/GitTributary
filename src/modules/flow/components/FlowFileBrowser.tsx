@@ -58,7 +58,7 @@ export function FlowFileBrowser({
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-9 shrink-0 items-center justify-between gap-2 border-b px-2">
-        <span className="gt-label text-muted-foreground">流文件</span>
+        <span className="na-label text-muted-foreground">流文件</span>
         <div className="inline-flex h-6 rounded-md border bg-background p-0.5">
           <button
             type="button"
@@ -128,8 +128,8 @@ export function FlowFileBrowser({
                   )}
                 >
                   <Workflow className="size-3.5 shrink-0 text-muted-foreground" />
-                  <span className="gt-tree whitespace-nowrap">{summary.name}</span>
-                  <span className="gt-tree-meta whitespace-nowrap font-mono text-muted-foreground">
+                  <span className="na-tree whitespace-nowrap">{summary.name}</span>
+                  <span className="na-tree-meta whitespace-nowrap font-mono text-muted-foreground">
                     {flowFileName(flow.id)}
                   </span>
                   <span className={cn("size-1.5 rounded-full", flowMarkerClass(marker))} />

@@ -136,14 +136,14 @@ export function NodeCatalogView({
   const renderSchemaEntries = (schema: Record<string, string>) => {
     const entries = Object.entries(schema);
     if (entries.length === 0) {
-      return <p className="gt-body px-4 py-3 text-muted-foreground">未声明字段。</p>;
+      return <p className="na-body px-4 py-3 text-muted-foreground">未声明字段。</p>;
     }
     return (
       <div className="divide-y">
         {entries.map(([key, value]) => (
           <div key={key} className="grid grid-cols-[minmax(100px,0.45fr)_1fr] gap-2 px-3 py-2">
-            <span className="gt-code truncate">{key}</span>
-            <span className="gt-caption truncate text-muted-foreground">{value}</span>
+            <span className="na-code truncate">{key}</span>
+            <span className="na-caption truncate text-muted-foreground">{value}</span>
           </div>
         ))}
       </div>
@@ -153,7 +153,7 @@ export function NodeCatalogView({
   const renderNodeInputs = (node: FlowNodeSpec) => {
     const entries = Object.entries(node.inputs);
     if (entries.length === 0) {
-      return <p className="gt-caption mt-2 text-muted-foreground">未传入 with 参数。</p>;
+      return <p className="na-caption mt-2 text-muted-foreground">未传入 with 参数。</p>;
     }
     return (
       <div className="mt-2 flex flex-wrap gap-1.5">
@@ -168,10 +168,10 @@ export function NodeCatalogView({
 
   const renderNodeInstance = (node: FlowNodeSpec, index: number) => (
     <div key={`${node.job_id}-${node.id}-${index}`} className="grid grid-cols-[2rem_1fr] gap-3 border-b px-4 py-3 last:border-b-0">
-      <span className="gt-caption text-muted-foreground">{index + 1}</span>
+      <span className="na-caption text-muted-foreground">{index + 1}</span>
       <div className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <p className="gt-body-strong truncate">{node.name || node.id}</p>
+          <p className="na-body-strong truncate">{node.name || node.id}</p>
           <Badge variant="outline" className={cn("h-5 border", nodeTypeTone(node.node_type))}>
             {nodeTypeText(node.node_type)}
           </Badge>
@@ -186,8 +186,8 @@ export function NodeCatalogView({
             </Badge>
           )}
         </div>
-        <p className="gt-code mt-1 truncate text-muted-foreground">{node.uses}</p>
-        <p className="gt-caption mt-1 text-muted-foreground">job: {node.job_id} · id: {node.id}</p>
+        <p className="na-code mt-1 truncate text-muted-foreground">{node.uses}</p>
+        <p className="na-caption mt-1 text-muted-foreground">job: {node.job_id} · id: {node.id}</p>
         {renderNodeInputs(node)}
       </div>
     </div>
@@ -195,10 +195,10 @@ export function NodeCatalogView({
 
   const renderCurrentFlowNodes = () => {
     if (!selectedFlow) {
-      return <p className="gt-body px-4 py-3 text-muted-foreground">在“编排”视图中选择一个 Flow 后,这里会展示它编译出的节点实例。</p>;
+      return <p className="na-body px-4 py-3 text-muted-foreground">在“编排”视图中选择一个 Flow 后,这里会展示它编译出的节点实例。</p>;
     }
     if (nodes.length === 0) {
-      return <p className="gt-body px-4 py-3 text-muted-foreground">当前 Flow 没有可展示的节点。</p>;
+      return <p className="na-body px-4 py-3 text-muted-foreground">当前 Flow 没有可展示的节点。</p>;
     }
     return (
       <div className="divide-y">
@@ -209,10 +209,10 @@ export function NodeCatalogView({
 
   const renderSelectedFlowNodes = () => {
     if (!selectedFlow) {
-      return <p className="gt-body px-4 py-3 text-muted-foreground">在“编排”视图中选择一个 Flow 后,这里会展示该动作的引用实例。</p>;
+      return <p className="na-body px-4 py-3 text-muted-foreground">在“编排”视图中选择一个 Flow 后,这里会展示该动作的引用实例。</p>;
     }
     if (selectedDefinitionNodes.length === 0) {
-      return <p className="gt-body px-4 py-3 text-muted-foreground">当前 Flow 没有引用这个节点动作。</p>;
+      return <p className="na-body px-4 py-3 text-muted-foreground">当前 Flow 没有引用这个节点动作。</p>;
     }
     return (
       <div className="divide-y">
@@ -233,12 +233,12 @@ export function NodeCatalogView({
         <div className="flex flex-wrap items-start justify-between gap-4 border-b px-4 py-3">
           <div className="min-w-0">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h3 className="gt-title-panel truncate">节点列表</h3>
+              <h3 className="na-title-panel truncate">节点列表</h3>
               <Badge variant="outline" className="h-5 border-slate-200 bg-slate-50 text-slate-600">
                 {definitions.length} 个动作
               </Badge>
             </div>
-            <p className="gt-body mt-1 text-muted-foreground">
+            <p className="na-body mt-1 text-muted-foreground">
               节点动作是 Flow step 可引用的能力模板;某个 Flow 中的 step 会被编译成节点实例。
             </p>
           </div>
@@ -261,13 +261,13 @@ export function NodeCatalogView({
           />
           <div className="px-4 py-3">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <p className="gt-body-strong truncate">{selectedTypeMeta.label}</p>
+              <p className="na-body-strong truncate">{selectedTypeMeta.label}</p>
               <Badge variant="outline" className={cn("h-5 border", nodeTypeTone(selectedDefinition.node_type))}>
                 {nodeTypeText(selectedDefinition.node_type)}
               </Badge>
             </div>
-            <p className="gt-caption mt-1 text-muted-foreground">{selectedTypeMeta.summary}</p>
-            <p className="gt-body mt-2 text-muted-foreground">{selectedTypeMeta.description}</p>
+            <p className="na-caption mt-1 text-muted-foreground">{selectedTypeMeta.summary}</p>
+            <p className="na-body mt-2 text-muted-foreground">{selectedTypeMeta.description}</p>
           </div>
         </section>
       )}
@@ -343,7 +343,7 @@ export function NodeCatalogView({
           </Button>
         </div>
         <div className="border-t px-3 py-2">
-          <p className="gt-caption text-muted-foreground">
+          <p className="na-caption text-muted-foreground">
             当前显示 {filteredDefinitions.length} / {definitions.length} 个节点动作
           </p>
         </div>
@@ -351,11 +351,11 @@ export function NodeCatalogView({
 
       {definitions.length === 0 ? (
         <section className="rounded-md border">
-          <p className="gt-body px-4 py-3 text-muted-foreground">暂无已注册节点动作。</p>
+          <p className="na-body px-4 py-3 text-muted-foreground">暂无已注册节点动作。</p>
         </section>
       ) : filteredDefinitions.length === 0 ? (
         <section className="rounded-md border">
-          <p className="gt-body px-4 py-3 text-muted-foreground">没有符合筛选条件的节点动作。</p>
+          <p className="na-body px-4 py-3 text-muted-foreground">没有符合筛选条件的节点动作。</p>
         </section>
       ) : (
         <section className="grid min-h-0 flex-1 overflow-hidden rounded-md border xl:grid-cols-[minmax(300px,0.4fr)_minmax(0,0.6fr)]">
@@ -363,15 +363,15 @@ export function NodeCatalogView({
             <div className="flex items-center justify-between gap-3 border-b px-3 py-2.5">
               <div className="flex min-w-0 items-center gap-2">
                 <Split className="size-4 shrink-0 text-muted-foreground" />
-                <h4 className="gt-title-section truncate">节点动作索引</h4>
+                <h4 className="na-title-section truncate">节点动作索引</h4>
               </div>
-              <span className="gt-caption shrink-0 text-muted-foreground">{filteredDefinitions.length}</span>
+              <span className="na-caption shrink-0 text-muted-foreground">{filteredDefinitions.length}</span>
             </div>
             <ScrollArea className="h-full" orientation="vertical">
               {groupedDefinitions.map(([type, typeDefinitions]) => (
                 <div key={type} className="border-b last:border-b-0">
                   <div className="sticky top-0 z-10 border-b bg-muted/70 px-3 py-1.5 backdrop-blur">
-                    <p className="gt-label text-muted-foreground">{nodeTypeText(type)} · {typeDefinitions.length}</p>
+                    <p className="na-label text-muted-foreground">{nodeTypeText(type)} · {typeDefinitions.length}</p>
                   </div>
                   {typeDefinitions.map((definition) => {
                     const selected = selectedDefinition?.uses === definition.uses;
@@ -388,9 +388,9 @@ export function NodeCatalogView({
                         )}
                       >
                         <span className="min-w-0">
-                          <span className="gt-body-strong block truncate">{definition.name}</span>
-                          <span className="gt-code mt-0.5 block truncate text-muted-foreground">{definition.uses}</span>
-                          <span className="gt-caption mt-0.5 block truncate text-muted-foreground">{definition.summary}</span>
+                          <span className="na-body-strong block truncate">{definition.name}</span>
+                          <span className="na-code mt-0.5 block truncate text-muted-foreground">{definition.uses}</span>
+                          <span className="na-caption mt-0.5 block truncate text-muted-foreground">{definition.summary}</span>
                         </span>
                         <span className="flex flex-col items-end gap-1">
                           <Badge variant="outline" className={cn("h-5 border", nodeTypeTone(definition.node_type))}>
@@ -400,9 +400,9 @@ export function NodeCatalogView({
                             {sourceText(definition)}
                           </Badge>
                           {usedUses.has(definition.uses) && (
-                            <span className="gt-caption text-muted-foreground">当前已用</span>
+                            <span className="na-caption text-muted-foreground">当前已用</span>
                           )}
-                          <span className="gt-caption text-muted-foreground">{inputCount} in · {outputCount} out</span>
+                          <span className="na-caption text-muted-foreground">{inputCount} in · {outputCount} out</span>
                         </span>
                       </button>
                     );
@@ -417,7 +417,7 @@ export function NodeCatalogView({
               <div className="flex h-full min-w-0 flex-col">
                 <div className="border-b px-4 py-3">
                   <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <h4 className="gt-title-panel truncate">{selectedDefinition.name}</h4>
+                    <h4 className="na-title-panel truncate">{selectedDefinition.name}</h4>
                     <Badge variant="outline" className={cn("h-5 border", nodeTypeTone(selectedDefinition.node_type))}>
                       {nodeTypeText(selectedDefinition.node_type)}
                     </Badge>
@@ -430,8 +430,8 @@ export function NodeCatalogView({
                       </Badge>
                     )}
                   </div>
-                  <p className="gt-code mt-1 break-all text-muted-foreground">{selectedDefinition.uses}</p>
-                  <p className="gt-caption mt-1 text-muted-foreground">
+                  <p className="na-code mt-1 break-all text-muted-foreground">{selectedDefinition.uses}</p>
+                  <p className="na-caption mt-1 text-muted-foreground">
                     来源: {selectedDefinition.source.name}
                     {selectedDefinition.source.id ? ` · ${selectedDefinition.source.id}` : ""}
                     {selectedDefinition.source.version ? ` · v${selectedDefinition.source.version}` : ""}
@@ -444,20 +444,20 @@ export function NodeCatalogView({
                       <div className="rounded-md border bg-muted/20 px-3 py-2.5">
                         <div className="flex min-w-0 items-center gap-2">
                           <Database className="size-3.5 shrink-0 text-muted-foreground" />
-                          <p className="gt-body-strong truncate">{selectedTypeMeta.label}</p>
+                          <p className="na-body-strong truncate">{selectedTypeMeta.label}</p>
                         </div>
-                        <p className="gt-caption mt-1 text-muted-foreground">{selectedTypeMeta.summary}</p>
-                        <p className="gt-body mt-2 text-muted-foreground">{selectedTypeMeta.description}</p>
+                        <p className="na-caption mt-1 text-muted-foreground">{selectedTypeMeta.summary}</p>
+                        <p className="na-body mt-2 text-muted-foreground">{selectedTypeMeta.description}</p>
                       </div>
                     )}
 
                     <div>
-                      <p className="gt-label text-muted-foreground">简要描述</p>
-                      <p className="gt-body mt-1">{selectedDefinition.summary}</p>
+                      <p className="na-label text-muted-foreground">简要描述</p>
+                      <p className="na-body mt-1">{selectedDefinition.summary}</p>
                     </div>
                     <div>
-                      <p className="gt-label text-muted-foreground">详细描述</p>
-                      <p className="gt-body mt-1 text-muted-foreground">{selectedDefinition.description}</p>
+                      <p className="na-label text-muted-foreground">详细描述</p>
+                      <p className="na-body mt-1 text-muted-foreground">{selectedDefinition.description}</p>
                     </div>
 
                     <div className="grid gap-4 lg:grid-cols-2">

@@ -1,5 +1,5 @@
-use gt_flow::{EventDraft, EventReceipt};
-use gt_git::{GitRepo, RepoOverview};
+use na_flow::{EventDraft, EventReceipt};
+use na_git::{GitRepo, RepoOverview};
 use serde_json::json;
 
 use crate::application::flow::commands::flow_records_from_data;
@@ -23,7 +23,7 @@ pub(crate) fn set_active_repo_state(
     let _ = publish_flow_event(
         state,
         EventDraft {
-            source: "gittributary://gt-git".to_string(),
+            source: "noteaura://na-git".to_string(),
             event_type: "git.repo.opened".to_string(),
             subject: Some(format!("repo:{repo_path}")),
             data: json!({

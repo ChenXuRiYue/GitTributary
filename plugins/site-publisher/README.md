@@ -1,8 +1,8 @@
 # 发布插件
 
-发布功能通过 manifest 向 GitTributary 贡献工作台页面。React 页面运行在独立 iframe，
-Rust backend 由 sidecar 加载，内含插件私有的 `crates/gt-site`，负责扫描、构建、发布计划
-和站点产物生成。它不链接 GitTributary 的任何核心 crate。
+发布功能通过 manifest 向 NoteAura 贡献工作台页面。React 页面运行在独立 iframe，
+Rust backend 由 sidecar 加载，内含插件私有的 `crates/na-site`，负责扫描、构建、发布计划
+和站点产物生成。它不链接 NoteAura 的任何核心 crate。
 
 ```bash
 npm run plugin:build

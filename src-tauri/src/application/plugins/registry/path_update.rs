@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
-use gt_git::{
+use na_git::{
     commit_path_update, prepare_path_update, resolve_repo_root, verify_push_access,
     CommitPathUpdateOptions, GitRepo, PreparePathUpdateOptions,
 };

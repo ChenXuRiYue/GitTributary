@@ -15,7 +15,7 @@ fn prepares_a_publish_artifact_without_git_access() {
         "request": {
             "buildConfig": {
                 "repoPath": source,
-                "outputDir": source.join(".gittributary/site"),
+                "outputDir": source.join(".noteaura/site"),
                 "siteTitle": "Local publish",
                 "include": ["README.md"],
                 "exclude": [],
@@ -38,6 +38,6 @@ fn prepares_a_publish_artifact_without_git_access() {
 
     assert_eq!(plan["publishPathspec"], "docs");
     assert!(artifact["artifactPath"].as_str().is_some());
-    assert!(source.join(".gittributary/site/index.html").is_file());
+    assert!(source.join(".noteaura/site/index.html").is_file());
     assert!(!target.join("docs").exists());
 }

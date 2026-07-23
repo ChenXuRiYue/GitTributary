@@ -232,7 +232,7 @@ export function GitPanel() {
       <header className="border-border flex shrink-0 items-center gap-4 border-b px-5 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <DomainTrail items={domainTrailItems} />
-          <span className="shrink-0 text-muted-foreground/60 gt-body">/</span>
+          <span className="shrink-0 text-muted-foreground/60 na-body">/</span>
           <div ref={repoMenuRef} className="relative min-w-0 shrink">
             <button
               type="button"
@@ -243,7 +243,7 @@ export function GitPanel() {
               onClick={() => setRepoMenuOpen((open) => !open)}
               title={overview?.path ?? repoLabel}
             >
-              <span className="min-w-0 truncate gt-body">{repoLabel}</span>
+              <span className="min-w-0 truncate na-body">{repoLabel}</span>
               <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", repoMenuOpen && "rotate-180")} />
             </button>
 
@@ -254,8 +254,8 @@ export function GitPanel() {
               >
                 <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
                   <div className="min-w-0">
-                    <div className="gt-body-strong truncate">{repoLabel}</div>
-                    <div className="gt-caption truncate text-muted-foreground" title={overview?.path ?? undefined}>
+                    <div className="na-body-strong truncate">{repoLabel}</div>
+                    <div className="na-caption truncate text-muted-foreground" title={overview?.path ?? undefined}>
                       {repoSubLabel}
                     </div>
                   </div>
@@ -278,8 +278,8 @@ export function GitPanel() {
                   {recentRepos.length === 0 ? (
                     <div className="px-3 py-6 text-center">
                       <GitBranch className="mx-auto size-6 text-muted-foreground" />
-                      <div className="gt-body-strong mt-2">暂无最近仓库</div>
-                      <p className="gt-caption mt-1 text-muted-foreground">打开一个仓库后会出现在这里。</p>
+                      <div className="na-body-strong mt-2">暂无最近仓库</div>
+                      <p className="na-caption mt-1 text-muted-foreground">打开一个仓库后会出现在这里。</p>
                     </div>
                   ) : (
                     recentRepos.map((repo) => {
@@ -302,8 +302,8 @@ export function GitPanel() {
                             {isCurrent ? <Check className="size-3.5" /> : <GitBranch className="size-3.5" />}
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="gt-body-strong block truncate">{repoNameFromPath(repo)}</span>
-                            <span className="gt-caption block truncate text-muted-foreground" title={repo}>
+                            <span className="na-body-strong block truncate">{repoNameFromPath(repo)}</span>
+                            <span className="na-caption block truncate text-muted-foreground" title={repo}>
                               {shortPath(repo)}
                             </span>
                           </span>
@@ -334,8 +334,8 @@ export function GitPanel() {
         <div className="ml-auto hidden shrink-0 items-center gap-2 text-right md:flex">
           {headerStats.map((stat, index) => (
             <div key={`${index}.${stat}`} className="flex items-center gap-2">
-              {index > 0 && <span className="text-muted-foreground/40 gt-caption">/</span>}
-              <span className="text-foreground gt-caption font-medium">{stat}</span>
+              {index > 0 && <span className="text-muted-foreground/40 na-caption">/</span>}
+              <span className="text-foreground na-caption font-medium">{stat}</span>
             </div>
           ))}
         </div>

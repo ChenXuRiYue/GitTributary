@@ -91,8 +91,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}
-          releaseName: "Git Tributary ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}"
-          releaseBody: "See the assets below to download and install Git Tributary."
+          releaseName: "NoteAura ${{ github.event_name == 'push' && github.ref_name || inputs.tag }}"
+          releaseBody: "See the assets below to download and install NoteAura."
           releaseDraft: true
           prerelease: true
           args: ${{ matrix.args }}

@@ -91,7 +91,7 @@ export function AttachmentMigrationPanel({
     return (
       <div className="text-muted-foreground flex min-h-48 items-center justify-center gap-2">
         <LoaderCircle className="size-4 animate-spin" />
-        <span className="gt-body">正在读取迁移工作区</span>
+        <span className="na-body">正在读取迁移工作区</span>
       </div>
     );
   }
@@ -100,14 +100,14 @@ export function AttachmentMigrationPanel({
     <div className="mx-auto flex w-full max-w-7xl flex-col">
       <div className="border-border/50 flex min-h-10 shrink-0 items-center gap-2 border-b px-1">
         <CloudUpload className="size-4" />
-        <h2 className="gt-title-panel shrink-0">附件迁移</h2>
-        <span className="text-muted-foreground/50 gt-caption">/</span>
-        <span className="text-muted-foreground gt-caption shrink-0">操作库</span>
-        <span className="gt-body-strong min-w-0 truncate" title={repoPath}>{repositoryLabel(repoPath)}</span>
+        <h2 className="na-title-panel shrink-0">附件迁移</h2>
+        <span className="text-muted-foreground/50 na-caption">/</span>
+        <span className="text-muted-foreground na-caption shrink-0">操作库</span>
+        <span className="na-body-strong min-w-0 truncate" title={repoPath}>{repositoryLabel(repoPath)}</span>
       </div>
 
       {(manager.error || workspace.error) && (
-        <div className="border-destructive/40 bg-destructive/5 text-destructive gt-body mt-2 flex shrink-0 items-start gap-2 border px-3 py-2">
+        <div className="border-destructive/40 bg-destructive/5 text-destructive na-body mt-2 flex shrink-0 items-start gap-2 border px-3 py-2">
           <AlertTriangle className="mt-0.5 size-4 shrink-0" />
           <span className="break-all">{manager.error ?? workspace.error}</span>
         </div>
@@ -147,7 +147,7 @@ export function AttachmentMigrationPanel({
           ) : (
             <div className="text-muted-foreground flex h-full min-h-48 flex-col items-center justify-center gap-2 text-center">
               <Images className="size-7" />
-              <span className="gt-body">尚未配置可用图库</span>
+              <span className="na-body">尚未配置可用图库</span>
               <Button variant="outline" size="sm" className="h-7 px-2.5" onClick={onOpenSettings}>
                 <Settings2 />
                 配置图库

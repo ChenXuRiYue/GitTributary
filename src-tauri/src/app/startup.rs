@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use gt_data::DataHub;
-use gt_flow::{EventDraft, EventPool};
+use na_data::DataHub;
+use na_flow::{EventDraft, EventPool};
 use serde_json::json;
 use tauri::Manager;
 
@@ -12,10 +12,10 @@ use crate::{publish_flow_event, AppState};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // 初始化数据中心(存放在用户 home 下 .gittributary/)
+    // 初始化数据中心(存放在用户 home 下 .noteaura/)
     let store_dir = dirs_next::home_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".git-tributary");
+        .join(".noteaura");
     let mut data = DataHub::open(&store_dir).expect("无法初始化数据中心");
     data.workspace_mut()
         .initialize()
@@ -42,7 +42,7 @@ pub fn run() {
     let extension_assets = extensions.clone();
 
     tauri::Builder::default()
-        .register_uri_scheme_protocol("gt-plugin", move |_context, request| {
+        .register_uri_scheme_protocol("na-plugin", move |_context, request| {
             registry::asset_response(&extension_assets, &request)
         })
         .plugin(tauri_plugin_opener::init())
@@ -59,14 +59,14 @@ pub fn run() {
         .setup(|app| {
             let state = app.state::<AppState>();
             if let Err(error) = state.plugin_host.start() {
-                eprintln!("[gt-plugin-host] {error}");
+                eprintln!("[na-plugin-host] {error}");
             }
             let _ = publish_flow_event(
                 &state,
                 EventDraft {
-                    source: "gittributary://app".to_string(),
+                    source: "noteaura://app".to_string(),
                     event_type: "app.started".to_string(),
-                    subject: Some("app:gittributary".to_string()),
+                    subject: Some("app:noteaura".to_string()),
                     data: json!({}),
                 },
             );

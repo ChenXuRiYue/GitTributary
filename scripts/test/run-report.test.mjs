@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 test("runner rejects an empty fine-grained selection and still writes reports", () => {
-  const directory = mkdtempSync(path.join(os.tmpdir(), "gittributary-report-test-"));
+  const directory = mkdtempSync(path.join(os.tmpdir(), "noteaura-report-test-"));
   const output = path.join(directory, "report");
   try {
     const result = spawnSync(process.execPath, [

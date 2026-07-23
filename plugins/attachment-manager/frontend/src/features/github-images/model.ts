@@ -4,7 +4,7 @@ import type {
   GitRemoteConfigEntry,
 } from "../../types";
 
-export const SETTINGS_NAMESPACE = "plugin.dev.gittributary.attachment-manager.settings";
+export const SETTINGS_NAMESPACE = "plugin.dev.noteaura.attachment-manager.settings";
 export const SETTINGS_KEY = "github-image-libraries.v3";
 export const PREVIOUS_SETTINGS_KEY = "github-images.v2";
 export const LEGACY_SETTINGS_KEY = "github-images.v1";

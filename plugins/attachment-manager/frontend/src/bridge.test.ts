@@ -19,7 +19,7 @@ describe("attachment plugin modal bridge", () => {
     window.dispatchEvent(new MessageEvent("message", {
       source: window.parent,
       data: {
-        type: "gittributary:host-ready",
+        type: "noteaura:host-ready",
         apiVersion: 1,
         sessionId: "session-1",
         theme: "light",
@@ -28,7 +28,7 @@ describe("attachment plugin modal bridge", () => {
     }));
 
     await expect(opened).resolves.toEqual({
-      type: "gittributary:modal-state",
+      type: "noteaura:modal-state",
       apiVersion: 1,
       sessionId: "session-1",
       open: true,

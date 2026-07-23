@@ -77,7 +77,7 @@ src/shared/components/DomainTrail.tsx
 5. **不放描述行**: 顶栏不放 `description` 段落；说明性文案下沉到面板内。
 6. **禁止业务操作**: 顶栏不放保存、发布、运行、提交、删除、同步等页面动作，也不放当前页面的保存状态。操作归属到页面工具区、面板头部或底部操作区。
 7. **统计只放聚合计数**: 右栏统计只放一级域/二级域的稳定聚合信息，例如任务数、已配置数、候选数、页面数、变更数；不放“未保存/已保存/待处理”这类页面状态。
-8. **语义 token + gt-* 字号**: 标题 `gt-title-app`，上下文名 `gt-body-strong`，路径/副信息 `gt-caption`；颜色走语义 token，禁止硬编码。
+8. **语义 token + na-* 字号**: 标题 `na-title-app`，上下文名 `na-body-strong`，路径/副信息 `na-caption`；颜色走语义 token，禁止硬编码。
 
 ---
 
@@ -112,10 +112,10 @@ src/shared/components/DomainTrail.tsx
         { id: activeView.id, label: activeView.name },
       ]}
     />
-    <span className="text-muted-foreground/60 gt-body">/</span>
+    <span className="text-muted-foreground/60 na-body">/</span>
     <div className="relative min-w-0 shrink">
       <button type="button" className="flex h-7 max-w-[16rem] min-w-0 items-center gap-1.5 rounded px-1.5 text-muted-foreground" title={taskLabel}>
-        <span className="min-w-0 truncate gt-body">{taskLabel}</span>
+        <span className="min-w-0 truncate na-body">{taskLabel}</span>
         <ChevronDown className="size-3.5 shrink-0" />
       </button>
       {/* 展开: 任务切换菜单 (头部/列表/底部三段) */}

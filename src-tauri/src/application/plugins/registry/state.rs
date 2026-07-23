@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::{Duration, Instant};
 
-use gt_flow::FlowNodeDefinition;
+use na_flow::FlowNodeDefinition;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -158,7 +158,7 @@ impl ExtensionRegistry {
 
     pub(crate) fn contribute_active_flow_nodes(
         &self,
-        registry: &mut gt_flow::FlowNodeRegistry,
+        registry: &mut na_flow::FlowNodeRegistry,
     ) -> Result<(), String> {
         let installed = self.installed.read().unwrap();
         let mut candidate = registry.clone();
@@ -382,7 +382,7 @@ impl ExtensionRegistry {
 }
 
 fn extension_to_list_item(extension: &InstalledExtension) -> ExtensionListItem {
-    let base = format!("gt-plugin://localhost/{}/", extension.manifest.id);
+    let base = format!("na-plugin://localhost/{}/", extension.manifest.id);
     ExtensionListItem {
         id: extension.manifest.id.clone(),
         generation: extension.generation,

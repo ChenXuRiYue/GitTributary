@@ -242,8 +242,8 @@ export function App() {
       <header className="border-border flex shrink-0 items-center gap-4 border-b px-5 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <DomainTrail items={trailItems} />
-          <span className="text-muted-foreground/60 gt-body shrink-0">/</span>
-          <span className="text-muted-foreground gt-body min-w-0 truncate" title={report?.repoPath}>
+          <span className="text-muted-foreground/60 na-body shrink-0">/</span>
+          <span className="text-muted-foreground na-body min-w-0 truncate" title={report?.repoPath}>
             {repositoryLabel(report?.repoPath)}
           </span>
         </div>
@@ -251,8 +251,8 @@ export function App() {
           <div className="hidden items-center gap-2 md:flex">
             {headerStats.map((stat, index) => (
               <div key={stat} className="flex items-center gap-2">
-                {index > 0 && <span className="text-muted-foreground/40 gt-caption">/</span>}
-                <span className="text-foreground gt-caption font-medium">{stat}</span>
+                {index > 0 && <span className="text-muted-foreground/40 na-caption">/</span>}
+                <span className="text-foreground na-caption font-medium">{stat}</span>
               </div>
             ))}
           </div>
@@ -273,8 +273,8 @@ export function App() {
         <div className="flex min-h-0 flex-1 items-center justify-center p-6">
           <div className="flex max-w-sm flex-col items-center text-center">
             <AlertTriangle className="text-destructive mb-3 size-6" />
-            <h2 className="gt-title-panel">无法读取附件</h2>
-            <p className="text-muted-foreground gt-body mt-2 break-words">{error}</p>
+            <h2 className="na-title-panel">无法读取附件</h2>
+            <p className="text-muted-foreground na-body mt-2 break-words">{error}</p>
             <Button className="mt-4" variant="outline" size="sm" onClick={() => void scan()}>
               <RefreshCw />
               重试
@@ -335,7 +335,7 @@ export function App() {
                 onPageChange={setInventoryPage}
               />
             ) : (
-              <div className="gt-thin-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 [scrollbar-gutter:stable]">
+              <div className="na-thin-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 [scrollbar-gutter:stable]">
                 {activeModule === "gallery" ? (
                   <GitHubImagePanel />
                 ) : activeModule === "migration" ? (
@@ -355,7 +355,7 @@ export function App() {
                 ) : loading && !report ? (
                   <div className="text-muted-foreground flex h-full items-center justify-center gap-2">
                     <LoaderCircle className="size-4 animate-spin" />
-                    <span className="gt-body">正在扫描附件</span>
+                    <span className="na-body">正在扫描附件</span>
                   </div>
                 ) : (
                   <DomainPanel

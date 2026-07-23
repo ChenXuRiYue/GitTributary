@@ -171,7 +171,7 @@ export function SitePanelView({
       error ? "border-destructive/20 bg-destructive/5 text-destructive" : "border-primary/15 bg-primary/5",
     )}>
       {error ? <TriangleAlert className="mt-0.5 size-4 shrink-0" /> : <CheckCircle2 className="text-primary mt-0.5 size-4 shrink-0" />}
-      <div className="gt-body">{error || message}</div>
+      <div className="na-body">{error || message}</div>
     </div>
   ) : null;
 
@@ -180,7 +180,7 @@ export function SitePanelView({
       <header className="border-border flex shrink-0 items-center gap-4 border-b px-5 py-2">
         <div className="flex min-w-0 flex-1 items-center gap-1.5">
           <DomainTrail items={domainTrailItems} />
-          <span className="shrink-0 text-muted-foreground/60 gt-body">/</span>
+          <span className="shrink-0 text-muted-foreground/60 na-body">/</span>
           <div ref={workspaceMenuRef} className="relative min-w-0 shrink">
             <button
               type="button"
@@ -191,7 +191,7 @@ export function SitePanelView({
               onClick={() => setWorkspaceMenuOpen((open) => !open)}
               title={workspaceLabel}
             >
-              <span className="min-w-0 truncate gt-body">{workspaceLabel}</span>
+              <span className="min-w-0 truncate na-body">{workspaceLabel}</span>
               <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", workspaceMenuOpen && "rotate-180")} />
             </button>
 
@@ -202,8 +202,8 @@ export function SitePanelView({
               >
                 <div className="flex items-center justify-between gap-3 border-b px-3 py-2">
                   <div className="min-w-0">
-                    <div className="gt-body-strong truncate">{workspaceLabel}</div>
-                    <div className="gt-caption truncate text-muted-foreground">
+                    <div className="na-body-strong truncate">{workspaceLabel}</div>
+                    <div className="na-caption truncate text-muted-foreground">
                       {workspacePathLabel ? shortPath(workspacePathLabel) : "未绑定源仓库"}
                     </div>
                   </div>
@@ -226,8 +226,8 @@ export function SitePanelView({
                   {workspaceGroups.length === 0 ? (
                     <div className="px-3 py-6 text-center">
                       <Settings2 className="mx-auto size-6 text-muted-foreground" />
-                      <div className="gt-body-strong mt-2">暂无发布任务</div>
-                      <p className="gt-caption mt-1 text-muted-foreground">先新建一个发布任务。</p>
+                      <div className="na-body-strong mt-2">暂无发布任务</div>
+                      <p className="na-caption mt-1 text-muted-foreground">先新建一个发布任务。</p>
                     </div>
                   ) : (
                     workspaceGroups.map((group) => {
@@ -251,8 +251,8 @@ export function SitePanelView({
                             {isCurrent ? <Check className="size-3.5" /> : <FolderTree className="size-3.5" />}
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="gt-body-strong block truncate">{group.name || "未命名任务"}</span>
-                            <span className="gt-caption block truncate text-muted-foreground">
+                            <span className="na-body-strong block truncate">{group.name || "未命名任务"}</span>
+                            <span className="na-caption block truncate text-muted-foreground">
                               {sourcePath ? shortPath(sourcePath) : "未绑定源仓库"}
                             </span>
                           </span>
@@ -298,8 +298,8 @@ export function SitePanelView({
         <div className="ml-auto hidden shrink-0 items-center gap-2 text-right md:flex">
           {headerStats.map((stat, index) => (
             <div key={`${index}.${stat}`} className="flex items-center gap-2">
-              {index > 0 && <span className="text-muted-foreground/40 gt-caption">/</span>}
-              <span className="text-foreground gt-caption font-medium">{stat}</span>
+              {index > 0 && <span className="text-muted-foreground/40 na-caption">/</span>}
+              <span className="text-foreground na-caption font-medium">{stat}</span>
             </div>
           ))}
         </div>

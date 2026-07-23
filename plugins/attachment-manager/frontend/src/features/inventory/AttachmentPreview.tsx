@@ -27,7 +27,7 @@ export function AttachmentPreview({
       {loading ? (
         <LoaderCircle className="text-muted-foreground size-5 animate-spin" />
       ) : error ? (
-        <div className="text-muted-foreground gt-caption px-4 text-center">{error}</div>
+        <div className="text-muted-foreground na-caption px-4 text-center">{error}</div>
       ) : !preview ? (
         <AttachmentIcon item={item} className="text-muted-foreground size-8" />
       ) : preview.mimeType.startsWith("audio/") ? (
@@ -41,7 +41,7 @@ export function AttachmentPreview({
           onExpand={onExpand}
         />
       ) : item.kind === "link" ? (
-        <div className="text-muted-foreground gt-caption flex flex-col items-center gap-2 px-4 text-center">
+        <div className="text-muted-foreground na-caption flex flex-col items-center gap-2 px-4 text-center">
           <AttachmentIcon item={item} className="size-8" />
           <span>此链接没有可内嵌的媒体预览</span>
         </div>
@@ -85,7 +85,7 @@ export function AsyncPreviewImage({
     <div className="relative flex h-full w-full items-center justify-center overflow-hidden">
       {state === "loading" && <LoaderCircle className="text-muted-foreground size-5 animate-spin" />}
       {state === "error" && (
-        <div className="text-muted-foreground gt-caption flex flex-col items-center gap-2 px-4 text-center">
+        <div className="text-muted-foreground na-caption flex flex-col items-center gap-2 px-4 text-center">
           <KindIcon kind={fallbackKind} className="size-7" />
           {fallbackKind === "link" && <span>此链接无法作为图片预览</span>}
         </div>

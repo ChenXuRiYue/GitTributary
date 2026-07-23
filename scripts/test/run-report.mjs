@@ -174,7 +174,7 @@ function createTasks(selected, args, outputDir, rustRunner) {
       ...commandTask("e2e", "Playwright user journeys", "npx", ["playwright", "test"], ({ execution }) => parseStructured(
         jsonPath, parsePlaywrightResult, execution, "Playwright JSON report was not generated",
       )),
-      env: { GT_PLAYWRIGHT_JSON_OUTPUT: jsonPath },
+      env: { NA_PLAYWRIGHT_JSON_OUTPUT: jsonPath },
     });
   }
   if (selected.includes("performance")) {
@@ -192,7 +192,7 @@ function createTasks(selected, args, outputDir, rustRunner) {
         if (existsSync(path.join(perfOutput, "report.html"))) suite.details.reportPath = "raw/performance/report.html";
         return suite;
       }),
-      env: { GT_PERF_OUTPUT: perfOutput },
+      env: { NA_PERF_OUTPUT: perfOutput },
     });
   }
   return tasks;

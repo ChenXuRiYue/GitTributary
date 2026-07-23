@@ -39,8 +39,8 @@ function TaskSummary({
     return (
       <section className="border-b px-5 py-8 text-center">
         <Settings2 className="mx-auto size-7 text-muted-foreground" />
-        <div className="gt-body-strong mt-2">还没有可执行的发布任务</div>
-        <p className="gt-caption mt-1 text-muted-foreground">先去「发布任务」创建并配置一个任务。</p>
+        <div className="na-body-strong mt-2">还没有可执行的发布任务</div>
+        <p className="na-caption mt-1 text-muted-foreground">先去「发布任务」创建并配置一个任务。</p>
         <Button size="sm" variant="outline" className="mt-3" onClick={onEditTask}>
           <Settings2 className="size-3.5" />
           去配置发布任务
@@ -55,8 +55,8 @@ function TaskSummary({
     <section className="border-b px-5 py-4">
       <div className="flex items-center justify-between gap-4">
         <div className="min-w-0">
-          <div className="gt-title-panel truncate">{task.name || "未命名任务"}</div>
-          <p className="gt-caption mt-0.5 truncate text-muted-foreground">
+          <div className="na-title-panel truncate">{task.name || "未命名任务"}</div>
+          <p className="na-caption mt-0.5 truncate text-muted-foreground">
             {task.sourceRepoPath ? shortPath(task.sourceRepoPath) : "未绑定源仓库"}
           </p>
         </div>
@@ -69,19 +69,19 @@ function TaskSummary({
         <div className="flex min-w-0 items-start gap-2 rounded-md bg-muted/35 px-3 py-2">
           <GitBranch className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
-            <div className="gt-caption text-muted-foreground">源仓库</div>
-            <div className="gt-body-strong truncate">{task.sourceRepoPath ? shortPath(task.sourceRepoPath) : "未配置"}</div>
+            <div className="na-caption text-muted-foreground">源仓库</div>
+            <div className="na-body-strong truncate">{task.sourceRepoPath ? shortPath(task.sourceRepoPath) : "未配置"}</div>
           </div>
         </div>
         <div className="flex min-w-0 items-start gap-2 rounded-md bg-muted/35 px-3 py-2">
           <Globe2 className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
           <div className="min-w-0">
-            <div className="gt-caption text-muted-foreground">发布仓库</div>
-            <div className="gt-body-strong truncate">
+            <div className="na-caption text-muted-foreground">发布仓库</div>
+            <div className="na-body-strong truncate">
               {target ? (target.targetRepoName || target.targetRepoUrl) : "未配置"}
             </div>
             {target && (
-              <div className="gt-caption mt-0.5 truncate text-muted-foreground">
+              <div className="na-caption mt-0.5 truncate text-muted-foreground">
                 {target.remoteName}/{target.targetBranch} · {target.publishDir === "/" ? "/root" : `/${target.publishDir}`}
               </div>
             )}
@@ -117,7 +117,7 @@ function ReadinessHint({
     <section className="border-b border-amber-500/20 bg-amber-500/10 px-5 py-3">
       <div className="flex items-center gap-2">
         <TriangleAlert className="size-4 shrink-0 text-amber-600" />
-        <div className="gt-body-strong">还差一些配置才能执行</div>
+        <div className="na-body-strong">还差一些配置才能执行</div>
       </div>
       <div className="mt-2 flex flex-wrap gap-2">
         {missing.map((item) => (
@@ -141,12 +141,12 @@ function BuildOutputDetails({ report }: { report: SiteBuildReport }) {
       {(report.warnings.length > 0 || report.brokenLinks.length > 0) && (
         <div className="mt-3 flex flex-col gap-1.5">
           {report.warnings.slice(0, 6).map((warning) => (
-            <div key={`${warning.path}-${warning.message}`} className="gt-caption rounded-md bg-muted px-3 py-2">
+            <div key={`${warning.path}-${warning.message}`} className="na-caption rounded-md bg-muted px-3 py-2">
               {warning.path}: {warning.message}
             </div>
           ))}
           {report.brokenLinks.slice(0, 6).map((link) => (
-            <div key={`${link.source}-${link.target}`} className="gt-caption rounded-md bg-muted px-3 py-2">
+            <div key={`${link.source}-${link.target}`} className="na-caption rounded-md bg-muted px-3 py-2">
               {link.source}: {link.target} ({link.kind})
             </div>
           ))}
@@ -166,11 +166,11 @@ function PublishDetails({ report }: { report: SitePublishReport }) {
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <CheckCircle2 className="size-4 shrink-0 text-primary" />
-          <div className="truncate gt-body-strong">
+          <div className="truncate na-body-strong">
             {report.pushed ? "已推送" : "已生成"}
           </div>
         </div>
-        <Badge variant="secondary" className="h-5 px-1.5 gt-caption">{shortCommit}</Badge>
+        <Badge variant="secondary" className="h-5 px-1.5 na-caption">{shortCommit}</Badge>
       </div>
       <div className="mt-3 grid gap-x-4 text-[12px] sm:grid-cols-2">
         <Metric label="分支" value={`${report.remoteName}/${report.branch}`} />
@@ -223,9 +223,9 @@ function ExecutionRecordDetails({ record, now }: { record: SiteRunRecord; now: n
           ) : (
             <TriangleAlert className="size-4 shrink-0 text-destructive" />
           )}
-          <div className="truncate gt-title-panel">{kindLabel}记录</div>
+          <div className="truncate na-title-panel">{kindLabel}记录</div>
         </div>
-        <Badge variant={ok || running ? "secondary" : "destructive"} className="h-5 px-1.5 gt-caption">
+        <Badge variant={ok || running ? "secondary" : "destructive"} className="h-5 px-1.5 na-caption">
           {runStatusLabel(record.status)}
         </Badge>
       </div>
@@ -237,7 +237,7 @@ function ExecutionRecordDetails({ record, now }: { record: SiteRunRecord; now: n
         {typeof record.assetCount === "number" && <Metric label="资源" value={String(record.assetCount)} />}
         {record.commit && <Metric label="提交" value={record.commit.slice(0, 7)} />}
       </div>
-      <p className="gt-caption mt-3 text-muted-foreground" title={record.message}>{record.message}</p>
+      <p className="na-caption mt-3 text-muted-foreground" title={record.message}>{record.message}</p>
     </section>
   );
 }
@@ -257,17 +257,17 @@ function ExecutionHistoryRail({
     <aside className="flex min-w-0 flex-col border-b bg-sidebar/70 lg:border-b-0 lg:border-r">
       <div className="shrink-0 border-b px-5 py-3">
         <div className="flex items-center justify-between gap-3">
-          <div className="gt-title-panel">执行历史</div>
-          <Badge variant="outline" className="h-5 px-1.5 gt-caption">{history.length}</Badge>
+          <div className="na-title-panel">执行历史</div>
+          <Badge variant="outline" className="h-5 px-1.5 na-caption">{history.length}</Badge>
         </div>
-        <p className="gt-caption mt-1 text-muted-foreground">构建 / 发布记录，最新在最前。</p>
+        <p className="na-caption mt-1 text-muted-foreground">构建 / 发布记录，最新在最前。</p>
       </div>
-      <div className="gt-thin-scroll min-h-0 flex-1 overflow-auto">
+      <div className="na-thin-scroll min-h-0 flex-1 overflow-auto">
         {history.length === 0 ? (
           <div className="flex min-h-72 flex-col items-center justify-center gap-2 px-5 py-8 text-center">
             <CheckCircle2 className="size-8 text-muted-foreground" />
-            <div className="gt-body-strong">还没有执行历史</div>
-            <p className="gt-caption max-w-xs text-muted-foreground">执行构建或发布后，记录会出现在这里。</p>
+            <div className="na-body-strong">还没有执行历史</div>
+            <p className="na-caption max-w-xs text-muted-foreground">执行构建或发布后，记录会出现在这里。</p>
           </div>
         ) : (
           <ul className="divide-y">
@@ -295,16 +295,16 @@ function ExecutionHistoryRail({
                     )}
                     <span className="min-w-0 flex-1">
                       <span className="flex min-w-0 items-center gap-2">
-                        <span className="gt-body-strong">{kindLabel}</span>
-                        <span className="gt-caption text-muted-foreground">{recordDurationLabel(record, now)}</span>
+                        <span className="na-body-strong">{kindLabel}</span>
+                        <span className="na-caption text-muted-foreground">{recordDurationLabel(record, now)}</span>
                         {record.commit && (
-                          <span className="gt-caption font-mono text-muted-foreground">{record.commit.slice(0, 7)}</span>
+                          <span className="na-caption font-mono text-muted-foreground">{record.commit.slice(0, 7)}</span>
                         )}
                       </span>
-                      <span className="gt-caption mt-1 block truncate text-muted-foreground" title={record.message}>
+                      <span className="na-caption mt-1 block truncate text-muted-foreground" title={record.message}>
                         {record.message}
                       </span>
-                      <span className="gt-caption mt-1 block text-muted-foreground">
+                      <span className="na-caption mt-1 block text-muted-foreground">
                         {new Date(record.startedAt).toLocaleString()}
                       </span>
                     </span>
@@ -371,8 +371,8 @@ export function BuildResultPanel({
         <section className="flex min-w-0 flex-col">
           <div className="flex shrink-0 items-center justify-between gap-3 border-b bg-muted/10 px-5 py-3">
             <div className="min-w-0">
-              <div className="gt-title-panel">执行详情</div>
-              <p className="gt-caption mt-0.5 truncate text-muted-foreground">配置、动作和最近一次输出。</p>
+              <div className="na-title-panel">执行详情</div>
+              <p className="na-caption mt-0.5 truncate text-muted-foreground">配置、动作和最近一次输出。</p>
             </div>
             {task && (
               <div className="flex shrink-0 gap-2">
@@ -388,7 +388,7 @@ export function BuildResultPanel({
             )}
           </div>
 
-          <div className="gt-thin-scroll min-h-0 flex-1 overflow-auto">
+          <div className="na-thin-scroll min-h-0 flex-1 overflow-auto">
             <TaskSummary task={task} onEditTask={onEditTask} />
 
             {task && (
@@ -407,8 +407,8 @@ export function BuildResultPanel({
               <section className="px-5 py-4">
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
-                    <div className="gt-title-panel">最近输出</div>
-                    <p className="gt-caption mt-0.5 truncate text-muted-foreground">
+                    <div className="na-title-panel">最近输出</div>
+                    <p className="na-caption mt-0.5 truncate text-muted-foreground">
                       构建生成静态站点；发布会构建后同步、提交并推送到发布仓库。
                     </p>
                   </div>
@@ -427,13 +427,13 @@ export function BuildResultPanel({
                 <div className="mt-4 grid gap-4 xl:grid-cols-2">
                   {buildReport && (
                     <div className="min-w-0">
-                      <div className="gt-body-strong mb-2">站点输出</div>
+                      <div className="na-body-strong mb-2">站点输出</div>
                       <BuildOutputDetails report={buildReport} />
                     </div>
                   )}
                   {publishReport && (
                     <div className="min-w-0">
-                      <div className="gt-body-strong mb-2">发布详情</div>
+                      <div className="na-body-strong mb-2">发布详情</div>
                       <PublishDetails report={publishReport} />
                     </div>
                   )}
@@ -443,8 +443,8 @@ export function BuildResultPanel({
               !selectedRecord && (
                 <section className="flex min-h-72 flex-col items-center justify-center px-6 py-8 text-center">
                   <CheckCircle2 className="size-8 text-muted-foreground" />
-                  <div className="gt-body-strong mt-2">还没有执行详情</div>
-                  <p className="gt-caption mt-1 max-w-sm text-muted-foreground">
+                  <div className="na-body-strong mt-2">还没有执行详情</div>
+                  <p className="na-caption mt-1 max-w-sm text-muted-foreground">
                     点击「构建」或「发布」后，这里会显示输出目录、链接检查、提交和推送信息。
                   </p>
                 </section>
