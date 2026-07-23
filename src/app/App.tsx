@@ -18,6 +18,9 @@ import {
   TooltipProvider,
 } from "@/shared/ui/tooltip";
 import { cn } from "@/shared/lib/utils";
+import { SidebarPreferencesProvider } from "./SidebarPreferencesContext";
+import type { SidebarItemKind } from "./sidebarPreferences";
+import { useSidebarPreferencesController } from "./useSidebarPreferencesController";
 
 /** 侧边栏宽度边界（px） */
 const COLLAPSED_WIDTH = 56;
@@ -57,6 +60,8 @@ interface WorkbenchItem {
   group: "main" | "system";
   fullHeight: boolean;
   pinned: boolean;
+  kind: SidebarItemKind;
+  canHide: boolean;
   content: ReactNode;
 }
 
@@ -65,6 +70,8 @@ const registeredCoreItems: WorkbenchItem[] = coreModules.map(({ panel: Panel, ..
   group: module.group ?? "main",
   fullHeight: module.fullHeight ?? false,
   pinned: module.pinned ?? true,
+  kind: module.navigationKind ?? "core",
+  canHide: module.canHide ?? true,
   content: <Panel />,
 }));
 
@@ -84,6 +91,8 @@ function App() {
       group: "main" as const,
       fullHeight: true,
       pinned: true,
+      kind: "plugin" as const,
+      canHide: true,
       content: (
         <ExtensionFrame
           contribution={contribution}
@@ -92,13 +101,18 @@ function App() {
       ),
     })),
   ], [contributions, handleExtensionModalBackdropChange]);
-  const navItems = useMemo<NavItem[]>(() => workbenchItems.map((item) => ({
+  const {
+    controller: sidebarPreferencesController,
+    orderedItems: orderedWorkbenchItems,
+    visibleItems: visibleWorkbenchItems,
+  } = useSidebarPreferencesController(workbenchItems);
+  const navItems = useMemo<NavItem[]>(() => visibleWorkbenchItems.map((item) => ({
     id: item.id,
     name: item.name,
     icon: item.icon,
     pinned: item.pinned,
     group: item.group,
-  })), [workbenchItems]);
+  })), [visibleWorkbenchItems]);
 
   const [activeId, setActiveId] = useState(registeredCoreItems[0]?.id ?? "");
   const [collapsed, setCollapsed] = useState(true);
@@ -108,20 +122,20 @@ function App() {
   const [moreOpen, setMoreOpen] = useState(false);
   const asideRef = useRef<HTMLElement>(null);
 
-  const active = workbenchItems.find((item) => item.id === activeId) ?? workbenchItems[0];
+  const active = orderedWorkbenchItems.find((item) => item.id === activeId) ?? visibleWorkbenchItems[0];
   const isFullHeightPanel = active?.fullHeight === true;
 
   // 分组(展开态用)
-  const mainItems = workbenchItems.filter((item) => item.group === "main");
-  const systemItems = workbenchItems.filter((item) => item.group === "system");
+  const mainItems = visibleWorkbenchItems.filter((item) => item.group === "main");
+  const systemItems = visibleWorkbenchItems.filter((item) => item.group === "system");
   const pinnedItems = mainItems.filter((item) => item.pinned);
   const overflowItems = mainItems.filter((item) => !item.pinned);
 
   useEffect(() => {
-    if (!workbenchItems.some((item) => item.id === activeId)) {
-      setActiveId(workbenchItems[0]?.id ?? "");
+    if (!visibleWorkbenchItems.some((item) => item.id === activeId)) {
+      setActiveId(visibleWorkbenchItems[0]?.id ?? "");
     }
-  }, [activeId, workbenchItems]);
+  }, [activeId, visibleWorkbenchItems]);
 
   const openProjectRepo = useCallback(() => {
     void openUrl(PROJECT_REPO_URL);
@@ -236,8 +250,9 @@ function App() {
   }
 
   return (
-    <TooltipProvider delayDuration={300}>
-      <div className="flex h-screen overflow-hidden">
+    <SidebarPreferencesProvider value={sidebarPreferencesController}>
+      <TooltipProvider delayDuration={300}>
+        <div className="flex h-screen overflow-hidden">
         {/* 左侧侧边栏 */}
         <aside
           ref={asideRef}
@@ -384,8 +399,9 @@ function App() {
             </ScrollArea>
           )}
         </main>
-      </div>
-    </TooltipProvider>
+        </div>
+      </TooltipProvider>
+    </SidebarPreferencesProvider>
   );
 }
 

@@ -1,10 +1,11 @@
-import { Blocks, GitBranch, Database, Workflow } from "lucide-react";
+import { Blocks, GitBranch, Database, Settings, Workflow } from "lucide-react";
 
 import type { CoreModuleDescriptor } from "./types";
 import { DataPanel } from "@/modules/data/DataPanel";
 import { FlowPanel } from "@/modules/flow/FlowPanel";
 import { GitPanel } from "@/modules/git/GitPanel";
 import { PluginManagerPanel } from "@/modules/plugin-manager/PluginManagerPanel";
+import { SettingsPanel } from "@/modules/settings/SettingsPanel";
 
 /** Core 模块注册表。这里的功能随主应用编译，不属于可安装插件。 */
 export const coreModules: CoreModuleDescriptor[] = [
@@ -39,6 +40,18 @@ export const coreModules: CoreModuleDescriptor[] = [
     icon: Blocks,
     panel: PluginManagerPanel,
     group: "system",
+    navigationKind: "function",
+    fullHeight: true,
+  },
+  {
+    id: "settings",
+    name: "设置",
+    description: "调整 GitTributary 的界面与行为。",
+    icon: Settings,
+    panel: SettingsPanel,
+    group: "system",
+    navigationKind: "function",
+    canHide: false,
     fullHeight: true,
   },
 ];
