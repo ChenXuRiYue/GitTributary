@@ -25,23 +25,6 @@ export interface RemoteInfo {
   capabilities: string;
 }
 
-interface SyncConfigPayload {
-  url: string;
-  branch: string;
-  active_environment_id?: string | null;
-  local_database_path?: string | null;
-  auto_sync: boolean;
-  interval_seconds: number;
-}
-
-interface ConfigRepoCheckReport {
-  ok: boolean;
-  status: string;
-  message: string;
-  default_branch: string | null;
-  refs_count: number;
-}
-
 export interface RemoteDraft {
   url: string;
   token: string;
@@ -122,6 +105,10 @@ export function verifyLabel(status: string): string {
   }
 }
 
+function projectRemoteConfigs(remotes: RemoteInfo[]): RemoteInfo[] {
+  return remotes.filter((remote) => remote.source !== "gittributary_config");
+}
+
 export function useRemoteView({
   overview,
   sessionGeneration,
@@ -129,18 +116,12 @@ export function useRemoteView({
   refreshRepository,
 }: Pick<GitViewProps, "overview" | "sessionGeneration" | "openRepository" | "refreshRepository">) {
   const [remotes, setRemotes] = useState<RemoteInfo[]>([]);
-  const [syncConfig, setSyncConfig] = useState<SyncConfigPayload | null>(null);
   const [cloneUrl, setCloneUrl] = useState("");
   const [cloneParentPath, setCloneParentPath] = useState("");
   const [cloneToken, setCloneToken] = useState("");
   const [cloneCommitName, setCloneCommitName] = useState("");
   const [cloneCommitEmail, setCloneCommitEmail] = useState("");
   const [showCloneToken, setShowCloneToken] = useState(false);
-  const [configUrl, setConfigUrl] = useState("");
-  const [configBranch, setConfigBranch] = useState("main");
-  const [configToken, setConfigToken] = useState("");
-  const [showConfigToken, setShowConfigToken] = useState(false);
-  const [checkingConfig, setCheckingConfig] = useState(false);
   const [addingRemote, setAddingRemote] = useState(false);
   const [addRemoteDraft, setAddRemoteDraft] = useState<AddRemoteDraft>({
     name: "origin",
@@ -154,7 +135,6 @@ export function useRemoteView({
   const [remoteDrafts, setRemoteDrafts] = useState<Record<string, RemoteDraft>>({});
   const [remoteBusyKey, setRemoteBusyKey] = useState<string | null>(null);
   const [expandedRemoteKeys, setExpandedRemoteKeys] = useState<Record<string, boolean>>({});
-  const [configCheck, setConfigCheck] = useState<ConfigRepoCheckReport | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uiStateHydrated, setUiStateHydrated] = useState(false);
@@ -255,34 +235,21 @@ export function useRemoteView({
   }, [remotes]);
 
   const loadRemoteConfigs = useCallback(async () => {
-    setRemotes(await invoke<RemoteInfo[]>("get_remote_configs"));
+    const configs = await invoke<RemoteInfo[]>("get_remote_configs");
+    setRemotes(projectRemoteConfigs(configs));
   }, []);
 
   const refresh = useCallback(async () => {
     const requestedGeneration = sessionGeneration;
     let nextError: string | null = null;
     let nextRemotes: RemoteInfo[] | null = null;
-    let nextSyncConfig: SyncConfigPayload | null | undefined;
     try {
-      nextRemotes = await invoke<RemoteInfo[]>("get_remote_configs");
+      nextRemotes = projectRemoteConfigs(await invoke<RemoteInfo[]>("get_remote_configs"));
     } catch (cause) {
       nextError = `远程配置读取失败: ${String(cause)}`;
     }
-    try {
-      nextSyncConfig = await invoke<SyncConfigPayload | null>("sync_get_config");
-    } catch (cause) {
-      const message = `配置中心读取失败: ${String(cause)}`;
-      nextError = nextError ? `${nextError}; ${message}` : message;
-    }
     if (loadedGenerationRef.current !== requestedGeneration) return;
     if (nextRemotes) setRemotes(nextRemotes);
-    if (nextSyncConfig !== undefined) {
-      setSyncConfig(nextSyncConfig);
-      if (nextSyncConfig) {
-        setConfigUrl(nextSyncConfig.url);
-        setConfigBranch(nextSyncConfig.branch || "main");
-      }
-    }
     setError(nextError);
   }, [sessionGeneration]);
 
@@ -422,70 +389,14 @@ export function useRemoteView({
     }
   };
 
-  const configPayload = (): SyncConfigPayload => ({
-    url: configUrl.trim(),
-    branch: configBranch.trim() || "main",
-    active_environment_id: syncConfig?.active_environment_id ?? null,
-    local_database_path: syncConfig?.local_database_path ?? null,
-    auto_sync: syncConfig?.auto_sync ?? true,
-    interval_seconds: syncConfig?.interval_seconds ?? 300,
-  });
-  const handleCheckConfigRepo = async () => {
-    if (!configUrl.trim()) return;
-    try {
-      setCheckingConfig(true);
-      const report = await invoke<ConfigRepoCheckReport>("check_data_center_config_repo", {
-        url: configUrl.trim(),
-        token: configToken.trim() || null,
-      });
-      setConfigCheck(report);
-      if (report.ok && report.default_branch && !configBranch.trim()) setConfigBranch(report.default_branch);
-    } catch (cause) {
-      setConfigCheck({ ok: false, status: "error", message: String(cause), default_branch: null, refs_count: 0 });
-    } finally {
-      setCheckingConfig(false);
-    }
-  };
-  const handleSaveConfigRemote = async () => {
-    if (!configUrl.trim()) return;
-    try {
-      await invoke("update_data_center_config_remote", {
-        config: configPayload(),
-        token: configToken.trim() || null,
-        clearToken: false,
-      });
-      setConfigToken("");
-      flash("配置中心远程已保存并拉取到本地工作副本");
-      await refresh();
-    } catch (cause) {
-      setError(String(cause));
-    }
-  };
-  const handleUnbindConfigRemote = async () => {
-    try {
-      await invoke("unbind_data_center_config_remote", { clearToken: true });
-      setConfigUrl("");
-      setConfigBranch("main");
-      setConfigToken("");
-      setConfigCheck(null);
-      flash("配置中心远程已解绑");
-      await refresh();
-    } catch (cause) {
-      setError(String(cause));
-    }
-  };
-
   return {
-    remotes, syncConfig, cloneUrl, setCloneUrl, cloneParentPath, setCloneParentPath,
+    remotes, cloneUrl, setCloneUrl, cloneParentPath, setCloneParentPath,
     cloneToken, setCloneToken, cloneCommitName, setCloneCommitName, cloneCommitEmail,
-    setCloneCommitEmail, showCloneToken, setShowCloneToken, configUrl, setConfigUrl,
-    configBranch, setConfigBranch, configToken, setConfigToken, showConfigToken,
-    setShowConfigToken, checkingConfig, addingRemote, addRemoteDraft, setAddRemoteDraft,
+    setCloneCommitEmail, showCloneToken, setShowCloneToken,
+    addingRemote, addRemoteDraft, setAddRemoteDraft,
     savingNewRemote, remoteDrafts, remoteBusyKey, expandedRemoteKeys, setExpandedRemoteKeys,
-    configCheck, status, error, refresh, openRepo, openFromDialog, selectClonePathFromDialog,
+    status, error, refresh, openRepo, openFromDialog, selectClonePathFromDialog,
     handleCloneRemote, handleAddRemote, updateRemoteDraft, handleUpdateRemote,
-    handleRemoveRemote, handleCheckConfigRepo, handleSaveConfigRemote,
-    handleUnbindConfigRemote,
-    hasConfigRemote: remotes.some((remote) => remote.source === "gittributary_config"),
+    handleRemoveRemote,
   };
 }

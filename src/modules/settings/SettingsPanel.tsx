@@ -14,8 +14,10 @@ import { Button } from "@/shared/ui/button";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Switch } from "@/shared/ui/switch";
 import { cn } from "@/shared/lib/utils";
+import { DataSyncSettings } from "./DataSyncSettings";
 
 const SETTINGS_NAV_ITEMS = [
+  { id: "data-sync", name: "数据同步" },
   { id: "sidebar", name: "侧边栏" },
 ];
 
@@ -172,12 +174,13 @@ function SidebarItemSection({
 }
 
 export function SettingsPanel() {
-  const [activeViewId, setActiveViewId] = useState("sidebar");
+  const [activeViewId, setActiveViewId] = useState("data-sync");
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const { items, isVisible, reorder, reset } = useSidebarPreferences();
   const mainItems = useMemo(() => items.filter((item) => item.group === "main"), [items]);
   const systemItems = useMemo(() => items.filter((item) => item.group === "system"), [items]);
   const visibleCount = items.filter((item) => isVisible(item.id)).length;
+  const activeView = SETTINGS_NAV_ITEMS.find((item) => item.id === activeViewId) ?? SETTINGS_NAV_ITEMS[0];
 
   const handleDrop = (targetId: string) => {
     if (draggedId) reorder(draggedId, targetId);
@@ -189,7 +192,7 @@ export function SettingsPanel() {
       <header className="flex shrink-0 items-center gap-4 border-b border-border px-5 py-2">
         <DomainTrail items={[
           { id: "settings", label: "设置" },
-          { id: "sidebar", label: "侧边栏" },
+          { id: activeView.id, label: activeView.name },
         ]} />
       </header>
 
@@ -219,36 +222,44 @@ export function SettingsPanel() {
         </aside>
 
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4">
-            <span className="gt-caption text-muted-foreground">
-              显示:{visibleCount} / {items.length}
-            </span>
-            <Button type="button" variant="ghost" size="sm" onClick={reset}>
-              <RotateCcw className="size-3.5" />
-              恢复默认
-            </Button>
-          </div>
+          {activeViewId === "data-sync" ? (
+            <ScrollArea className="min-h-0 flex-1">
+              <DataSyncSettings />
+            </ScrollArea>
+          ) : (
+            <>
+              <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4">
+                <span className="gt-caption text-muted-foreground">
+                  显示:{visibleCount} / {items.length}
+                </span>
+                <Button type="button" variant="ghost" size="sm" onClick={reset}>
+                  <RotateCcw className="size-3.5" />
+                  恢复默认
+                </Button>
+              </div>
 
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-5 sm:px-6">
-              <SidebarItemSection
-                title="主导航"
-                items={mainItems}
-                draggedId={draggedId}
-                onDragStart={setDraggedId}
-                onDragEnd={() => setDraggedId(null)}
-                onDrop={handleDrop}
-              />
-              <SidebarItemSection
-                title="底部功能"
-                items={systemItems}
-                draggedId={draggedId}
-                onDragStart={setDraggedId}
-                onDragEnd={() => setDraggedId(null)}
-                onDrop={handleDrop}
-              />
-            </div>
-          </ScrollArea>
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-5 sm:px-6">
+                  <SidebarItemSection
+                    title="主导航"
+                    items={mainItems}
+                    draggedId={draggedId}
+                    onDragStart={setDraggedId}
+                    onDragEnd={() => setDraggedId(null)}
+                    onDrop={handleDrop}
+                  />
+                  <SidebarItemSection
+                    title="底部功能"
+                    items={systemItems}
+                    draggedId={draggedId}
+                    onDragStart={setDraggedId}
+                    onDragEnd={() => setDraggedId(null)}
+                    onDrop={handleDrop}
+                  />
+                </div>
+              </ScrollArea>
+            </>
+          )}
         </div>
       </div>
     </div>

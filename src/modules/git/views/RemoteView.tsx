@@ -1,6 +1,6 @@
 import {
   ChevronDown, Eye, EyeOff, FolderOpen, Globe, Link,
-  Plus, Save, ShieldCheck, Trash2, Unplug,
+  Plus, Save, Trash2,
 } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
@@ -22,18 +22,15 @@ export function RemoteView({
   refreshRepository,
 }: GitViewProps) {
   const {
-    remotes, syncConfig,
+    remotes,
     cloneUrl, setCloneUrl, cloneParentPath, setCloneParentPath,
     cloneToken, setCloneToken, cloneCommitName, setCloneCommitName,
     cloneCommitEmail, setCloneCommitEmail, showCloneToken, setShowCloneToken,
-    configUrl, setConfigUrl, configBranch, setConfigBranch,
-    configToken, setConfigToken, showConfigToken, setShowConfigToken,
-    checkingConfig, addingRemote, addRemoteDraft, setAddRemoteDraft, savingNewRemote,
+    addingRemote, addRemoteDraft, setAddRemoteDraft, savingNewRemote,
     remoteDrafts, remoteBusyKey, expandedRemoteKeys, setExpandedRemoteKeys,
-    configCheck, status, error, refresh, openRepo, openFromDialog,
+    status, error, refresh, openRepo, openFromDialog,
     selectClonePathFromDialog, handleCloneRemote, handleAddRemote, updateRemoteDraft,
-    handleUpdateRemote, handleRemoveRemote, handleCheckConfigRepo,
-    handleSaveConfigRemote, handleUnbindConfigRemote, hasConfigRemote,
+    handleUpdateRemote, handleRemoveRemote,
   } = useRemoteView({
     overview,
     sessionGeneration,
@@ -74,7 +71,6 @@ export function RemoteView({
             <p className="text-xs text-muted-foreground">暂无远程仓库配置</p>
           ) : (
             remotes.map((r) => {
-              const isConfigCenter = r.source === "gittributary_config";
               const isLocalRemote = r.source === "local_git_config";
               const key = remoteKey(r);
               const draft = remoteDrafts[key] ?? {
@@ -194,67 +190,6 @@ export function RemoteView({
                             disabled={isBusy}
                           >
                             <Trash2 className="size-3.5" /> 删除
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-                    {isConfigCenter && (
-                      <div className="rounded-md bg-muted/30 p-3">
-                        <div className="flex flex-col gap-3">
-                          <div className="grid grid-cols-[72px_1fr] items-center gap-2 rounded-md border bg-background/70 p-2">
-                            <span className="text-[11px] font-medium text-muted-foreground">URL</span>
-                            <Input
-                              value={configUrl}
-                              onChange={(e) => setConfigUrl(e.target.value)}
-                              placeholder="https://github.com/org/config-repo.git"
-                              className="h-8 text-xs"
-                            />
-                            <span className="text-[11px] font-medium text-muted-foreground">Token</span>
-                            <div className="relative">
-                              <Input
-                                type={showConfigToken ? "text" : "password"}
-                                value={configToken}
-                                onChange={(e) => setConfigToken(e.target.value)}
-                                placeholder="留空则沿用已保存 Token"
-                                className="h-8 pr-8 text-xs"
-                              />
-                              <button type="button" onClick={() => setShowConfigToken(!showConfigToken)}
-                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground">
-                                {showConfigToken ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                              </button>
-                            </div>
-                          </div>
-                          <div className="grid grid-cols-[72px_1fr] items-center gap-2 px-2">
-                            <span className="text-[11px] text-muted-foreground">分支</span>
-                            <Input
-                              value={configBranch}
-                              onChange={(e) => setConfigBranch(e.target.value)}
-                              placeholder="main"
-                              className="h-8 text-xs"
-                            />
-                            <span className="text-[11px] text-muted-foreground">本地工作副本</span>
-                            <div className="truncate rounded-md border bg-background px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
-                              {syncConfig?.local_database_path ?? "保存后由数据中心分配"}
-                            </div>
-                          </div>
-                        </div>
-                        {configCheck && (
-                          <div className={`mt-2 rounded-md px-2 py-1.5 text-[11px] ${configCheck.ok ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>
-                            {configCheck.message}
-                            {configCheck.ok && configCheck.default_branch && (
-                              <span className="ml-2 text-muted-foreground">默认分支 {configCheck.default_branch}</span>
-                            )}
-                          </div>
-                        )}
-                        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
-                          <Button variant="outline" size="sm" className="h-8" onClick={handleCheckConfigRepo} disabled={!configUrl.trim() || checkingConfig}>
-                            <ShieldCheck className="size-3.5" /> {checkingConfig ? "验证中" : "验证"}
-                          </Button>
-                          <Button size="sm" className="h-8" onClick={handleSaveConfigRemote} disabled={!configUrl.trim()}>
-                            <Save className="size-3.5" /> 保存
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-8 text-destructive hover:text-destructive" onClick={handleUnbindConfigRemote}>
-                            <Unplug className="size-3.5" /> 解绑
                           </Button>
                         </div>
                       </div>
@@ -414,75 +349,6 @@ export function RemoteView({
           </div>
         </CardContent>
       </Card>
-      {!hasConfigRemote && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-sm">
-              <Globe className="size-4" /> 配置中心远程
-              <Badge variant="outline" className="text-[9px]">数据中心同步</Badge>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <div className="flex flex-col gap-3">
-              <div className="grid grid-cols-[88px_1fr] items-center gap-2 rounded-md border bg-muted/20 p-2">
-                <span className="text-[11px] font-medium text-muted-foreground">URL</span>
-                <Input
-                  value={configUrl}
-                  onChange={(e) => setConfigUrl(e.target.value)}
-                  placeholder="https://github.com/org/config-repo.git"
-                  className="h-8 text-xs"
-                />
-                <span className="text-[11px] font-medium text-muted-foreground">Access Token</span>
-                <div className="relative">
-                  <Input
-                    type={showConfigToken ? "text" : "password"}
-                    value={configToken}
-                    onChange={(e) => setConfigToken(e.target.value)}
-                    placeholder="配置中心必须显式配置"
-                    className="h-8 pr-8 text-xs"
-                  />
-                  <button type="button" onClick={() => setShowConfigToken(!showConfigToken)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground">
-                    {showConfigToken ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                  </button>
-                </div>
-              </div>
-              <div className="grid grid-cols-[88px_1fr] items-center gap-2 px-2">
-                <span className="text-[11px] text-muted-foreground">分支</span>
-                <Input
-                  value={configBranch}
-                  onChange={(e) => setConfigBranch(e.target.value)}
-                  placeholder="main"
-                  className="h-8 text-xs"
-                />
-                <span className="text-[11px] text-muted-foreground">本地工作副本</span>
-                <div className="truncate rounded-md border bg-muted/30 px-2 py-1.5 font-mono text-[11px] text-muted-foreground">
-                  保存后由数据中心分配
-                </div>
-              </div>
-            </div>
-            {configCheck && (
-              <div className={`rounded-md px-2 py-1.5 text-[11px] ${configCheck.ok ? "bg-primary/10 text-primary" : "bg-destructive/10 text-destructive"}`}>
-                {configCheck.message}
-              </div>
-            )}
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[10px] text-muted-foreground">
-                成功保存后会拉取到本地工作副本,并作为 GitTributary 远程配置进入上方列表。
-              </p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" className="h-8" onClick={handleCheckConfigRepo} disabled={!configUrl.trim() || checkingConfig}>
-                  <ShieldCheck className="size-3.5" /> {checkingConfig ? "验证中" : "验证"}
-                </Button>
-                <Button size="sm" className="h-8" onClick={handleSaveConfigRemote}
-                  disabled={!configUrl.trim() || !configToken.trim()}>
-                  <Save className="size-3.5" /> 保存
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
       </div>
     </div>
   );

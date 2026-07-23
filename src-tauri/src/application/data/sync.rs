@@ -6,11 +6,16 @@ use tauri::State;
 
 use gt_data::DataHub;
 use gt_flow::FlowNodeDefinition;
-use gt_git::AuthMethod;
+use gt_git::{AuthMethod, GitRepo};
 
 use crate::support::config_dir::store_base_dir;
 use crate::support::error::classify_config_repo_check_error;
 use crate::AppState;
+
+pub(crate) mod spaces;
+
+#[cfg(test)]
+use spaces::{initialize_space, valid_space_id};
 
 pub(crate) fn flow_node_definitions() -> Vec<FlowNodeDefinition> {
     vec![FlowNodeDefinition {
@@ -86,6 +91,91 @@ pub(crate) fn sync_get_config(
         Ok(None) => Ok(None),
         Err(e) => Err(e.to_string()),
     }
+}
+
+fn configured_remote_url_and_token(
+    data: &DataHub,
+    repo_path: &str,
+    remote_name: &str,
+) -> Result<(String, String), String> {
+    let repo_path = repo_path.trim();
+    let remote_name = remote_name.trim();
+    if repo_path.is_empty() || remote_name.is_empty() {
+        return Err("请选择已配置的远程仓库".to_string());
+    }
+
+    let repo = GitRepo::open(repo_path).map_err(|error| error.to_string())?;
+    let remote = repo
+        .remotes()
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .find(|remote| remote.name == remote_name)
+        .ok_or_else(|| format!("远程仓库 '{remote_name}' 不存在"))?;
+    if !remote.url.starts_with("https://") {
+        return Err("数据同步只支持使用 HTTPS 的远程仓库".to_string());
+    }
+
+    let token = data
+        .credentials()
+        .project_token(repo_path)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            data.credentials()
+                .global_token()
+                .filter(|value| !value.is_empty())
+        })
+        .ok_or_else(|| "所选远程仓库没有可复用的 Access Token".to_string())?;
+    Ok((remote.url, token))
+}
+
+#[tauri::command]
+pub(crate) fn bind_data_center_config_remote(
+    repo_path: String,
+    remote_name: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let (url, token) = {
+        let data = state.data.lock().unwrap();
+        configured_remote_url_and_token(&data, &repo_path, &remote_name)?
+    };
+    let report = gt_git::check_remote_access(&url, &AuthMethod::Token(token.clone()))
+        .map_err(|error| classify_config_repo_check_error(&error.to_string()).1)?;
+
+    let base_dir = store_base_dir();
+    let engine = gt_data::SyncEngine::new(&base_dir);
+    let existing = engine.config().map_err(|error| error.to_string())?;
+    let same_remote = existing.as_ref().is_some_and(|config| config.url == url);
+    let config = SyncConfigPayload {
+        url,
+        branch: report.default_branch.unwrap_or_else(|| "main".to_string()),
+        active_environment_id: same_remote
+            .then(|| {
+                existing
+                    .as_ref()
+                    .and_then(|config| config.active_environment_id.clone())
+            })
+            .flatten()
+            .or_else(|| Some("default".to_string())),
+        local_database_path: same_remote
+            .then(|| {
+                existing
+                    .as_ref()
+                    .and_then(|config| config.local_database_path.clone())
+            })
+            .flatten(),
+        auto_sync: existing.as_ref().is_none_or(|config| config.auto_sync),
+        interval_seconds: existing
+            .as_ref()
+            .map_or(300, |config| config.interval_seconds),
+    };
+
+    {
+        let mut data = state.data.lock().unwrap();
+        data.credentials_mut()
+            .set_data_center_config_token(&token)
+            .map_err(|error| error.to_string())?;
+    }
+    apply_sync_config(config, &state)
 }
 
 /// 把 payload 落为 SyncConfig、ensure checkout、并按需 import 远端数据。
@@ -307,40 +397,5 @@ pub(crate) fn sync_get_state(_state: State<'_, AppState>) -> Result<gt_data::Syn
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    fn temp_store() -> (TempDir, DataHub) {
-        let dir = TempDir::new().unwrap();
-        let data = DataHub::open(dir.path()).unwrap();
-        (dir, data)
-    }
-
-    #[test]
-    fn require_config_repo_url_and_token_rejects_non_https() {
-        let (_dir, store) = temp_store();
-        let err = require_config_repo_url_and_token(&store, "git@github.com:a/b.git").unwrap_err();
-        assert!(err.contains("HTTPS"));
-    }
-
-    #[test]
-    fn require_config_repo_url_and_token_requires_token_when_https() {
-        let (_dir, store) = temp_store();
-        let err =
-            require_config_repo_url_and_token(&store, "https://github.com/a/b.git").unwrap_err();
-        assert!(err.contains("Access Token"));
-    }
-
-    #[test]
-    fn require_config_repo_url_and_token_returns_token_when_set() {
-        let (_dir, mut store) = temp_store();
-        store
-            .credentials_mut()
-            .set_data_center_config_token("tok123")
-            .unwrap();
-        let token =
-            require_config_repo_url_and_token(&store, "https://github.com/a/b.git").unwrap();
-        assert_eq!(token, "tok123");
-    }
-}
+#[path = "sync_tests.rs"]
+mod tests;
