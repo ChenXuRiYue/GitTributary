@@ -26,6 +26,7 @@ import {
   siteStateKey,
 } from "../state";
 import {
+  DEFAULT_CAPTURE_FILTERS,
   isTauriRuntime,
   migrateLegacyPublishTargets,
   parseSiteViewUiState,
@@ -51,7 +52,7 @@ export function useSiteWorkspace(core: ReturnType<typeof useSiteCoreState>) {
     phase, setPhase, repoPath, setRepoPath, outputDir, setOutputDir,
     siteTitle, setSiteTitle, withSearch, setWithSearch, copyAssets, setCopyAssets,
     activeViewId, setActiveViewId, scanReport, setScanReport, selectedPaths, setSelectedPaths,
-    captureViewMode, setCaptureViewMode, captureFilters, openCapturePaths,
+    captureViewMode, setCaptureViewMode, captureFilters, setCaptureFilters, openCapturePaths,
     setOpenCapturePaths, setBuildReport, setPublishReport, remoteConfigs,
     workspaceGroups, setWorkspaceGroups, activeWorkspaceGroupId,
     setActiveWorkspaceGroupId, workspaceMenuOpen, setWorkspaceMenuOpen,
@@ -167,6 +168,7 @@ export function useSiteWorkspace(core: ReturnType<typeof useSiteCoreState>) {
     config: SiteBuildConfig,
     uiState: {
       captureViewMode: CaptureViewMode;
+      captureFilters: typeof captureFilters;
       openPaths: string[];
     },
   ) => {
@@ -176,13 +178,14 @@ export function useSiteWorkspace(core: ReturnType<typeof useSiteCoreState>) {
         namespace: SITE_STATE_NS,
         key: siteStateKey(config.repoPath),
         value: {
-          version: 2,
+          version: 3,
           repoPath: config.repoPath,
           outputDir: config.outputDir,
           siteTitle: config.siteTitle,
           include: config.include,
           hasSelectionState: true,
           captureViewMode: uiState.captureViewMode,
+          captureFilters: uiState.captureFilters,
           openPaths: uiState.openPaths,
           theme: config.theme,
           withSearch: config.withSearch,
@@ -205,24 +208,31 @@ export function useSiteWorkspace(core: ReturnType<typeof useSiteCoreState>) {
       if (!cached) {
         setOutputDir(report?.defaultOutputDir || "");
         setSiteTitle(report?.repoName || defaultTitleFromRepo(path));
-        return false;
+        setCaptureViewMode("tree");
+        setCaptureFilters(DEFAULT_CAPTURE_FILTERS);
+        setOpenCapturePaths(new Set());
+        return null;
       }
       setOutputDir(cached.outputDir || report?.defaultOutputDir || "");
       setSiteTitle(cached.siteTitle || report?.repoName || defaultTitleFromRepo(path));
       setWithSearch(cached.withSearch);
       setCopyAssets(cached.copyAssets);
       setCaptureViewMode(cached.captureViewMode);
+      setCaptureFilters(cached.captureFilters);
       if (report) {
         const knownPaths = collectOpenNodePaths(buildCaptureTree(report.candidates));
         setOpenCapturePaths(new Set(cached.openPaths ? filterKnownPaths(cached.openPaths, knownPaths) : []));
       } else if (cached.openPaths) {
         setOpenCapturePaths(new Set(cached.openPaths));
       }
-      return true;
+      return cached;
     } catch {
       setOutputDir(report?.defaultOutputDir || "");
       setSiteTitle(report?.repoName || defaultTitleFromRepo(path));
-      return false;
+      setCaptureViewMode("tree");
+      setCaptureFilters(DEFAULT_CAPTURE_FILTERS);
+      setOpenCapturePaths(new Set());
+      return null;
     }
   }, []);
 
@@ -251,9 +261,8 @@ export function useSiteWorkspace(core: ReturnType<typeof useSiteCoreState>) {
       const report = await invoke<SiteScanReport>("site_scan", { repoPath: cleanPath });
       setScanReport(report);
       setRepoPath(report.repoPath);
-      await restoreConfig(report.repoPath, report);
-      applyDocumentScope(documentScope, report);
-      setOpenCapturePaths(new Set());
+      const cached = await restoreConfig(report.repoPath, report);
+      applyDocumentScope(cached?.hasSelectionState ? cached.include : documentScope, report);
       hydratedRepoRef.current = report.repoPath;
       void persistActiveRepo(report.repoPath);
       void loadRemoteConfigs();
@@ -412,13 +421,14 @@ export function useSiteWorkspace(core: ReturnType<typeof useSiteCoreState>) {
     const timeout = window.setTimeout(() => {
       void persistConfig(buildConfig, {
         captureViewMode,
+        captureFilters,
         openPaths: Array.from(openCapturePaths).filter((path) => knownOpenPaths.has(path)).sort((a, b) => pathCollator.compare(a, b)),
       });
       void persistActiveRepo(scanReport.repoPath);
     }, 250);
 
     return () => window.clearTimeout(timeout);
-  }, [buildConfig, captureViewMode, knownOpenPaths, openCapturePaths, persistActiveRepo, persistConfig, scanReport]);
+  }, [buildConfig, captureFilters, captureViewMode, knownOpenPaths, openCapturePaths, persistActiveRepo, persistConfig, scanReport]);
 
   // 文档范围现在是「本地草稿 + 手动保存」模式: selectedPaths 是正在编辑的
   // 草稿，不再去抖自动写回 activeWorkspaceGroup.documentScope；只有调用

@@ -8,14 +8,9 @@ import { ResizeHandle } from "@/shared/components/ResizeHandle";
 import { cn } from "@/shared/lib/utils";
 import { Button } from "@/shared/ui/button";
 
-import { markPluginReady } from "./bridge";
 import { PAGE_SIZE } from "./components/Pagination";
 import { DomainPanel } from "./features/domains/DomainPanel";
-import {
-  buildDomainStats,
-  filterAndSortDomains,
-  type DomainSort,
-} from "./features/domains/model";
+import { buildDomainStats, filterAndSortDomains } from "./features/domains/model";
 import { AttachmentMigrationPanel } from "./features/github-images/AttachmentMigrationPanel";
 import { GitHubImagePanel } from "./features/github-images/GitHubImagePanel";
 import { useMigrationWorkspace } from "./features/github-images/useMigrationWorkspace";
@@ -27,10 +22,6 @@ import {
   countAttachments,
   countLinks,
   filterAndSortAttachments,
-  type Filter,
-  type LinkFilter,
-  type SortMode,
-  type ViewMode,
 } from "./features/inventory/model";
 import {
   attachmentErrorMessage,
@@ -49,8 +40,8 @@ import type {
   AttachmentScanReport,
   WorkspaceInfo,
 } from "./types";
-
-type Module = "inventory" | "domains" | "gallery" | "migration";
+import type { AttachmentModule } from "./ui-state";
+import { useAttachmentControls, useAttachmentUiPersistence } from "./useAttachmentUiState";
 
 const modules = [
   { id: "inventory", name: "扫描盘点", icon: ScanSearch },
@@ -69,7 +60,6 @@ interface DetailPreviewState {
 
 export function App() {
   const [report, setReport] = useState<AttachmentScanReport | null>(null);
-  const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [detailPreview, setDetailPreview] = useState<DetailPreviewState>({
     key: "",
     preview: null,
@@ -77,21 +67,21 @@ export function App() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeModule, setActiveModule] = useState<Module>("inventory");
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
-  const [linkFilter, setLinkFilter] = useState<LinkFilter>("all");
-  const [viewMode, setViewMode] = useState<ViewMode>("grid");
-  const [sortMode, setSortMode] = useState<SortMode>("name");
-  const [inventoryPage, setInventoryPage] = useState(0);
-  const [domainQuery, setDomainQuery] = useState("");
-  const [domainSort, setDomainSort] = useState<DomainSort>("resources");
-  const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [inventoryWidth, setInventoryWidth] = useState(208);
-  const [detailWidth, setDetailWidth] = useState(320);
-  const initialLoad = useRef(false);
-  const activeModuleRef = useRef<Module>("inventory");
+  const ui = useAttachmentControls();
+  const {
+    activeModule, setActiveModule, inventorySelectedPath, setInventorySelectedPath,
+    domainSelectedPath, setDomainSelectedPath, query, setQuery, filter, setFilter,
+    linkFilter, setLinkFilter, viewMode, setViewMode, sortMode, setSortMode,
+    inventoryPage, setInventoryPage, domainQuery, setDomainQuery, domainSort, setDomainSort,
+    selectedDomain, setSelectedDomain, domainPage, setDomainPage, domainResourcePage,
+    setDomainResourcePage, domainResourceKind, setDomainResourceKind, inventoryWidth,
+    setInventoryWidth, detailWidth, setDetailWidth, migrationSelectedTaskId,
+    setMigrationSelectedTaskId, migrationSelectedPaths, setMigrationSelectedPaths,
+    migrationQuery, setMigrationQuery, migrationExpandedFiles, setMigrationExpandedFiles,
+    uiStateHydrated,
+  } = ui;
+  const filterResetReadyRef = useRef(false);
 
   const scan = useCallback(async () => {
     setLoading(true);
@@ -103,30 +93,30 @@ export function App() {
         repoPath: workspace.active_repo,
       });
       setReport(next);
-      if (activeModuleRef.current !== "inventory") {
-        setSelectedPath(null);
-        return;
-      }
-      setSelectedPath((current) => {
+      setInventorySelectedPath((current) => {
         if (current && next.attachments.some((item) => item.path === current)) return current;
         return next.attachments[0]?.path ?? null;
       });
+      setDomainSelectedPath((current) => (
+        current && next.attachments.some((item) => item.path === current) ? current : null
+      ));
     } catch (reason) {
       setReport(null);
-      setSelectedPath(null);
+      setInventorySelectedPath(null);
+      setDomainSelectedPath(null);
       setError(attachmentErrorMessage(reason));
     } finally {
       setLoading(false);
     }
   }, []);
   const migrationWorkspace = useMigrationWorkspace(scan);
+  useAttachmentUiPersistence(ui, scan);
 
-  useEffect(() => {
-    markPluginReady();
-    if (initialLoad.current) return;
-    initialLoad.current = true;
-    void scan();
-  }, [scan]);
+  const selectedPath = activeModule === "inventory"
+    ? inventorySelectedPath
+    : activeModule === "domains"
+      ? domainSelectedPath
+      : null;
 
   const selected = useMemo(
     () => report?.attachments.find((item) => item.path === selectedPath) ?? null,
@@ -153,16 +143,16 @@ export function App() {
 
   const attachments = report?.attachments ?? EMPTY_ATTACHMENTS;
   const counts = useMemo(
-    () => countAttachments(activeModule === "inventory" ? attachments : EMPTY_ATTACHMENTS),
-    [activeModule, attachments],
+    () => countAttachments(attachments),
+    [attachments],
   );
   const linkCounts = useMemo(
-    () => countLinks(activeModule === "inventory" ? attachments : EMPTY_ATTACHMENTS),
-    [activeModule, attachments],
+    () => countLinks(attachments),
+    [attachments],
   );
   const domainStats = useMemo(
-    () => activeModule === "domains" ? buildDomainStats(attachments) : [],
-    [activeModule, attachments],
+    () => buildDomainStats(attachments),
+    [attachments],
   );
   const visibleDomains = useMemo(
     () => filterAndSortDomains(domainStats, domainQuery, domainSort),
@@ -173,10 +163,8 @@ export function App() {
     [domainStats, selectedDomain],
   );
   const visibleAttachments = useMemo(
-    () => activeModule === "inventory"
-      ? filterAndSortAttachments(attachments, filter, linkFilter, query, sortMode)
-      : [],
-    [activeModule, attachments, filter, linkFilter, query, sortMode],
+    () => filterAndSortAttachments(attachments, filter, linkFilter, query, sortMode),
+    [attachments, filter, linkFilter, query, sortMode],
   );
 
   useEffect(() => {
@@ -191,22 +179,24 @@ export function App() {
     (inventoryPage + 1) * PAGE_SIZE,
   );
 
-  useEffect(() => setInventoryPage(0), [filter, linkFilter, query, report, sortMode]);
   useEffect(() => {
-    if (inventoryPage >= inventoryPageCount) setInventoryPage(inventoryPageCount - 1);
-  }, [inventoryPage, inventoryPageCount]);
+    if (!uiStateHydrated) return;
+    if (!filterResetReadyRef.current) {
+      filterResetReadyRef.current = true;
+      return;
+    }
+    setInventoryPage(0);
+  }, [filter, linkFilter, query, sortMode, uiStateHydrated]);
+  useEffect(() => {
+    if (activeModule === "inventory" && inventoryPage >= inventoryPageCount) {
+      setInventoryPage(inventoryPageCount - 1);
+    }
+  }, [activeModule, inventoryPage, inventoryPageCount]);
 
   const selectModule = useCallback((id: string) => {
-    const next = id as Module;
-    activeModuleRef.current = next;
+    const next = id as AttachmentModule;
     setActiveModule(next);
-    setSelectedDomain(null);
-    if (next !== "inventory") {
-      setSelectedPath(null);
-    } else {
-      setSelectedPath((current) => current ?? report?.attachments[0]?.path ?? null);
-    }
-  }, [report]);
+  }, []);
 
   const resizeInventory = useCallback((value: number) => {
     const available = window.innerWidth - detailWidth - 40 - 360;
@@ -341,7 +331,7 @@ export function App() {
                 onLinkFilterChange={setLinkFilter}
                 onSortChange={setSortMode}
                 onViewChange={setViewMode}
-                onSelect={setSelectedPath}
+                onSelect={setInventorySelectedPath}
                 onPageChange={setInventoryPage}
               />
             ) : (
@@ -352,6 +342,14 @@ export function App() {
                   <AttachmentMigrationPanel
                     report={report}
                     workspace={migrationWorkspace}
+                    selectedTaskId={migrationSelectedTaskId}
+                    onSelectedTaskIdChange={setMigrationSelectedTaskId}
+                    selectedPaths={migrationSelectedPaths}
+                    onSelectedPathsChange={setMigrationSelectedPaths}
+                    query={migrationQuery}
+                    onQueryChange={setMigrationQuery}
+                    expandedFiles={migrationExpandedFiles}
+                    onExpandedFilesChange={setMigrationExpandedFiles}
                     onOpenSettings={() => selectModule("gallery")}
                   />
                 ) : loading && !report ? (
@@ -367,17 +365,23 @@ export function App() {
                     onQueryChange={setDomainQuery}
                     sort={domainSort}
                     onSortChange={setDomainSort}
+                    domainPage={domainPage}
+                    onDomainPageChange={setDomainPage}
+                    resourcePage={domainResourcePage}
+                    onResourcePageChange={setDomainResourcePage}
+                    resourceKind={domainResourceKind}
+                    onResourceKindChange={setDomainResourceKind}
                     selectedDomain={activeDomainStats}
                     selectedPath={selectedPath}
                     onSelectDomain={(domain) => {
                       setSelectedDomain(domain);
-                      setSelectedPath(null);
+                      setDomainSelectedPath(null);
                     }}
                     onClearDomain={() => {
                       setSelectedDomain(null);
-                      setSelectedPath(null);
+                      setDomainSelectedPath(null);
                     }}
-                    onSelectAttachment={setSelectedPath}
+                    onSelectAttachment={setDomainSelectedPath}
                   />
                 )}
               </div>
@@ -393,7 +397,10 @@ export function App() {
               previewError={selectedPreviewError}
               width={detailWidth}
               onResize={resizeDetail}
-              onClose={() => setSelectedPath(null)}
+              onClose={() => {
+                if (activeModule === "inventory") setInventorySelectedPath(null);
+                if (activeModule === "domains") setDomainSelectedPath(null);
+              }}
               onExpand={() => setPreviewOpen(true)}
             />
           )}

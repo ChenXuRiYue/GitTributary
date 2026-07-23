@@ -49,7 +49,7 @@ describe("store security and persisted UI state", () => {
       viewMode: "tree",
       updatedAt: 42,
       ignored: true,
-    })).toEqual({ version: 1, namespace: "workspace", viewMode: "tree", updatedAt: 42 });
+    })).toEqual({ version: 1, namespace: "workspace", viewMode: "tree", searchQuery: "", updatedAt: 42 });
 
     for (const invalid of [
       null,

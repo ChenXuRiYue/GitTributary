@@ -31,7 +31,7 @@ export function useSiteActions(
 ) {
   const {
     setPhase, repoPath, setRepoPath, outputDir, setSiteTitle, scanReport,
-    setScanReport, selectedPaths, setSelectedPaths, captureViewMode,
+    setScanReport, selectedPaths, setSelectedPaths, captureViewMode, captureFilters,
     openCapturePaths, setOpenCapturePaths, buildReport, setBuildReport, remoteConfigs,
     setPublishReport, workspaceGroups, activeWorkspaceGroupId,
     setActiveWorkspaceGroupId, setWorkspaceMenuOpen, setMessage, setError,
@@ -83,10 +83,11 @@ export function useSiteActions(
 
   const currentCaptureUiState = useCallback(() => ({
     captureViewMode,
+    captureFilters,
     openPaths: Array.from(openCapturePaths)
       .filter((path) => knownOpenPaths.has(path))
       .sort((a, b) => pathCollator.compare(a, b)),
-  }), [captureViewMode, knownOpenPaths, openCapturePaths]);
+  }), [captureFilters, captureViewMode, knownOpenPaths, openCapturePaths]);
 
   const upsertWorkspaceRunRecord = useCallback((groupId: string, record: SiteRunRecord) => {
     updateWorkspaceGroup(groupId, (group) => ({

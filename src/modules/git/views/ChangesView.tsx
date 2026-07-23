@@ -33,6 +33,7 @@ interface CommitInfo {
 interface ChangesSelectionUiState {
   version: 1;
   checkedPaths: string[];
+  message: string;
   updatedAt: number;
 }
 
@@ -63,6 +64,7 @@ function parseChangesSelectionUiState(value: unknown): ChangesSelectionUiState |
   return {
     version: 1,
     checkedPaths: state.checkedPaths,
+    message: typeof state.message === "string" ? state.message : "",
     updatedAt: state.updatedAt,
   };
 }
@@ -90,9 +92,15 @@ export function ChangesView({
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [showRecent, setShowRecent] = useState(false);
   const selectionStateKeyRef = useRef<string | null>(null);
+  const messageRef = useRef("");
+  const messagePersistTimerRef = useRef<number | null>(null);
   const loadedGenerationRef = useRef<number | null>(null);
 
-  const persistCheckedSelection = useCallback(async (key: string | null, nextChecked: Set<string>) => {
+  const persistCheckedSelection = useCallback(async (
+    key: string | null,
+    nextChecked: Set<string>,
+    nextMessage = messageRef.current,
+  ) => {
     if (!key) return;
     try {
       await invoke("store_set", {
@@ -101,6 +109,7 @@ export function ChangesView({
         value: {
           version: 1,
           checkedPaths: Array.from(nextChecked).sort(),
+          message: nextMessage,
           updatedAt: Date.now(),
         } satisfies ChangesSelectionUiState,
       });
@@ -124,8 +133,10 @@ export function ChangesView({
         const restored = new Set(cached.checkedPaths.filter((path) => currentPaths.has(path)));
         if (selectionStateKeyRef.current !== key) return;
         setChecked(restored);
+        messageRef.current = cached.message;
+        setMessage(cached.message);
         if (restored.size !== cached.checkedPaths.length) {
-          void persistCheckedSelection(key, restored);
+          void persistCheckedSelection(key, restored, cached.message);
         }
         return;
       }
@@ -139,7 +150,9 @@ export function ChangesView({
 
     if (selectionStateKeyRef.current !== key) return;
     setChecked(defaultChecked);
-    void persistCheckedSelection(key, defaultChecked);
+    messageRef.current = "";
+    setMessage("");
+    void persistCheckedSelection(key, defaultChecked, "");
   }, [persistCheckedSelection]);
 
   // 刷新当前仓库状态
@@ -177,9 +190,15 @@ export function ChangesView({
     selectionStateKeyRef.current = null;
     setFiles([]);
     setChecked(new Set());
+    messageRef.current = "";
+    setMessage("");
     onStatusCountChange(0);
     void refresh();
   }, [onStatusCountChange, overview, refresh, sessionGeneration]);
+
+  useEffect(() => () => {
+    if (messagePersistTimerRef.current !== null) window.clearTimeout(messagePersistTimerRef.current);
+  }, []);
 
   const fetchDiff = async (path: string): Promise<DiffPatch | null> => {
     try { return await invoke<DiffPatch>("get_file_diff", { path }); }
@@ -199,7 +218,10 @@ export function ChangesView({
         info = await invoke<CommitInfo>("commit_selected", { paths: Array.from(activeChecked), message });
       }
       setResult(`[${info.short_id}] ${info.message}`);
+      if (messagePersistTimerRef.current !== null) window.clearTimeout(messagePersistTimerRef.current);
+      messageRef.current = "";
       setMessage("");
+      void persistCheckedSelection(selectionStateKeyRef.current, activeChecked, "");
       await refreshRepository();
     } catch (e) { setError(String(e)); }
     finally { setLoading(false); }
@@ -271,7 +293,17 @@ export function ChangesView({
           <div className="flex items-start gap-2">
             <Textarea
               value={message}
-              onChange={(e) => setMessage(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                messageRef.current = next;
+                setMessage(next);
+                if (messagePersistTimerRef.current !== null) window.clearTimeout(messagePersistTimerRef.current);
+                const checkedSnapshot = new Set(checked);
+                messagePersistTimerRef.current = window.setTimeout(() => {
+                  messagePersistTimerRef.current = null;
+                  void persistCheckedSelection(selectionStateKeyRef.current, checkedSnapshot, next);
+                }, 200);
+              }}
               placeholder="提交信息…"
               className="min-h-[32px] flex-1 resize-none py-1.5 text-xs"
               rows={1}

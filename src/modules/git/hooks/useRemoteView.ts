@@ -3,6 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import type { GitViewProps, RepoOverview } from "../types";
+import {
+  REMOTE_UI_STATE_KEY,
+  parseRemoteViewUiState,
+  remoteUiStore,
+  type RemoteViewUiState,
+} from "../remoteUiState";
 
 export interface RemoteInfo {
   name: string;
@@ -151,7 +157,79 @@ export function useRemoteView({
   const [configCheck, setConfigCheck] = useState<ConfigRepoCheckReport | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [uiStateHydrated, setUiStateHydrated] = useState(false);
   const loadedGenerationRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void remoteUiStore.get<unknown>(REMOTE_UI_STATE_KEY).then((raw) => {
+      if (cancelled) return;
+      const cached = parseRemoteViewUiState(raw);
+      if (!cached) return;
+      setCloneUrl(cached.clone.url);
+      setCloneParentPath(cached.clone.parentPath);
+      setCloneCommitName(cached.clone.commitName);
+      setCloneCommitEmail(cached.clone.commitEmail);
+      setAddRemoteDraft((current) => ({
+        ...current,
+        name: cached.addRemote.name,
+        url: cached.addRemote.url,
+        commitName: cached.addRemote.commitName,
+        commitEmail: cached.addRemote.commitEmail,
+      }));
+      setRemoteDrafts(Object.fromEntries(Object.entries(cached.remoteDrafts).map(([key, draft]) => [key, {
+        ...draft,
+        token: "",
+        showToken: false,
+      }])));
+      setExpandedRemoteKeys(cached.expandedRemoteKeys);
+    }).catch(() => undefined).finally(() => {
+      if (!cancelled) setUiStateHydrated(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!uiStateHydrated) return;
+    const timeout = window.setTimeout(() => {
+      const state: RemoteViewUiState = {
+        version: 1,
+        clone: {
+          url: cloneUrl,
+          parentPath: cloneParentPath,
+          commitName: cloneCommitName,
+          commitEmail: cloneCommitEmail,
+        },
+        addRemote: {
+          name: addRemoteDraft.name,
+          url: addRemoteDraft.url,
+          commitName: addRemoteDraft.commitName,
+          commitEmail: addRemoteDraft.commitEmail,
+        },
+        remoteDrafts: Object.fromEntries(Object.entries(remoteDrafts).map(([key, draft]) => [key, {
+          url: draft.url,
+          commitName: draft.commitName,
+          commitEmail: draft.commitEmail,
+        }])),
+        expandedRemoteKeys,
+        updatedAt: Date.now(),
+      };
+      void remoteUiStore.set(REMOTE_UI_STATE_KEY, state).catch(() => undefined);
+    }, 200);
+    return () => window.clearTimeout(timeout);
+  }, [
+    addRemoteDraft.commitEmail,
+    addRemoteDraft.commitName,
+    addRemoteDraft.name,
+    addRemoteDraft.url,
+    cloneCommitEmail,
+    cloneCommitName,
+    cloneParentPath,
+    cloneUrl,
+    expandedRemoteKeys,
+    remoteDrafts,
+    uiStateHydrated,
+  ]);
 
   useEffect(() => {
     setRemoteDrafts((current) => {

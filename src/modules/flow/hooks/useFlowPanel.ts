@@ -6,6 +6,7 @@ import type { FlowContextMenuState, FlowFolderCreateDraft, FlowPoint, FlowTreeSe
 import { FLOW_ACTION_MENU_WIDTH, flowActionMenuHeight } from "../components/flowMenuGeometry";
 import type { FlowListItem, FlowListMode, FlowRecord, FlowRunReport, FlowSection, ViewMode } from "../types";
 import { normalizeFolder } from "../utils";
+import { useFlowUiState } from "../uiState";
 import { useFlowCatalogs } from "./useFlowCatalogs";
 
 export function useFlowPanel() {
@@ -46,14 +47,12 @@ export function useFlowPanel() {
 
   const canOperate = mode === "operate";
   const enabledCount = flows.filter((flow) => flow.enabled).length;
-
   const clearRunIfDifferent = useCallback((flowId: string | null) => {
     setLastRun((current) => {
       if (!current) return current;
       return current.flow_id === flowId ? current : null;
     });
   }, []);
-
   const loadFlows = useCallback(async (preferredId?: string | null) => {
     setIsLoading(true);
     setLoadError(null);
@@ -77,8 +76,10 @@ export function useFlowPanel() {
       if (!nextId) {
         setSelectedRecord(null);
       }
+      return { list, folders: normalizedFolders };
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
+      return { list: [] as FlowListItem[], folders: [] as string[] };
     } finally {
       setIsLoading(false);
     }
@@ -94,19 +95,21 @@ export function useFlowPanel() {
       const record = await flowApi.get(id);
       setSelectedRecord(record);
       clearRunIfDifferent(record?.summary.id ?? null);
-      if (record && isEditingYaml) {
-        setEditorYaml(record.raw_yaml);
-        setEditorFolder(normalizeFolder(record.folder, record.summary));
-      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : String(error));
       setSelectedRecord(null);
     }
-  }, [clearRunIfDifferent, isEditingYaml]);
+  }, [clearRunIfDifferent]);
 
-  useEffect(() => {
-    void loadFlows();
-  }, [loadFlows]);
+  useFlowUiState({
+    state: { section, mode, listMode, fileListWidth, selectedId, selectedFolder, isEditingYaml, editorFolder, editorYaml },
+    setters: {
+      section: setSection, mode: setMode, listMode: setListMode, fileListWidth: setFileListWidth,
+      selectedId: setSelectedId, selectedFolder: setSelectedFolder, selectedRecord: setSelectedRecord,
+      editorFolder: setEditorFolder, editorYaml: setEditorYaml, isEditingYaml: setIsEditingYaml,
+    },
+    loadFlows,
+  });
 
   useEffect(() => {
     void loadRecord(selectedId);
@@ -395,7 +398,6 @@ export function useFlowPanel() {
   const changeSection = (nextSection: FlowSection) => {
     setSection(nextSection);
     if (nextSection === "events" || nextSection === "nodes") {
-      setIsEditingYaml(false);
       setContextMenu(null);
       setFolderCreateDraft(null);
     }

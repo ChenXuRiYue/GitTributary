@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef } from "react";
 import { ArrowLeft, Globe2, Search } from "lucide-react";
 
 import { cn } from "@/shared/lib/utils";
@@ -18,6 +18,12 @@ export function DomainPanel({
   onQueryChange,
   sort,
   onSortChange,
+  domainPage,
+  onDomainPageChange,
+  resourcePage,
+  onResourcePageChange,
+  resourceKind,
+  onResourceKindChange,
   selectedDomain,
   selectedPath,
   onSelectDomain,
@@ -30,15 +36,20 @@ export function DomainPanel({
   onQueryChange: (value: string) => void;
   sort: DomainSort;
   onSortChange: (value: DomainSort) => void;
+  domainPage: number;
+  onDomainPageChange: (page: number) => void;
+  resourcePage: number;
+  onResourcePageChange: (page: number) => void;
+  resourceKind: LinkFilter;
+  onResourceKindChange: (kind: LinkFilter) => void;
   selectedDomain: DomainStats | null;
   selectedPath: string | null;
   onSelectDomain: (domain: string) => void;
   onClearDomain: () => void;
   onSelectAttachment: (path: string) => void;
 }) {
-  const [domainPage, setDomainPage] = useState(0);
-  const [resourcePage, setResourcePage] = useState(0);
-  const [resourceKind, setResourceKind] = useState<LinkFilter>("all");
+  const previousQueryRef = useRef(query);
+  const previousDomainRef = useRef(selectedDomain?.domain);
   const domainPageCount = Math.max(1, Math.ceil(domains.length / PAGE_SIZE));
   const pagedDomains = domains.slice(domainPage * PAGE_SIZE, (domainPage + 1) * PAGE_SIZE);
   const domainResources = selectedDomain?.items.filter((item) => (
@@ -51,17 +62,23 @@ export function DomainPanel({
   const imageLinkCount = allDomains.reduce((sum, item) => sum + item.image, 0);
   const referenceCount = allDomains.reduce((sum, item) => sum + item.references, 0);
 
-  useEffect(() => setDomainPage(0), [query]);
   useEffect(() => {
-    setResourcePage(0);
-    setResourceKind("all");
-  }, [selectedDomain?.domain]);
+    if (previousQueryRef.current === query) return;
+    previousQueryRef.current = query;
+    onDomainPageChange(0);
+  }, [onDomainPageChange, query]);
   useEffect(() => {
-    if (domainPage >= domainPageCount) setDomainPage(domainPageCount - 1);
-  }, [domainPage, domainPageCount]);
+    if (previousDomainRef.current === selectedDomain?.domain) return;
+    previousDomainRef.current = selectedDomain?.domain;
+    onResourcePageChange(0);
+    onResourceKindChange("all");
+  }, [onResourceKindChange, onResourcePageChange, selectedDomain?.domain]);
   useEffect(() => {
-    if (resourcePage >= resourcePageCount) setResourcePage(resourcePageCount - 1);
-  }, [resourcePage, resourcePageCount]);
+    if (domainPage >= domainPageCount) onDomainPageChange(domainPageCount - 1);
+  }, [domainPage, domainPageCount, onDomainPageChange]);
+  useEffect(() => {
+    if (resourcePage >= resourcePageCount) onResourcePageChange(resourcePageCount - 1);
+  }, [onResourcePageChange, resourcePage, resourcePageCount]);
 
   if (selectedDomain) {
     return (
@@ -80,8 +97,8 @@ export function DomainPanel({
           <select
             value={resourceKind}
             onChange={(event) => {
-              setResourceKind(event.target.value as LinkFilter);
-              setResourcePage(0);
+              onResourceKindChange(event.target.value as LinkFilter);
+              onResourcePageChange(0);
             }}
             className={cn(compactSelectClass, "max-w-28")}
             aria-label="资源类型"
@@ -107,7 +124,7 @@ export function DomainPanel({
           page={resourcePage}
           pageCount={resourcePageCount}
           total={domainResources.length}
-          onPageChange={setResourcePage}
+          onPageChange={onResourcePageChange}
         />
       </div>
     );
@@ -189,7 +206,7 @@ export function DomainPanel({
         page={domainPage}
         pageCount={domainPageCount}
         total={domains.length}
-        onPageChange={setDomainPage}
+        onPageChange={onDomainPageChange}
       />
     </div>
   );

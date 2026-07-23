@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 
+import { siteUiStore } from "../../store";
 import { defaultPublishDraft, makePublishTarget } from "../publish";
+import { parseSiteWorkspaceConfigState } from "../state";
 import type {
   PublishRepoCandidate,
   RemoteConfigEntry,
@@ -12,6 +14,65 @@ interface WorkspaceRepoOption {
   path: string;
   name: string;
   remotes: RemoteConfigEntry[];
+}
+
+type WorkspaceEditorDraft = Omit<SiteWorkspaceGroup, "documentScope" | "runHistory">;
+
+export interface WorkspaceEditorUiState {
+  version: 1;
+  viewingGroupId: string | null;
+  draft: WorkspaceEditorDraft | null;
+  updatedAt: number;
+}
+
+const WORKSPACE_EDITOR_UI_KEY = "workspace.editor.v1";
+
+function toWorkspaceEditorDraft(group: SiteWorkspaceGroup): WorkspaceEditorDraft {
+  return {
+    id: group.id,
+    name: group.name,
+    sourceRepoPath: group.sourceRepoPath,
+    target: group.target,
+    env: group.env,
+    updatedAt: group.updatedAt,
+  };
+}
+
+export function makeWorkspaceEditorUiState(
+  viewingGroupId: string | null,
+  draft: SiteWorkspaceGroup | null,
+  updatedAt = Date.now(),
+): WorkspaceEditorUiState {
+  return {
+    version: 1,
+    viewingGroupId,
+    draft: draft ? toWorkspaceEditorDraft(draft) : null,
+    updatedAt,
+  };
+}
+
+export function parseWorkspaceEditorUiState(value: unknown): WorkspaceEditorUiState | null {
+  if (!value || typeof value !== "object") return null;
+  const state = value as Partial<WorkspaceEditorUiState>;
+  if (state.version !== 1) return null;
+  if (state.viewingGroupId !== null && typeof state.viewingGroupId !== "string") return null;
+  if (typeof state.updatedAt !== "number" || !Number.isFinite(state.updatedAt)) return null;
+  if (state.draft === null) return state as WorkspaceEditorUiState;
+  if (!state.draft || typeof state.draft !== "object") return null;
+  const parsed = parseSiteWorkspaceConfigState({
+    version: 1,
+    groups: [state.draft],
+    activeGroupId: (state.draft as { id?: unknown }).id,
+    updatedAt: state.updatedAt,
+  });
+  const draft = parsed?.groups[0];
+  if (!draft) return null;
+  return {
+    version: 1,
+    viewingGroupId: state.viewingGroupId ?? null,
+    draft: toWorkspaceEditorDraft(draft),
+    updatedAt: state.updatedAt,
+  };
 }
 
 function repoNameFromPath(path: string) {
@@ -70,32 +131,82 @@ export function useWorkspaceConfigDraft({
   onDeleteGroup: (id: string) => void;
 }) {
   const currentGroup = groups.find((group) => group.id === activeGroupId) ?? null;
-  const [viewingGroupId, setViewingGroupId] = useState<string | null>(
-    currentGroup?.id ?? groups[0]?.id ?? null,
-  );
+  const [viewingGroupId, setViewingGroupId] = useState<string | null>(null);
+  const [restoredEditor, setRestoredEditor] = useState<WorkspaceEditorUiState | null>(null);
+  const [editorStateHydrated, setEditorStateHydrated] = useState(false);
+  const [editorReady, setEditorReady] = useState(false);
+  const restoreAppliedRef = useRef(false);
   const viewingGroup = groups.find((group) => group.id === viewingGroupId)
     ?? currentGroup
     ?? groups[0]
     ?? null;
 
   useEffect(() => {
+    let cancelled = false;
+    void siteUiStore.get<unknown>(WORKSPACE_EDITOR_UI_KEY).then((raw) => {
+      if (!cancelled) setRestoredEditor(parseWorkspaceEditorUiState(raw));
+    }).catch(() => {
+      // Task editing remains available without draft restoration.
+    }).finally(() => {
+      if (!cancelled) setEditorStateHydrated(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const [draft, setDraft] = useState<SiteWorkspaceGroup | null>(null);
+  const draftGroupIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!editorStateHydrated || restoreAppliedRef.current || groups.length === 0) return;
+    const restoredId = restoredEditor?.viewingGroupId;
+    const preferredId = restoredId && groups.some((group) => group.id === restoredId)
+      ? restoredId
+      : currentGroup?.id ?? groups[0]?.id ?? null;
+    const preferredGroup = groups.find((group) => group.id === preferredId) ?? null;
+    const restoredDraft = restoredEditor?.draft?.id === preferredId && preferredGroup
+      ? {
+          ...restoredEditor.draft,
+          documentScope: preferredGroup.documentScope,
+          runHistory: preferredGroup.runHistory,
+        }
+      : null;
+    setViewingGroupId(preferredId);
+    setDraft(restoredDraft ?? preferredGroup);
+    draftGroupIdRef.current = preferredId ?? undefined;
+    restoreAppliedRef.current = true;
+    setEditorReady(true);
+  }, [currentGroup?.id, editorStateHydrated, groups, restoredEditor]);
+
+  useEffect(() => {
+    if (!editorReady) return;
     if (groups.length === 0) {
       setViewingGroupId(null);
+      setDraft(null);
       return;
     }
     setViewingGroupId((current) => {
       if (current && groups.some((group) => group.id === current)) return current;
       return currentGroup?.id ?? groups[0]?.id ?? null;
     });
-  }, [currentGroup?.id, groups]);
+  }, [currentGroup?.id, editorReady, groups]);
 
-  const [draft, setDraft] = useState<SiteWorkspaceGroup | null>(viewingGroup);
-  const draftGroupIdRef = useRef(viewingGroup?.id);
   useEffect(() => {
+    if (!editorReady) return;
     if (draftGroupIdRef.current === viewingGroup?.id) return;
     draftGroupIdRef.current = viewingGroup?.id;
     setDraft(viewingGroup);
-  }, [viewingGroup]);
+  }, [editorReady, viewingGroup]);
+
+  useEffect(() => {
+    if (!editorReady) return;
+    const timeout = window.setTimeout(() => {
+      void siteUiStore.set(
+        WORKSPACE_EDITOR_UI_KEY,
+        makeWorkspaceEditorUiState(viewingGroupId, draft),
+      ).catch(() => undefined);
+    }, 200);
+    return () => window.clearTimeout(timeout);
+  }, [draft, editorReady, viewingGroupId]);
 
   const dirty = Boolean(draft && viewingGroup && !groupsEqual(draft, viewingGroup));
   const draftIsCurrent = Boolean(draft && draft.id === activeGroupId);

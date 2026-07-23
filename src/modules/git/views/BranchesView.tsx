@@ -13,6 +13,7 @@ import { Input } from "@/shared/ui/input";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { Badge } from "@/shared/ui/badge";
 import { cn } from "@/shared/lib/utils";
+import { createJsonStore } from "@/shared/lib/store";
 import type { GitViewProps } from "../types";
 
 interface BranchInfo {
@@ -21,12 +22,54 @@ interface BranchInfo {
   is_remote: boolean;
 }
 
+const branchUiStore = createJsonStore("ui-state");
+
+function stableHash(value: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 export function BranchesView({ overview, sessionGeneration, refreshRepository }: GitViewProps) {
   const [branches, setBranches] = useState<BranchInfo[]>([]);
   const [newName, setNewName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const loadedGenerationRef = useRef<number | null>(null);
+  const draftStateKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const repoIdentity = overview?.remote_url || overview?.path;
+    if (!repoIdentity) {
+      draftStateKeyRef.current = null;
+      setNewName("");
+      return;
+    }
+    const key = `git.branches.draft.${stableHash(repoIdentity)}`;
+    let cancelled = false;
+    draftStateKeyRef.current = null;
+    setNewName("");
+    void branchUiStore.get<unknown>(key).then((raw) => {
+      if (cancelled || !raw || typeof raw !== "object") return;
+      const state = raw as { version?: unknown; newName?: unknown };
+      if (state.version === 1 && typeof state.newName === "string") setNewName(state.newName);
+    }).catch(() => undefined).finally(() => {
+      if (!cancelled) draftStateKeyRef.current = key;
+    });
+    return () => { cancelled = true; };
+  }, [overview?.path, overview?.remote_url]);
+
+  useEffect(() => {
+    const key = draftStateKeyRef.current;
+    if (!key) return;
+    const timeout = window.setTimeout(() => {
+      void branchUiStore.set(key, { version: 1, newName, updatedAt: Date.now() }).catch(() => undefined);
+    }, 200);
+    return () => window.clearTimeout(timeout);
+  }, [newName]);
 
   const refresh = useCallback(async () => {
     if (!overview) return;

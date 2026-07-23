@@ -65,6 +65,44 @@ describe("site state persistence", () => {
     })).toBeNull();
   });
 
+  it("restores version-three capture filters and unsaved checkbox state", () => {
+    expect(parseSiteBuildUiState({
+      version: 3,
+      repoPath: "/fixtures/notes",
+      outputDir: ".site",
+      siteTitle: "Notes",
+      include: ["docs", "README.md"],
+      hasSelectionState: true,
+      captureViewMode: "list",
+      captureFilters: {
+        query: "guide",
+        kind: "file",
+        selection: "selected",
+        defaultState: "custom",
+        minMarkdownCount: 2,
+        sort: "markdown-desc",
+      },
+      openPaths: ["docs"],
+      theme: "typora-light",
+      withSearch: true,
+      copyAssets: true,
+      updatedAt: 100,
+    })).toMatchObject({
+      version: 3,
+      include: ["docs", "README.md"],
+      captureViewMode: "list",
+      captureFilters: {
+        query: "guide",
+        kind: "file",
+        selection: "selected",
+        defaultState: "custom",
+        minMarkdownCount: 2,
+        sort: "markdown-desc",
+      },
+      openPaths: ["docs"],
+    });
+  });
+
   it("filters invalid nested workspace records and repairs a missing active group", () => {
     vi.useFakeTimers();
     vi.setSystemTime(1_000);

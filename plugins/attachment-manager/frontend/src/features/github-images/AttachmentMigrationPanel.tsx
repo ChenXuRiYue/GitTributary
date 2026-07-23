@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AlertTriangle, CloudUpload, Images, LoaderCircle, Settings2 } from "lucide-react";
 
 import { Button } from "@/shared/ui/button";
@@ -15,14 +15,36 @@ import type { MigrationWorkspaceController } from "./useMigrationWorkspace";
 export function AttachmentMigrationPanel({
   report,
   workspace,
+  selectedTaskId,
+  onSelectedTaskIdChange,
+  selectedPaths,
+  onSelectedPathsChange,
+  query,
+  onQueryChange,
+  expandedFiles,
+  onExpandedFilesChange,
   onOpenSettings,
 }: {
   report: AttachmentScanReport | null;
   workspace: MigrationWorkspaceController;
+  selectedTaskId?: string | null;
+  onSelectedTaskIdChange?: (id: string | null) => void;
+  selectedPaths?: Set<string> | null;
+  onSelectedPathsChange?: (paths: Set<string>) => void;
+  query?: string;
+  onQueryChange?: (query: string) => void;
+  expandedFiles?: Set<string>;
+  onExpandedFilesChange?: (paths: Set<string>) => void;
   onOpenSettings: () => void;
 }) {
   const manager = useImageLibraries();
   const [editingSettings, setEditingSettings] = useState(false);
+  const [localSelectedTaskId, setLocalSelectedTaskId] = useState<string | null>(null);
+  const focusedTaskId = selectedTaskId === undefined ? localSelectedTaskId : selectedTaskId;
+  const changeFocusedTask = useCallback((id: string | null) => {
+    if (selectedTaskId === undefined) setLocalSelectedTaskId(id);
+    onSelectedTaskIdChange?.(id);
+  }, [onSelectedTaskIdChange, selectedTaskId]);
   const availableLibraries = useMemo(
     () => manager.libraries.filter((library) => manager.isBindingAvailable(library.remote)),
     [manager.eligibleRemotes, manager.libraries],
@@ -108,6 +130,12 @@ export function AttachmentMigrationPanel({
                   settings={settings}
                   running={running}
                   disabled={editingSettings}
+                  initialSelectedPaths={selectedPaths === undefined ? null : selectedPaths}
+                  onSelectedPathsChange={onSelectedPathsChange}
+                  query={query}
+                  onQueryChange={onQueryChange}
+                  expandedFiles={expandedFiles}
+                  onExpandedFilesChange={onExpandedFilesChange}
                   onScopeChange={(fileScope) => workspace.updateDraft(repoPath, {
                     ...settings,
                     fileScope,
@@ -127,7 +155,12 @@ export function AttachmentMigrationPanel({
             </div>
           )}
         </div>
-        <MigrationTaskRail repoPath={repoPath} history={workspace.history} />
+        <MigrationTaskRail
+          repoPath={repoPath}
+          history={workspace.history}
+          selectedId={focusedTaskId}
+          onSelectedIdChange={changeFocusedTask}
+        />
       </div>
     </div>
   );

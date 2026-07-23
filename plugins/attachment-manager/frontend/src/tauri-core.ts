@@ -6,6 +6,7 @@ const COMMAND_METHODS: Record<string, string> = {
   add_remote: "repositories.addRemote",
   store_get: "store.get",
   store_set: "store.set",
+  store_delete: "store.delete",
 };
 
 const BACKEND_METHODS: Record<string, string> = {

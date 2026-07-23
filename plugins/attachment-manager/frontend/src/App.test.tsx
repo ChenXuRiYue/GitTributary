@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { attachment, scanReport } from "./test/fixtures";
 import type { GitHubImageLibrary, GitHubImageMigrationReport, GitRemoteConfigEntry } from "./types";
+import { ATTACHMENT_UI_STATE_KEY } from "./ui-state";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
@@ -44,6 +45,68 @@ beforeEach(() => {
 });
 
 describe("attachment manager navigation", () => {
+  it("restores the focused secondary page and its durable controls", async () => {
+    mockedInvoke.mockImplementation(async (command, args) => {
+      if (command === "get_workspace_info") return { active_repo: "/fixtures/notes" } as never;
+      if (command === "attachments_scan") return scanReport([attachment({
+        path: "https://example.com/logo.png",
+        name: "logo.png",
+        kind: "link",
+        url: "https://example.com/logo.png",
+        domain: "example.com",
+        linkKind: "image",
+      })]) as never;
+      if (command === "get_remote_configs") return [remote] as never;
+      if (command === "store_get") {
+        const request = args as { namespace?: string; key?: string };
+        if (request.namespace === "plugin.dev.gittributary.attachment-manager.ui"
+          && request.key === ATTACHMENT_UI_STATE_KEY) {
+          return {
+            version: 1,
+            activeModule: "domains",
+            inventory: {
+              selectedPath: null,
+              query: "",
+              filter: "all",
+              linkFilter: "all",
+              viewMode: "grid",
+              sortMode: "name",
+              page: 0,
+            },
+            domains: {
+              selectedDomain: null,
+              selectedPath: null,
+              query: "example",
+              sort: "references",
+              domainPage: 0,
+              resourcePage: 0,
+              resourceKind: "image",
+            },
+            migration: { selectedTaskId: null },
+            layout: { inventoryWidth: 240, detailWidth: 360 },
+            updatedAt: 42,
+          } as never;
+        }
+        if (request.key === "github-image-libraries.v3") {
+          return { version: 3, libraries: [library] } as never;
+        }
+        return null as never;
+      }
+      return null as never;
+    });
+
+    render(<App />);
+
+    const search = await screen.findByPlaceholderText("搜索域名");
+    expect(search).toHaveValue("example");
+    expect(screen.getByRole("combobox", { name: "域名排序" })).toHaveValue("references");
+    expect(await screen.findByText("example.com")).toBeInTheDocument();
+    await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("store_set", expect.objectContaining({
+      namespace: "plugin.dev.gittributary.attachment-manager.ui",
+      key: ATTACHMENT_UI_STATE_KEY,
+    })));
+  });
+
   it("exposes gallery settings and attachment migration as separate secondary pages", async () => {
     render(<App />);
     await waitFor(() => expect(screen.getByRole("button", { name: "图库配置" })).toBeInTheDocument());
