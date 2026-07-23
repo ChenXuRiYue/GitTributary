@@ -197,6 +197,28 @@ test("navigates across Flow, Store, and plugin management surfaces", async ({ pa
   await expect(page.getByText(/暂无|没有/).first()).toBeVisible();
 });
 
+test("configures primary sidebar visibility from settings", async ({ page, tauri }) => {
+  await page.goto("/");
+
+  await page.getByRole("button", { name: "设置" }).click();
+  await expect(page.getByRole("navigation", { name: "当前位置" })).toContainText("设置");
+  const settingsNavigation = page.getByRole("navigation", { name: "设置分类" });
+  await expect(settingsNavigation.getByRole("button", { name: "侧边栏" })).toBeVisible();
+  await expect(settingsNavigation.locator("svg")).toHaveCount(0);
+  await expect(page.getByText("主导航", { exact: true })).toBeVisible();
+  await expect(page.getByText("底部功能", { exact: true })).toBeVisible();
+
+  await page.getByRole("switch", { name: "隐藏 Flow" }).click();
+  await expect(page.getByTestId("primary-sidebar").getByRole("button", { name: "Flow" })).toHaveCount(0);
+  await expect.poll(async () => (
+    await tauri.callsFor("store_set")
+  ).some((call) => call.args.key === "app.sidebar.preferences")).toBe(true);
+
+  await page.getByRole("switch", { name: "显示 Flow" }).click();
+  await expect(page.getByTestId("primary-sidebar").getByRole("button", { name: "Flow" })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "隐藏 设置" })).toBeDisabled();
+});
+
 test("degrades to the repository empty state when backend context is unavailable", async ({ page, tauri }) => {
   await page.addInitScript(() => {
     (window as unknown as MockWindow).__GT_FAIL_REPO__ = true;

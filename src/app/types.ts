@@ -3,6 +3,7 @@ import type { LucideIcon } from "lucide-react";
 
 /** Core 模块分组：main = 主导航；system = 底部固定系统入口。 */
 export type CoreModuleGroup = "main" | "system";
+export type CoreModuleNavigationKind = "core" | "function";
 
 /** 随主应用编译的 Core 模块，区别于运行时安装的插件。 */
 export interface CoreModuleDescriptor {
@@ -18,6 +19,10 @@ export interface CoreModuleDescriptor {
   panel: ComponentType;
   /** 分区归属，缺省视为主导航模块。 */
   group?: CoreModuleGroup;
+  /** 设置页中的来源分类，缺省为 Core。 */
+  navigationKind?: CoreModuleNavigationKind;
+  /** 是否允许从一级侧边栏隐藏，缺省允许。 */
+  canHide?: boolean;
   /** 是否使用完整高度渲染，跳过通用标题和内容滚动容器。 */
   fullHeight?: boolean;
   /**

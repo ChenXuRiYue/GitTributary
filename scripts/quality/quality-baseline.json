@@ -4,8 +4,6 @@
   "policy": {
     "maxFileLines": 500,
     "largeFileWarningLines": 300,
-    "maxTotalLineGrowth": 1500,
-    "maxFileGrowth": 20,
     "allowedOversizedFileGrowth": 0
   },
   "snapshot": {

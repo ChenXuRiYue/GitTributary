@@ -43,6 +43,18 @@ export default defineConfig({
           functions: 85,
           lines: 85,
         },
+        "src/app/{sidebarPreferences,useSidebarPreferencesController}.ts": {
+          statements: 95,
+          branches: 83,
+          functions: 91,
+          lines: 96,
+        },
+        "src/modules/settings/SettingsPanel.tsx": {
+          statements: 90,
+          branches: 80,
+          functions: 85,
+          lines: 90,
+        },
         "src/modules/git/components/{DiffPanel,DiffViewer}.tsx": {
           statements: 80,
           branches: 75,

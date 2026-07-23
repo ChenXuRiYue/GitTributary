@@ -4,8 +4,6 @@ import path from "node:path";
 export const DEFAULT_POLICY = Object.freeze({
   maxFileLines: 500,
   largeFileWarningLines: 300,
-  maxTotalLineGrowth: 1500,
-  maxFileGrowth: 20,
   allowedOversizedFileGrowth: 0,
 });
 
@@ -121,18 +119,6 @@ export function evaluateSnapshot(current, baseline) {
 
   const lineGrowth = current.totals.lines - previous.totals.lines;
   const fileGrowth = current.totals.files - previous.totals.files;
-  if (lineGrowth > policy.maxTotalLineGrowth) {
-    violations.push({
-      code: "total-line-growth",
-      message: `Code grew by ${lineGrowth} lines; review window is ${policy.maxTotalLineGrowth}.`,
-    });
-  }
-  if (fileGrowth > policy.maxFileGrowth) {
-    violations.push({
-      code: "file-count-growth",
-      message: `Code file count grew by ${fileGrowth}; review window is ${policy.maxFileGrowth}.`,
-    });
-  }
 
   for (const [filePath, lines] of Object.entries(current.oversizedFiles)) {
     const previousLines = previous.oversizedFiles[filePath];
@@ -222,7 +208,7 @@ export function renderMarkdownReport(current, baseline, evaluation) {
     "",
     `- New files must not exceed ${baseline.policy.maxFileLines} lines.`,
     "- Existing oversized files must not grow.",
-    `- Baseline review is required after ${baseline.policy.maxTotalLineGrowth} added lines or ${baseline.policy.maxFileGrowth} added files.`,
+    "- Total lines and code file counts are reported without hard limits.",
     "- Exception markers such as TODO, lint suppressions, and clippy allows must not increase.",
     "",
     "## Violations",

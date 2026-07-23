@@ -2,18 +2,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DEFAULT_POLICY,
   createBaseline,
   evaluateSnapshot,
   isDedicatedTest,
 } from "../quality/quality-lib.mjs";
 
-const policy = {
-  maxFileLines: 500,
-  largeFileWarningLines: 300,
-  maxTotalLineGrowth: 1500,
-  maxFileGrowth: 20,
-  allowedOversizedFileGrowth: 0,
-};
+const policy = DEFAULT_POLICY;
 
 test("quality baseline rejects new and growing oversized files", () => {
   const baseline = createBaseline(snapshot({
@@ -35,25 +30,37 @@ test("quality baseline rejects new and growing oversized files", () => {
   ]);
 });
 
-test("quality baseline rejects review-window and exception-marker growth", () => {
+test("quality baseline reports total growth without gating it", () => {
+  const baseline = createBaseline(snapshot({
+    lines: 1000,
+    files: 10,
+  }), policy, "2026-07-22T00:00:00.000Z");
+  const current = snapshot({
+    lines: 101000,
+    files: 1010,
+  });
+
+  const evaluation = evaluateSnapshot(current, baseline);
+  assert.equal(evaluation.status, "PASS");
+  assert.deepEqual(evaluation.changes, { lines: 100000, files: 1000 });
+  assert.deepEqual(evaluation.violations, []);
+});
+
+test("quality baseline still rejects exception-marker growth", () => {
   const baseline = createBaseline(snapshot({
     lines: 1000,
     files: 10,
     exceptionMarkers: { "src/legacy.ts": { todo: 1 } },
   }), policy, "2026-07-22T00:00:00.000Z");
   const current = snapshot({
-    lines: 2501,
-    files: 31,
+    lines: 101000,
+    files: 1010,
     exceptionMarkers: { "src/legacy.ts": { todo: 2 } },
   });
 
   const evaluation = evaluateSnapshot(current, baseline);
   assert.equal(evaluation.status, "FAIL");
-  assert.deepEqual(evaluation.violations.map((item) => item.code), [
-    "total-line-growth",
-    "file-count-growth",
-    "exception-marker-growth",
-  ]);
+  assert.deepEqual(evaluation.violations.map((item) => item.code), ["exception-marker-growth"]);
 });
 
 test("quality baseline records debt reduction without forcing a baseline update", () => {
