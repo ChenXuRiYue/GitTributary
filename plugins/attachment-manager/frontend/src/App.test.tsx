@@ -59,7 +59,7 @@ describe("attachment manager navigation", () => {
       if (command === "get_remote_configs") return [remote] as never;
       if (command === "store_get") {
         const request = args as { namespace?: string; key?: string };
-        if (request.namespace === "plugin.dev.gittributary.attachment-manager.ui"
+        if (request.namespace === "plugin.dev.noteaura.attachment-manager.ui"
           && request.key === ATTACHMENT_UI_STATE_KEY) {
           return {
             version: 1,
@@ -102,7 +102,7 @@ describe("attachment manager navigation", () => {
     expect(screen.getByRole("combobox", { name: "域名排序" })).toHaveValue("references");
     expect(await screen.findByText("example.com")).toBeInTheDocument();
     await waitFor(() => expect(mockedInvoke).toHaveBeenCalledWith("store_set", expect.objectContaining({
-      namespace: "plugin.dev.gittributary.attachment-manager.ui",
+      namespace: "plugin.dev.noteaura.attachment-manager.ui",
       key: ATTACHMENT_UI_STATE_KEY,
     })));
   });

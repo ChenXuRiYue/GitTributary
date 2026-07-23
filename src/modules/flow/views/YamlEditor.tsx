@@ -34,7 +34,7 @@ export function YamlEditor({
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <Code2 className="size-4 text-muted-foreground" />
-          <h3 className="gt-title-panel">YAML</h3>
+          <h3 className="na-title-panel">YAML</h3>
           {status === "valid" && (
             <Badge variant="outline" className="h-5 border-green-200 bg-green-50 text-green-700">
               <CheckCircle2 className="size-3" />
@@ -70,7 +70,7 @@ export function YamlEditor({
         </div>
       )}
       <div className="flex shrink-0 items-center gap-3 border-b px-4 py-3">
-        <label className="gt-label shrink-0 text-muted-foreground" htmlFor="flow-folder-select">文件夹</label>
+        <label className="na-label shrink-0 text-muted-foreground" htmlFor="flow-folder-select">文件夹</label>
         <select
           id="flow-folder-select"
           value={folder}

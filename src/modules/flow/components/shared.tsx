@@ -41,8 +41,8 @@ export function Metric({
         <Icon className="size-3.5 text-muted-foreground" />
       </div>
       <div className="min-w-0">
-        <p className="gt-label text-muted-foreground">{label}</p>
-        <p className="gt-metric-compact truncate">{value}</p>
+        <p className="na-label text-muted-foreground">{label}</p>
+        <p className="na-metric-compact truncate">{value}</p>
       </div>
     </div>
   );
@@ -53,9 +53,9 @@ export function SectionHeader({ icon: Icon, title, aside }: { icon: LucideIcon; 
     <div className="flex items-center justify-between gap-3 border-b px-4 py-2.5">
       <div className="flex min-w-0 items-center gap-2">
         <Icon className="size-4 shrink-0 text-muted-foreground" />
-        <h4 className="gt-title-section truncate">{title}</h4>
+        <h4 className="na-title-section truncate">{title}</h4>
       </div>
-      {aside && <span className="gt-caption shrink-0 text-muted-foreground">{aside}</span>}
+      {aside && <span className="na-caption shrink-0 text-muted-foreground">{aside}</span>}
     </div>
   );
 }
@@ -67,8 +67,8 @@ export function EmptyState({ canOperate, onCreate }: { canOperate: boolean; onCr
         <div className="mx-auto flex size-10 items-center justify-center rounded-md bg-muted">
           <Workflow className="size-5 text-muted-foreground" />
         </div>
-        <h3 className="gt-title-panel mt-3">还没有 Flow</h3>
-        <p className="gt-body mt-2 text-muted-foreground">
+        <h3 className="na-title-panel mt-3">还没有 Flow</h3>
+        <p className="na-body mt-2 text-muted-foreground">
           先保存一个 YAML 工作流,这里会展示它的触发入口、节点步骤和最近执行。
         </p>
         {canOperate && (

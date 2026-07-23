@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-const PLUGIN_NAMESPACE = "plugin.dev.gittributary.attachment-manager";
+const PLUGIN_NAMESPACE = "plugin.dev.noteaura.attachment-manager";
 
 export interface PluginStore {
   get<T>(key: string): Promise<T | null>;

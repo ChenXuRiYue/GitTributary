@@ -1,6 +1,6 @@
 export const SAMPLE_WORKFLOW = `name: 检查当前仓库
 
-gt:
+gn:
   id: flow.check_workspace
   enabled: false
   description: 检查当前仓库路径存在且不为空
@@ -10,12 +10,12 @@ on:
 
 jobs:
   check:
-    runs-on: gittributary-local
+    runs-on: noteaura-local
     steps:
       - id: repository
-        uses: gittributary/files/assert-exists@v1
+        uses: noteaura/files/assert-exists@v1
         with:
-          path: \${{ gt.workspace.active_repo }}
+          path: \${{ gn.workspace.active_repo }}
           non_empty: true
 `;
 

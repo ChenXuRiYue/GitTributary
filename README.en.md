@@ -1,14 +1,14 @@
-# Git Tributary
+# NoteAura
 
 [简体中文](README.md) | English
 
-![GitHub package.json version](https://img.shields.io/github/package-json/v/ChenXuRiYue/GitTributary?style=flat-square)
-![GitHub repo size](https://img.shields.io/github/repo-size/ChenXuRiYue/GitTributary?style=flat-square)
-![GitHub last commit](https://img.shields.io/github/last-commit/ChenXuRiYue/GitTributary?style=flat-square)
+![GitHub package.json version](https://img.shields.io/github/package-json/v/ChenXuRiYue/NoteAura?style=flat-square)
+![GitHub repo size](https://img.shields.io/github/repo-size/ChenXuRiYue/NoteAura?style=flat-square)
+![GitHub last commit](https://img.shields.io/github/last-commit/ChenXuRiYue/NoteAura?style=flat-square)
 
-Git Tributary is a desktop companion for **Git-backed Markdown note repositories**. It does not try to replace your editor. Instead, it works beside your repository and turns Git history, GitHub backup, Pages publishing, automation Flow, and the local data center into a modern workspace for long-lived notes.
+NoteAura is a desktop companion for **Git-backed Markdown note repositories**. It does not try to replace your editor. Instead, it works beside your repository and turns Git history, GitHub backup, Pages publishing, automation Flow, and the local data center into a modern workspace for long-lived notes.
 
-If you enjoy writing with Typora, Vim, VS Code, or a plain text editor, but want your notes to grow into history, websites, intelligent analysis, long-term memory, and self-motivation, Git Tributary is built for that workflow.
+If you enjoy writing with Typora, Vim, VS Code, or a plain text editor, but want your notes to grow into history, websites, intelligent analysis, long-term memory, and self-motivation, NoteAura is built for that workflow.
 
 See [doc/README.md](doc/README.md) for the project documentation index.
 
@@ -26,7 +26,7 @@ Release and project information:
 
 ## Positioning
 
-Many note apps put the editor, database, sync, publishing, and AI assistant inside one closed system. Git Tributary takes a different path: keep writing in your existing Markdown workflow, and add intelligence around the Git repository layer.
+Many note apps put the editor, database, sync, publishing, and AI assistant inside one closed system. NoteAura takes a different path: keep writing in your existing Markdown workflow, and add intelligence around the Git repository layer.
 
 - **Editor-friendly**: keep using your preferred Markdown editor and folder structure.
 - **Git log as a growth record**: commits, diffs, branches, and remotes become writing traces, review material, and future Agent context.
@@ -41,7 +41,7 @@ Many note apps put the editor, database, sync, publishing, and AI assistant insi
 | Git | Give every note change a clear trace, with selective commits, history browsing, and diffs. | Open repositories, status, file diff, commit, history, branches, remotes, credentials. |
 | Publishing | Build a Markdown note repository into static HTML and publish it to a GitHub Pages repository. | Publishing tasks, document scope scanning, build results, one-click build/copy/commit/push. |
 | Flow | Turn repeated note operations into reusable automation and prepare the path for Agents and scheduled jobs. | YAML Flow, event catalog, node catalog, enable/disable, save, delete, manual run. |
-| Data | Manage Git Tributary's own configuration, environments, and cross-device sync data. | Namespace browsing, KV search/delete/compact, profiles/environments, remote sync configuration. |
+| Data | Manage NoteAura's own configuration, environments, and cross-device sync data. | Namespace browsing, KV search/delete/compact, profiles/environments, remote sync configuration. |
 
 ## Module Tour
 
@@ -97,7 +97,7 @@ Build or publish manually, then review page count, link checks, commit/push resu
 
 ### Flow: Automate Repeated Note Operations
 
-Flow is Git Tributary's automation module. It uses a GitHub Actions-like YAML subset to connect events, nodes, and execution results. The first release can manage Flow folders and YAML drafts, browse event/node catalogs, and run flows manually. Automatic sync, scheduled jobs, file watchers, and Agent-driven workflows can grow from this layer.
+Flow is NoteAura's automation module. It uses a GitHub Actions-like YAML subset to connect events, nodes, and execution results. The first release can manage Flow folders and YAML drafts, browse event/node catalogs, and run flows manually. Automatic sync, scheduled jobs, file watchers, and Agent-driven workflows can grow from this layer.
 
 #### Flow Management
 
@@ -125,7 +125,7 @@ Inspect available action nodes, such as note building, directory sync, Git commi
 
 ### Data: Save Context for a Long-Term Note Assistant
 
-The Data module manages Git Tributary's configuration and state: local JSONL data, namespaces, profiles, environments, credential state, and remote configuration-center sync. Today it works as the configuration center. Over time, it can carry memory, preferences, cross-device state, and Agent context.
+The Data module manages NoteAura's configuration and state: local JSONL data, namespaces, profiles, environments, credential state, and remote configuration-center sync. Today it works as the configuration center. Over time, it can carry memory, preferences, cross-device state, and Agent context.
 
 #### Data Center
 
@@ -135,7 +135,7 @@ Browse namespaces and KV entries, switch profile/environment, bind a remote conf
 
 ## Roadmap
 
-Git Tributary's long-term goal is not to rebuild another closed note app. It aims to upgrade Git-backed notes into a personal knowledge system that can be analyzed, published, automated, and companionable.
+NoteAura's long-term goal is not to rebuild another closed note app. It aims to upgrade Git-backed notes into a personal knowledge system that can be analyzed, published, automated, and companionable.
 
 - **Note growth visualization**: use commit frequency, file evolution, and topic changes to show how a knowledge base grows.
 - **Agent analysis**: use diffs, commits, document scopes, and history as context for summaries, organization, publishing checks, and commit-message suggestions.
@@ -150,7 +150,7 @@ Git Tributary's long-term goal is not to rebuild another closed note app. It aim
 - TypeScript
 - Tailwind CSS 4
 - Radix UI primitives
-- Internal Rust crates: `gt-git`, `gt-files`, `gt-data`, `gt-flow` (all non-publishable)
+- Internal Rust crates: `na-git`, `na-files`, `na-data`, `na-flow` (all non-publishable)
 - Plugin boundary: plugins use platform capabilities only through the versioned Extension API/IPC
 
 ## Development

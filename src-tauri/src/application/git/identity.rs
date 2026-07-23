@@ -1,13 +1,13 @@
 //! Commit identity(用户名/邮箱)解析。
 //!
 //! 优先级:某个远程的显式覆盖配置 > 全局 Git 凭证配置 > 应用默认值
-//! ("GitTributary" / "gittributary@local")。
+//! ("NoteAura" / "noteaura@local")。
 //!
-//! 这里同时需要 `gt-data`(凭证/覆盖配置)和 `gt-git`
+//! 这里同时需要 `na-data`(凭证/覆盖配置)和 `na-git`
 //! 的 `CommitIdentity` 类型,因此和 `auth.rs` 一样属于胶水层职责。
 
-use gt_data::{DataHub, RemoteCommitIdentity};
-use gt_git::{CommitIdentity, GitRepo};
+use na_data::{DataHub, RemoteCommitIdentity};
+use na_git::{CommitIdentity, GitRepo};
 
 use crate::AppState;
 
@@ -54,12 +54,12 @@ pub(crate) fn fallback_commit_identity(
             .as_ref()
             .and_then(|identity| identity.name.clone())
             .or(default_identity.name)
-            .unwrap_or_else(|| "GitTributary".to_string()),
+            .unwrap_or_else(|| "NoteAura".to_string()),
         email: remote_identity
             .as_ref()
             .and_then(|identity| identity.email.clone())
             .or(default_identity.email)
-            .unwrap_or_else(|| "gittributary@local".to_string()),
+            .unwrap_or_else(|| "noteaura@local".to_string()),
     }
 }
 
@@ -102,8 +102,8 @@ mod tests {
         let state = AppState {
             repo: std::sync::Mutex::new(None),
             data: std::sync::Mutex::new(store),
-            event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
-            node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
+            event_pool: std::sync::Mutex::new(na_flow::EventPool::new()),
+            node_registry: std::sync::Mutex::new(na_flow::FlowNodeRegistry::new()),
             flow_execution: std::sync::Mutex::new(()),
             extensions: crate::application::plugins::registry::ExtensionRegistry::default(),
             plugin_host: std::sync::Arc::new(
@@ -126,12 +126,12 @@ mod tests {
         let (_dir, mut store) = temp_store();
         store
             .settings_mut()
-            .set(gt_data::setting_keys::GIT_USERNAME, "Alice".to_string())
+            .set(na_data::setting_keys::GIT_USERNAME, "Alice".to_string())
             .unwrap();
         store
             .settings_mut()
             .set(
-                gt_data::setting_keys::GIT_EMAIL,
+                na_data::setting_keys::GIT_EMAIL,
                 "alice@example.com".to_string(),
             )
             .unwrap();
@@ -144,8 +144,8 @@ mod tests {
     fn fallback_commit_identity_uses_app_defaults_when_nothing_configured() {
         let (_dir, state) = temp_app_state();
         let identity = fallback_commit_identity(&state, None);
-        assert_eq!(identity.name, "GitTributary");
-        assert_eq!(identity.email, "gittributary@local");
+        assert_eq!(identity.name, "NoteAura");
+        assert_eq!(identity.email, "noteaura@local");
     }
 
     #[test]
@@ -155,7 +155,7 @@ mod tests {
             let mut store = state.data.lock().unwrap();
             store
                 .settings_mut()
-                .set(gt_data::setting_keys::GIT_USERNAME, "Alice".to_string())
+                .set(na_data::setting_keys::GIT_USERNAME, "Alice".to_string())
                 .unwrap();
         }
         let remote_identity = RemoteCommitIdentityConfig {

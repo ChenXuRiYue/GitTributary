@@ -17,10 +17,10 @@ flow.site.build    Flow 构建节点方法
 
 插件安装并活跃后向 Flow 节点池贡献：
 
-- `dev.gittributary.site-publisher/scan@v1`
-- `dev.gittributary.site-publisher/build@v1`
+- `dev.noteaura.site-publisher/scan@v1`
+- `dev.noteaura.site-publisher/build@v1`
 
-构建节点直接调用真实 `gt_site::build_site`。Pages 推送暂时由插件页面触发；在 Flow 中开放
+构建节点直接调用真实 `na_site::build_site`。Pages 推送暂时由插件页面触发；在 Flow 中开放
 发布节点前，需要把目标仓库认证上下文作为受控 host service 注入插件节点。
 
 ## 发布流程

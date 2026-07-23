@@ -38,22 +38,22 @@ describe("extension MessageChannel bridge", () => {
     const onReady = vi.fn();
     const bridge = attachExtensionBridge(contribution, { onReady });
     bridge.pluginPort.postMessage({
-      type: "gittributary:plugin-ready",
+      type: "noteaura:plugin-ready",
       apiVersion: EXTENSION_API_VERSION,
       sessionId: "wrong-session",
     });
     bridge.pluginPort.postMessage({
-      type: "gittributary:plugin-ready",
+      type: "noteaura:plugin-ready",
       apiVersion: EXTENSION_API_VERSION + 1,
       sessionId: bridge.sessionId,
     });
     bridge.pluginPort.postMessage({
-      type: "gittributary:plugin-ready",
+      type: "noteaura:plugin-ready",
       apiVersion: EXTENSION_API_VERSION,
       sessionId: bridge.sessionId,
     });
     bridge.pluginPort.postMessage({
-      type: "gittributary:plugin-ready",
+      type: "noteaura:plugin-ready",
       apiVersion: EXTENSION_API_VERSION,
       sessionId: bridge.sessionId,
     });
@@ -67,14 +67,14 @@ describe("extension MessageChannel bridge", () => {
     const bridge = attachExtensionBridge(contribution);
     const response = nextMessage(bridge.pluginPort);
     bridge.pluginPort.postMessage({
-      type: "gittributary:request",
+      type: "noteaura:request",
       id: "request-1",
       method: "site.build",
       payload: { pluginId: "attacker", source: "/tmp/notes" },
     });
 
     await expect(response).resolves.toEqual({
-      type: "gittributary:response",
+      type: "noteaura:response",
       id: "request-1",
       ok: true,
       result: { artifact: "/tmp/site" },
@@ -92,14 +92,14 @@ describe("extension MessageChannel bridge", () => {
     const onModalBackdropChange = vi.fn();
     const bridge = attachExtensionBridge(contribution, { onModalBackdropChange });
     bridge.pluginPort.postMessage({
-      type: "gittributary:modal-state",
+      type: "noteaura:modal-state",
       apiVersion: EXTENSION_API_VERSION,
       sessionId: "wrong-session",
       open: true,
       backdrop: "immersive",
     });
     bridge.pluginPort.postMessage({
-      type: "gittributary:modal-state",
+      type: "noteaura:modal-state",
       apiVersion: EXTENSION_API_VERSION,
       sessionId: bridge.sessionId,
       open: true,
@@ -108,7 +108,7 @@ describe("extension MessageChannel bridge", () => {
 
     await vi.waitFor(() => expect(onModalBackdropChange).toHaveBeenCalledWith("immersive"));
     bridge.pluginPort.postMessage({
-      type: "gittributary:modal-state",
+      type: "noteaura:modal-state",
       apiVersion: EXTENSION_API_VERSION,
       sessionId: bridge.sessionId,
       open: false,
@@ -117,7 +117,7 @@ describe("extension MessageChannel bridge", () => {
     await vi.waitFor(() => expect(onModalBackdropChange).toHaveBeenLastCalledWith(null));
 
     bridge.pluginPort.postMessage({
-      type: "gittributary:modal-state",
+      type: "noteaura:modal-state",
       apiVersion: EXTENSION_API_VERSION,
       sessionId: bridge.sessionId,
       open: true,
@@ -132,7 +132,7 @@ describe("extension MessageChannel bridge", () => {
     const bridge = attachExtensionBridge(contribution);
     const response = nextMessage(bridge.pluginPort);
     bridge.pluginPort.postMessage({
-      type: "gittributary:request",
+      type: "noteaura:request",
       id: "request-without-payload",
       method: "status",
     });
@@ -151,13 +151,13 @@ describe("extension MessageChannel bridge", () => {
     const bridge = attachExtensionBridge(contribution);
     const response = nextMessage(bridge.pluginPort);
     bridge.pluginPort.postMessage({
-      type: "gittributary:request",
+      type: "noteaura:request",
       id: "request-2",
       method: "site.build",
       payload: {},
     });
     await expect(response).resolves.toEqual({
-      type: "gittributary:response",
+      type: "noteaura:response",
       id: "request-2",
       ok: false,
       error: { code: "EXTENSION_CALL_FAILED", message: "backend unavailable" },
@@ -169,10 +169,10 @@ describe("extension MessageChannel bridge", () => {
     null,
     {},
     { type: "other", id: "1", method: "ping" },
-    { type: "gittributary:request", id: "", method: "ping" },
-    { type: "gittributary:request", id: "1", method: "" },
-    { type: "gittributary:request", id: "x".repeat(129), method: "ping" },
-    { type: "gittributary:request", id: "1", method: "x".repeat(129) },
+    { type: "noteaura:request", id: "", method: "ping" },
+    { type: "noteaura:request", id: "1", method: "" },
+    { type: "noteaura:request", id: "x".repeat(129), method: "ping" },
+    { type: "noteaura:request", id: "1", method: "x".repeat(129) },
   ])("ignores malformed or overlong request %#", async (request) => {
     const bridge = attachExtensionBridge(contribution);
     bridge.pluginPort.postMessage(request);
@@ -186,7 +186,7 @@ describe("extension MessageChannel bridge", () => {
     const bridge = attachExtensionBridge(contribution);
     for (let index = 0; index < 32; index += 1) {
       bridge.pluginPort.postMessage({
-        type: "gittributary:request",
+        type: "noteaura:request",
         id: `pending-${index}`,
         method: "slow.operation",
       });
@@ -195,12 +195,12 @@ describe("extension MessageChannel bridge", () => {
 
     const response = nextMessage(bridge.pluginPort);
     bridge.pluginPort.postMessage({
-      type: "gittributary:request",
+      type: "noteaura:request",
       id: "overflow",
       method: "slow.operation",
     });
     await expect(response).resolves.toEqual({
-      type: "gittributary:response",
+      type: "noteaura:response",
       id: "overflow",
       ok: false,
       error: { code: "TOO_MANY_REQUESTS", message: "扩展请求过于频繁" },
@@ -226,7 +226,7 @@ describe("extension host handshake", () => {
     expect(postMessage).toHaveBeenCalledOnce();
     const [message, targetOrigin, transferred] = postMessage.mock.calls[0];
     expect(message).toEqual({
-      type: "gittributary:host-ready",
+      type: "noteaura:host-ready",
       apiVersion: EXTENSION_API_VERSION,
       sessionId: "session-1",
       pluginId: contribution.pluginId,

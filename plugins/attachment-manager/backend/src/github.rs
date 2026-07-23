@@ -38,7 +38,7 @@ fn github_client(timeout: Duration) -> Result<Client, String> {
     Client::builder()
         .connect_timeout(Duration::from_secs(15))
         .timeout(timeout)
-        .user_agent("GitTributary/attachment-manager")
+        .user_agent("NoteAura/attachment-manager")
         .build()
         .map_err(|error| format!("github_client_failed:{error}"))
 }

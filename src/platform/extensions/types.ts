@@ -21,14 +21,14 @@ export interface ExtensionCallRequest {
 }
 
 export interface ExtensionBridgeRequest {
-  type: "gittributary:request";
+  type: "noteaura:request";
   id: string;
   method: string;
   payload?: unknown;
 }
 
 export interface ExtensionBridgeResponse {
-  type: "gittributary:response";
+  type: "noteaura:response";
   id: string;
   ok: boolean;
   result?: unknown;
@@ -39,7 +39,7 @@ export interface ExtensionBridgeResponse {
 }
 
 export interface ExtensionHostReadyMessage {
-  type: "gittributary:host-ready";
+  type: "noteaura:host-ready";
   apiVersion: typeof EXTENSION_API_VERSION;
   sessionId: string;
   pluginId: string;
@@ -49,7 +49,7 @@ export interface ExtensionHostReadyMessage {
 }
 
 export interface ExtensionPluginReadyMessage {
-  type: "gittributary:plugin-ready";
+  type: "noteaura:plugin-ready";
   apiVersion: typeof EXTENSION_API_VERSION;
   sessionId: string;
 }
@@ -57,7 +57,7 @@ export interface ExtensionPluginReadyMessage {
 export type ExtensionModalBackdrop = "standard" | "immersive";
 
 export interface ExtensionPluginModalStateMessage {
-  type: "gittributary:modal-state";
+  type: "noteaura:modal-state";
   apiVersion: typeof EXTENSION_API_VERSION;
   sessionId: string;
   open: boolean;

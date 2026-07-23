@@ -5,7 +5,7 @@ export function eventDomainMeta(domain: string) {
     case "app":
       return {
         label: "应用",
-        summary: "GitTributary 应用生命周期事件域。",
+        summary: "NoteAura 应用生命周期事件域。",
         description: "用于描述应用启动、关闭、恢复、初始化完成等全局生命周期信号。这个域适合承载启动后检查、会话恢复、全局状态初始化和应用级通知触发。",
       };
     case "ui":
@@ -23,7 +23,7 @@ export function eventDomainMeta(domain: string) {
     case "store":
       return {
         label: "数据中心",
-        summary: "GitTributary 数据中心配置变化事件域。",
+        summary: "NoteAura 数据中心配置变化事件域。",
         description: "用于描述公共配置、工作区状态、模块配置等数据中心 key 的变化。private 和 secrets 类命名空间默认不进入该域事件,避免敏感信息外泄。",
       };
     case "flow":

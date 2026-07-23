@@ -36,15 +36,15 @@ export function DomainTrail({
         return (
           <span key={item.id} className="flex min-w-0 items-center gap-1.5">
             {index > 0 ? (
-              <span className="shrink-0 text-muted-foreground/60 gt-body">/</span>
+              <span className="shrink-0 text-muted-foreground/60 na-body">/</span>
             ) : null}
             <span
               aria-current={isLeaf ? "page" : undefined}
               className={cn(
                 "truncate",
                 index === 0
-                  ? "max-w-[9rem] text-foreground gt-title-panel"
-                  : "max-w-[8rem] text-muted-foreground gt-body-strong",
+                  ? "max-w-[9rem] text-foreground na-title-panel"
+                  : "max-w-[8rem] text-muted-foreground na-body-strong",
               )}
               title={item.title ?? item.label}
             >

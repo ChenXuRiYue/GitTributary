@@ -212,14 +212,14 @@ jobs:
         shell: bash
         run: |
           if [[ -f performance/baselines/ci/metrics.json ]]; then
-            echo "GT_PERF_BASELINE=performance/baselines/ci/metrics.json" >> "$GITHUB_ENV"
+            echo "NA_PERF_BASELINE=performance/baselines/ci/metrics.json" >> "$GITHUB_ENV"
           fi
-      - run: cargo build --manifest-path src-tauri/Cargo.toml -p gt-plugin-host --release
+      - run: cargo build --manifest-path src-tauri/Cargo.toml -p na-plugin-host --release
       - run: cargo build --manifest-path plugins/site-publisher/backend/Cargo.toml --release
       - name: Run performance suites and collect report
         run: npm run test:report -- --only performance --output test-reports/performance
         env:
-          GT_PERF_RUNNER_CLASS: github-hosted-${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04
+          NA_PERF_RUNNER_CLASS: github-hosted-${{ runner.os }}-${{ runner.arch }}-ubuntu-22.04
       - name: Prepare successful main baseline
         if: success() && github.ref == 'refs/heads/main'
         shell: bash

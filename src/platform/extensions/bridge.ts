@@ -14,7 +14,7 @@ const MAX_PENDING_REQUESTS = 32;
 function isBridgeRequest(value: unknown): value is ExtensionBridgeRequest {
   if (typeof value !== "object" || value === null) return false;
   const request = value as Partial<ExtensionBridgeRequest>;
-  return request.type === "gittributary:request"
+  return request.type === "noteaura:request"
     && typeof request.id === "string"
     && request.id.length > 0
     && request.id.length <= 128
@@ -29,7 +29,7 @@ function isPluginReadyMessage(
 ): value is ExtensionPluginReadyMessage {
   if (typeof value !== "object" || value === null) return false;
   const message = value as Partial<ExtensionPluginReadyMessage>;
-  return message.type === "gittributary:plugin-ready"
+  return message.type === "noteaura:plugin-ready"
     && message.apiVersion === EXTENSION_API_VERSION
     && message.sessionId === sessionId;
 }
@@ -40,7 +40,7 @@ function isPluginModalStateMessage(
 ): value is ExtensionPluginModalStateMessage {
   if (typeof value !== "object" || value === null) return false;
   const message = value as Partial<ExtensionPluginModalStateMessage>;
-  return message.type === "gittributary:modal-state"
+  return message.type === "noteaura:modal-state"
     && message.apiVersion === EXTENSION_API_VERSION
     && message.sessionId === sessionId
     && typeof message.open === "boolean"
@@ -96,7 +96,7 @@ export function attachExtensionBridge(
 
     if (pending >= MAX_PENDING_REQUESTS) {
       channel.port1.postMessage({
-        type: "gittributary:response",
+        type: "noteaura:response",
         id: request.id,
         ok: false,
         error: { code: "TOO_MANY_REQUESTS", message: "扩展请求过于频繁" },
@@ -113,7 +113,7 @@ export function attachExtensionBridge(
     }).then((result) => {
       if (disposed) return;
       channel.port1.postMessage({
-        type: "gittributary:response",
+        type: "noteaura:response",
         id: request.id,
         ok: true,
         result,
@@ -122,7 +122,7 @@ export function attachExtensionBridge(
       if (disposed) return;
       const message = extensionErrorMessage(error);
       channel.port1.postMessage({
-        type: "gittributary:response",
+        type: "noteaura:response",
         id: request.id,
         ok: false,
         error: { code: "EXTENSION_CALL_FAILED", message },
@@ -155,7 +155,7 @@ export function notifyExtensionReady(
   sessionId: string,
 ) {
   const message: ExtensionHostReadyMessage = {
-    type: "gittributary:host-ready",
+    type: "noteaura:host-ready",
     apiVersion: EXTENSION_API_VERSION,
     sessionId,
     pluginId: contribution.pluginId,

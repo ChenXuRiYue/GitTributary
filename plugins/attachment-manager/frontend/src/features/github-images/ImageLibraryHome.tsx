@@ -23,8 +23,8 @@ export function ImageLibraryHome({
       <div className="border-border/50 flex min-h-12 items-center gap-3 border-b px-1 pb-3">
         <Images className="size-4" />
         <div>
-          <h2 className="gt-title-panel">图库配置</h2>
-          <div className="text-muted-foreground gt-caption">{libraries.length} 个 Git 远程绑定</div>
+          <h2 className="na-title-panel">图库配置</h2>
+          <div className="text-muted-foreground na-caption">{libraries.length} 个 Git 远程绑定</div>
         </div>
         <Button className="ml-auto" size="sm" onClick={onAdd} disabled={loading}>
           <Plus />
@@ -35,7 +35,7 @@ export function ImageLibraryHome({
       {libraries.length === 0 ? (
         <div className="text-muted-foreground flex min-h-64 flex-col items-center justify-center gap-3 text-center">
           <Images className="size-7" />
-          <span className="gt-body">尚未配置图库</span>
+          <span className="na-body">尚未配置图库</span>
           <Button variant="outline" size="sm" onClick={onAdd} disabled={loading}>
             <Plus />
             添加图库
@@ -52,12 +52,12 @@ export function ImageLibraryHome({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="gt-body-strong truncate">{library.name}</span>
-                    <Badge variant={available ? "secondary" : "outline"} className="h-5 px-1.5 gt-caption">
+                    <span className="na-body-strong truncate">{library.name}</span>
+                    <Badge variant={available ? "secondary" : "outline"} className="h-5 px-1.5 na-caption">
                       {available ? "已绑定" : "待绑定"}
                     </Badge>
                   </div>
-                  <div className="text-muted-foreground gt-caption mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                  <div className="text-muted-foreground na-caption mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                     <span className="flex min-w-0 items-center gap-1">
                       <GitBranch className="size-3" />
                       <span className="truncate">{library.remote?.url ?? library.suggestedRemoteUrl ?? "未选择 Git 远程"}</span>

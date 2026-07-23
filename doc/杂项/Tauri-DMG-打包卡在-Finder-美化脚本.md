@@ -17,7 +17,7 @@ npm run tauri build
 Tauri 终端输出只显示较泛化的错误:
 
 ```text
-Bundling Git Tributary_0.1.0_aarch64.dmg
+Bundling NoteAura_0.1.0_aarch64.dmg
 Running bundle_dmg.sh
 failed to bundle project error running bundle_dmg.sh
 ```
@@ -68,7 +68,7 @@ hdiutil + osascript + Finder + 当前 shell/终端的 GUI 自动化能力
 先确认 `.app` 是否已生成:
 
 ```bash
-ls -lh "src-tauri/target/release/bundle/macos/Git Tributary.app"
+ls -lh "src-tauri/target/release/bundle/macos/NoteAura.app"
 ```
 
 检查是否有失败残留:
@@ -99,7 +99,7 @@ osascript -e 'tell application "Finder" to activate'
 优先使用稳定的原厂终端环境重新打包:
 
 ```bash
-cd /Users/mi/rust_code/GitTributary
+cd /Users/mi/rust_code/NoteAura
 rm src-tauri/target/release/bundle/macos/rw.*.dmg
 npm run tauri build
 ```

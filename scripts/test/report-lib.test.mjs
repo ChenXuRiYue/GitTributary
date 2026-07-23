@@ -48,7 +48,7 @@ test("validateOutputPath rejects destructive roots and paths outside allowed dir
 });
 
 test("validateOutputPath rejects symbolic links that escape an allowed root", { skip: process.platform === "win32" }, () => {
-  const directory = mkdtempSync(path.join(os.tmpdir(), "gittributary-path-test-"));
+  const directory = mkdtempSync(path.join(os.tmpdir(), "noteaura-path-test-"));
   const allowed = path.join(directory, "allowed");
   const outside = path.join(directory, "outside");
   mkdirSync(allowed);
@@ -149,7 +149,7 @@ test("parseRustOutput ignores nextest ANSI color codes", () => {
 });
 
 test("parseRustOutput recognizes infrastructure failures without test summaries", () => {
-  const suite = parseRustOutput("error: could not compile `gt-git` due to 1 previous error");
+  const suite = parseRustOutput("error: could not compile `na-git` due to 1 previous error");
   assert.equal(suite.status, "INFRA_ERROR");
   assert.equal(suite.counts.total, 0);
 });

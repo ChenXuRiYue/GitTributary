@@ -389,7 +389,7 @@ export function DiffPanel({ files, fetchDiff, checkable = false, checked, onChec
             <FolderTree className="size-3.5" />
           </button>
         </div>
-        <div className="gt-thin-scroll min-h-0 flex-1 overflow-auto overscroll-contain" data-diff-file-list>
+        <div className="na-thin-scroll min-h-0 flex-1 overflow-auto overscroll-contain" data-diff-file-list>
           <div className="w-max min-w-full py-1 pb-3">
             {files.length === 0 ? (
               <p className="px-3 py-4 text-center text-xs text-muted-foreground">无文件</p>

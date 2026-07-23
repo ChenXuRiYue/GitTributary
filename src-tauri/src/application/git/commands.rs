@@ -4,11 +4,11 @@
 //! `application::git::remote` 里,因为它们涉及认证解析,和这里的"纯本地仓库操作"
 //! 职责不同。
 
-use gt_git::{BranchInfo, CommitInfo, FileDiff, FileStatus, GitRepo, LogEntry, RepoOverview};
+use na_git::{BranchInfo, CommitInfo, FileDiff, FileStatus, GitRepo, LogEntry, RepoOverview};
 use serde_json::json;
 use tauri::State;
 
-use gt_flow::{EventDraft, FlowNodeDefinition};
+use na_flow::{EventDraft, FlowNodeDefinition};
 
 use crate::application::git::identity::{
     commit_identity_for_repo_remote, fallback_commit_identity, preferred_commit_remote,
@@ -17,7 +17,7 @@ use crate::{publish_flow_event, set_active_repo_state, AppState};
 
 pub(crate) fn flow_node_definitions() -> Vec<FlowNodeDefinition> {
     vec![FlowNodeDefinition {
-        uses: "gittributary/git/commit-all@v1".to_string(),
+        uses: "noteaura/git/commit-all@v1".to_string(),
         name: "提交全部变更".to_string(),
         node_type: "git".to_string(),
         summary: "暂存并提交指定仓库的全部变更".to_string(),
@@ -102,7 +102,7 @@ pub(crate) fn commit_all(
         let _ = publish_flow_event(
             &state,
             EventDraft {
-                source: "gittributary://gt-git".to_string(),
+                source: "noteaura://na-git".to_string(),
                 event_type: "git.commit.created".to_string(),
                 subject: Some(format!("repo:{repo_path}")),
                 data: json!({
@@ -147,7 +147,7 @@ pub(crate) fn commit_selected(
         let _ = publish_flow_event(
             &state,
             EventDraft {
-                source: "gittributary://gt-git".to_string(),
+                source: "noteaura://na-git".to_string(),
                 event_type: "git.commit.created".to_string(),
                 subject: Some(format!("repo:{repo_path}")),
                 data: json!({

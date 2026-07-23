@@ -7,7 +7,7 @@ import test from "node:test";
 import { discoverPluginBackends } from "./plugin-backends.mjs";
 
 test("discovers plugin backend manifests and preserves stable suite identifiers", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "gittributary-plugin-backends-"));
+  const root = mkdtempSync(path.join(os.tmpdir(), "noteaura-plugin-backends-"));
   try {
     for (const plugin of ["attachment-manager", "future-plugin", "site-publisher"]) {
       const backend = path.join(root, "plugins", plugin, "backend");
@@ -42,7 +42,7 @@ test("discovers plugin backend manifests and preserves stable suite identifiers"
 });
 
 test("returns no backends when the plugins directory is absent", () => {
-  const root = mkdtempSync(path.join(os.tmpdir(), "gittributary-plugin-backends-empty-"));
+  const root = mkdtempSync(path.join(os.tmpdir(), "noteaura-plugin-backends-empty-"));
   try {
     assert.deepEqual(discoverPluginBackends(root), []);
   } finally {

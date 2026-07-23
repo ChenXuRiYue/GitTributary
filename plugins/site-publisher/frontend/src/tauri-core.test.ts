@@ -1,4 +1,4 @@
-import { hostMethodCase } from "@gittributary/plugin-testkit";
+import { hostMethodCase } from "@noteaura/plugin-testkit";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { invokeHost } from "./bridge";

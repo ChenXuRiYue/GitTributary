@@ -45,7 +45,7 @@ export function DataSpaceSection({
         <div className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
           <Layers className="size-3.5" />
         </div>
-        <h2 id="data-space-heading" className="gt-title-section">数据空间</h2>
+        <h2 id="data-space-heading" className="na-title-section">数据空间</h2>
         <div className="ml-auto flex items-center gap-1.5">
           <Button
             type="button"
@@ -74,7 +74,7 @@ export function DataSpaceSection({
       </div>
 
       <div className="grid gap-2 sm:grid-cols-[96px_minmax(0,1fr)] sm:items-center">
-        <label htmlFor="data-sync-space" className="gt-label text-muted-foreground">当前空间</label>
+        <label htmlFor="data-sync-space" className="na-label text-muted-foreground">当前空间</label>
         <select
           id="data-sync-space"
           value={activeSpace}
@@ -96,7 +96,7 @@ export function DataSpaceSection({
             void handleSubmit();
           }}
         >
-          <label htmlFor="data-sync-space-name" className="gt-label text-muted-foreground">空间名称</label>
+          <label htmlFor="data-sync-space-name" className="na-label text-muted-foreground">空间名称</label>
           <Input
             id="data-sync-space-name"
             value={spaceName}

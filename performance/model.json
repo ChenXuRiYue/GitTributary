@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "schemaVersion": 1,
   "modelVersion": "2026.07.2",
-  "title": "GitTributary application performance model",
+  "title": "NoteAura application performance model",
   "description": "A layered desktop application model combining RAIL user experience, RED request health, USE resource health, and desktop lifecycle measurements.",
   "frameworks": {
     "RAIL": {

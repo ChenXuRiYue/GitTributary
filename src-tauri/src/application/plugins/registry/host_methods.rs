@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
-use gt_data::validate_namespace_name;
-use gt_files::replace_tree;
+use na_data::validate_namespace_name;
+use na_files::replace_tree;
 use serde_json::{json, Value};
 use tauri::State;
 

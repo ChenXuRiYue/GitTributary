@@ -1,8 +1,8 @@
 //! Git 认证解析。
 //!
-//! 这段逻辑通过 `gt-data` 的凭证 Repository 读取认证配置，
-//! 全局 token、SSH key 配置)和 `gt-git` 的认证接口(`AuthMethod`),
-//! 因此天然只能待在胶水层:既不该让 `gt-git` 关心凭证存在哪里,
+//! 这段逻辑通过 `na-data` 的凭证 Repository 读取认证配置，
+//! 全局 token、SSH key 配置)和 `na-git` 的认证接口(`AuthMethod`),
+//! 因此天然只能待在胶水层:既不该让 `na-git` 关心凭证存在哪里,
 //! 也不该让物理 storage 关心怎么用凭证做 Git 认证。
 //!
 //! 优先级链(项目 token → 全局 token → SSH key → SSH agent → None)
@@ -11,8 +11,8 @@
 //! 后续如果认证策略变复杂,值得抽成一个共享的决策函数。这次重构
 //! 只做“搬文件”,不改变这三处各自的行为。
 
-use gt_data::DataHub;
-use gt_git::AuthMethod;
+use na_data::DataHub;
+use na_git::AuthMethod;
 
 use crate::AppState;
 
@@ -205,7 +205,7 @@ pub(crate) fn validate_project_remote_token(url: &str, token: &str) -> Result<()
         return Err("请先填写 Access Token".to_string());
     }
 
-    match gt_git::check_remote_access(normalized_url, &AuthMethod::Token(token.to_string())) {
+    match na_git::check_remote_access(normalized_url, &AuthMethod::Token(token.to_string())) {
         Ok(_) => Ok(()),
         Err(e) => {
             let (_, message) =
@@ -232,8 +232,8 @@ mod tests {
         let state = AppState {
             repo: std::sync::Mutex::new(None),
             data: std::sync::Mutex::new(store),
-            event_pool: std::sync::Mutex::new(gt_flow::EventPool::new()),
-            node_registry: std::sync::Mutex::new(gt_flow::FlowNodeRegistry::new()),
+            event_pool: std::sync::Mutex::new(na_flow::EventPool::new()),
+            node_registry: std::sync::Mutex::new(na_flow::FlowNodeRegistry::new()),
             flow_execution: std::sync::Mutex::new(()),
             extensions: crate::application::plugins::registry::ExtensionRegistry::default(),
             plugin_host: std::sync::Arc::new(
@@ -243,8 +243,8 @@ mod tests {
         (dir, state)
     }
 
-    fn init_repo_with_commit(dir: &std::path::Path) -> gt_git::GitRepo {
-        let repo = gt_git::GitRepo::init(dir).unwrap();
+    fn init_repo_with_commit(dir: &std::path::Path) -> na_git::GitRepo {
+        let repo = na_git::GitRepo::init(dir).unwrap();
         fs::write(dir.join("README.md"), "# hi\n").unwrap();
         repo.stage_all().unwrap();
         repo.commit("init: first commit").unwrap();

@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use gt_data::{DataHub, RemoteCommitIdentity};
-use gt_git::GitRepo;
+use na_data::{DataHub, RemoteCommitIdentity};
+use na_git::GitRepo;
 
 use crate::application::git::auth::credential_summary_for_remote;
 use crate::application::git::identity::{
@@ -220,7 +220,7 @@ pub(super) fn collect_remote_configs_with_base_dir(
     }
 
     let sync_config = {
-        let engine = gt_data::SyncEngine::new(&base_dir);
+        let engine = na_data::SyncEngine::new(&base_dir);
         engine.config().ok().flatten().map(|config| {
             let local_path = engine.config_repo_path(&config);
             (config, local_path)
@@ -247,7 +247,7 @@ pub(super) fn collect_remote_configs_with_base_dir(
                 url: config.url,
                 push_url: None,
                 repo_path,
-                source: "gittributary_config".to_string(),
+                source: "noteaura_config".to_string(),
                 purpose: vec!["data_center_sync".to_string()],
                 credential_mode,
                 credential_ref,

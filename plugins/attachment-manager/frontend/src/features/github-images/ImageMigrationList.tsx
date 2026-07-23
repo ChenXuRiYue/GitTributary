@@ -127,8 +127,8 @@ export function ImageMigrationList({
     <section className="flex h-full min-h-0 flex-col">
       <div className="border-border/50 grid min-h-10 shrink-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-y px-3 py-1.5">
         <div className="flex min-w-0 items-center gap-2 overflow-hidden">
-          <span className="gt-title-section shrink-0">待迁移图片</span>
-          <span className="text-muted-foreground gt-caption min-w-0 truncate tabular-nums">
+          <span className="na-title-section shrink-0">待迁移图片</span>
+          <span className="text-muted-foreground na-caption min-w-0 truncate tabular-nums">
             <span>已选 {selectedCount}/{scopedPaths.length} 张</span>
             <span className="hidden xl:inline"> · {selectedNotes} 篇 · {formatBytes(selectedBytes)}</span>
           </span>
@@ -140,7 +140,7 @@ export function ImageMigrationList({
               value={query}
               onChange={(event) => changeQuery(event.target.value)}
               placeholder="筛选文件或图片"
-              className="gt-body h-7 pl-7 pr-2"
+              className="na-body h-7 pl-7 pr-2"
               aria-label="筛选引用文件或图片"
             />
           </div>
@@ -156,7 +156,7 @@ export function ImageMigrationList({
           </Button>
           <Button
             size="sm"
-            className="gt-body size-7 p-0 xl:w-auto xl:px-2.5"
+            className="na-body size-7 p-0 xl:w-auto xl:px-2.5"
             onClick={onMigrate}
             disabled={disabled || migrating || selectedCount === 0}
             aria-label={migrating ? "迁移中" : "开始迁移"}
@@ -170,7 +170,7 @@ export function ImageMigrationList({
       {candidates.length === 0 ? (
         <div className="text-muted-foreground flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
           <ImageIcon className="size-6" />
-          <span className="gt-body">没有被 Markdown 引用的本地图片</span>
+          <span className="na-body">没有被 Markdown 引用的本地图片</span>
         </div>
       ) : (
         <MigrationFileView
@@ -230,8 +230,8 @@ function MigrationFileView({
   onSelectPaths: (paths: string[], selected: boolean) => void;
 }) {
   return (
-    <div className="gt-thin-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-      <div className="border-border/30 text-muted-foreground gt-label sticky top-0 z-10 grid grid-cols-[24px_24px_minmax(120px,1fr)_48px] items-center gap-1 border-b bg-background px-3 py-1.5 sm:grid-cols-[24px_24px_minmax(160px,1fr)_56px_64px]">
+    <div className="na-thin-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="border-border/30 text-muted-foreground na-label sticky top-0 z-10 grid grid-cols-[24px_24px_minmax(120px,1fr)_48px] items-center gap-1 border-b bg-background px-3 py-1.5 sm:grid-cols-[24px_24px_minmax(160px,1fr)_56px_64px]">
         <SelectionCheckbox
           checked={allSelected}
           indeterminate={someSelected}
@@ -257,7 +257,7 @@ function MigrationFileView({
           />
         ))}
         {files.length === 0 && (
-          <div className="text-muted-foreground gt-body px-4 py-8 text-center">
+          <div className="text-muted-foreground na-body px-4 py-8 text-center">
             {scopedFileCount === 0 ? "当前范围没有引用文件" : "没有匹配的引用文件"}
           </div>
         )}
@@ -319,13 +319,13 @@ function MigrationFileRow({
         </Button>
         <span className="flex min-w-0 items-center gap-1.5" title={file.path}>
           <FileText className="text-muted-foreground size-3.5 shrink-0" />
-          <span className="gt-body min-w-0 truncate">{file.name}</span>
-          <span className="text-muted-foreground gt-caption min-w-0 truncate">
+          <span className="na-body min-w-0 truncate">{file.name}</span>
+          <span className="text-muted-foreground na-caption min-w-0 truncate">
             {file.folder || "/"}
           </span>
         </span>
-        <span className="gt-caption text-right tabular-nums">{selectedCount}/{paths.length}</span>
-        <span className="text-muted-foreground gt-caption hidden text-right tabular-nums sm:block">{formatBytes(bytes)}</span>
+        <span className="na-caption text-right tabular-nums">{selectedCount}/{paths.length}</span>
+        <span className="text-muted-foreground na-caption hidden text-right tabular-nums sm:block">{formatBytes(bytes)}</span>
       </div>
       {expanded && (
         <div className="border-border/30 bg-muted/15 ml-10 border-l px-3 py-2">

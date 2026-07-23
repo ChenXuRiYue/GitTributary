@@ -187,7 +187,7 @@ fn atomic_write(path: &Path, content: &str, permissions: fs::Permissions) -> Res
         .ok_or_else(|| "note_name_invalid".to_string())?;
     let sequence = TEMP_FILE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let temporary = parent.join(format!(
-        ".{file_name}.gittributary-{}-{sequence}",
+        ".{file_name}.noteaura-{}-{sequence}",
         std::process::id()
     ));
     let mut file = fs::OpenOptions::new()

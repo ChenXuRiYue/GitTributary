@@ -42,7 +42,7 @@
 - **坑 1 · shadcn CLI 挂起**：`npx shadcn add` 在非 TTY 下因 React 19 peer 依赖交互提示而卡死、无输出。
   → 改为**手写组件源码**（button/card/input/textarea/badge/separator/scroll-area/switch/tooltip）。
 - **坑 2 · npm EACCES**：`~/.npm` 缓存有 root 权限文件导致安装失败。
-  → 用 `npm_config_cache=/tmp/gt_npmcache` 前缀绕过（根治：`sudo chown -R 501:20 ~/.npm`）。
+  → 用 `npm_config_cache=/tmp/na_npmcache` 前缀绕过（根治：`sudo chown -R 501:20 ~/.npm`）。
 - 用 shadcn 组件重写 `panels.tsx` 与 `App.tsx`，删除旧 `App.css`。`npm run build` 通过。
 
 ### 4. 主题：改为干净的 macOS 白色主题

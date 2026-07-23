@@ -65,7 +65,7 @@ function node(overrides: Partial<FlowNodeDefinition> = {}): FlowNodeDefinition {
 function event(overrides: Partial<EventDefinition> = {}): EventDefinition {
   return {
     type: "git.commit.created",
-    source: "gittributary://gt-git",
+    source: "noteaura://na-git",
     domain: "git",
     summary: "Commit created",
     description: "A commit was created",
@@ -237,7 +237,7 @@ describe("flow event catalog helpers", () => {
 
   it("searches event descriptions, filters, schema, and metadata case-insensitively", () => {
     const definition = event();
-    for (const query of ["COMMIT CREATED", "after commit", "branches", "branch", "stable", "gt-git"]) {
+    for (const query of ["COMMIT CREATED", "after commit", "branches", "branch", "stable", "na-git"]) {
       expect(eventMatchesQuery(definition, query)).toBe(true);
     }
     expect(eventMatchesQuery(definition, "missing-value")).toBe(false);

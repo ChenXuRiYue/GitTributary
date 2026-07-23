@@ -33,8 +33,8 @@ const extensionIcons: Record<string, LucideIcon> = {
 };
 
 const legacyPluginIcons: Record<string, LucideIcon> = {
-  "dev.gittributary.attachment-manager": Paperclip,
-  "dev.gittributary.site-publisher": Send,
+  "dev.noteaura.attachment-manager": Paperclip,
+  "dev.noteaura.site-publisher": Send,
 };
 
 /** Resolve manifest icons, while keeping old installed plugin versions distinct. */

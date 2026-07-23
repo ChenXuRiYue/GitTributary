@@ -3,13 +3,13 @@
 //! 普通设置通过类型化 SettingsRepository 写入；Secret 仍由兼容 Store 适配器承载，
 //! 后续迁移到 OS Keychain。
 
-use gt_data::setting_keys;
+use na_data::setting_keys;
 use tauri::State;
 
 use crate::AppState;
 
 #[tauri::command]
-pub(crate) fn get_git_credentials(state: State<'_, AppState>) -> gt_data::GitCredentials {
+pub(crate) fn get_git_credentials(state: State<'_, AppState>) -> na_data::GitCredentials {
     let data = state.data.lock().unwrap();
     data.credentials().summary()
 }
@@ -17,7 +17,7 @@ pub(crate) fn get_git_credentials(state: State<'_, AppState>) -> gt_data::GitCre
 #[tauri::command]
 pub(crate) fn get_data_center_config_credential_status(
     state: State<'_, AppState>,
-) -> gt_data::DataCenterConfigCredentialStatus {
+) -> na_data::DataCenterConfigCredentialStatus {
     let data = state.data.lock().unwrap();
     data.credentials().data_center_config_status()
 }

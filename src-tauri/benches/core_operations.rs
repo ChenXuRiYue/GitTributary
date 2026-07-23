@@ -2,13 +2,13 @@ use std::hint::black_box;
 use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use gt_plugin_protocol::{method, Message, Request};
+use na_plugin_protocol::{method, Message, Request};
 use serde_json::json;
 
 const WORKFLOW: &str = r#"
 name: Publish notes
 
-gt:
+gn:
   id: flow.publish_notes
   enabled: true
 
@@ -18,12 +18,12 @@ on:
 
 jobs:
   publish:
-    runs-on: gittributary-local
+    runs-on: noteaura-local
     steps:
       - id: validate
-        uses: gittributary/files/assert-exists@v1
+        uses: noteaura/files/assert-exists@v1
         with:
-          path: ${{ gt.workspace.active_repo }}
+          path: ${{ gn.workspace.active_repo }}
       - id: publish
         uses: com.example.publisher/build@v1
         with:
@@ -36,7 +36,7 @@ fn flow_benchmarks(criterion: &mut Criterion) {
     group.measurement_time(Duration::from_secs(3));
     group.throughput(Throughput::Bytes(WORKFLOW.len() as u64));
     group.bench_function("parse_workflow", |bencher| {
-        bencher.iter(|| gt_flow::parse_workflow(black_box(WORKFLOW)).unwrap())
+        bencher.iter(|| na_flow::parse_workflow(black_box(WORKFLOW)).unwrap())
     });
 
     for segments in [1_usize, 8, 64] {
@@ -47,7 +47,7 @@ fn flow_benchmarks(criterion: &mut Criterion) {
             BenchmarkId::new("normalize_folder", segments),
             &folder,
             |bencher, folder| {
-                bencher.iter(|| gt_flow::normalize_folder(Some(black_box(folder)), None))
+                bencher.iter(|| na_flow::normalize_folder(Some(black_box(folder)), None))
             },
         );
     }

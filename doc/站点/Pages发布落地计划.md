@@ -298,9 +298,9 @@ doc/站点/Pages发布目标设计.md
 ### 暂不改
 
 ```text
-plugins/site-publisher/backend/crates/gt-site/src/lib.rs
-src-tauri/crates/gt-git/src/*
-src-tauri/crates/gt-flow/src/*
+plugins/site-publisher/backend/crates/na-site/src/lib.rs
+src-tauri/crates/na-git/src/*
+src-tauri/crates/na-flow/src/*
 ```
 
 Phase 1 不需要后端新能力。
@@ -350,7 +350,7 @@ site.publish
 ### 8.2 执行顺序
 
 ```text
-1. 调用 gt_site::build_site 重新构建。
+1. 调用 na_site::build_site 重新构建。
 2. 校验 outputDir/index.html。
 3. 打开 targetLocalPath。
 4. 切换或确认 targetBranch。

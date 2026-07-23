@@ -18,7 +18,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["../../../src/*"],
-      "@gittributary/plugin-testkit": ["../../../packages/plugin-testkit/src/index.ts"]
+      "@noteaura/plugin-testkit": ["../../../packages/plugin-testkit/src/index.ts"]
     }
   },
   "include": ["src"]

@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
 
-use gt_plugin_protocol::{event, method, Message, Request, Response};
+use na_plugin_protocol::{event, method, Message, Request, Response};
 use serde::Serialize;
 use serde_json::{json, Value};
 
@@ -250,7 +250,7 @@ pub fn plugin_host_ping(state: tauri::State<'_, crate::AppState>) -> Result<Valu
 
 fn spawn_host() -> Result<HostProcess, String> {
     let executable = resolve_host_executable().ok_or_else(|| {
-        "找不到 gt-plugin-host；请先运行 cargo build -p gt-plugin-host".to_string()
+        "找不到 na-plugin-host；请先运行 cargo build -p na-plugin-host".to_string()
     })?;
     let mut child = Command::new(&executable)
         .stdin(Stdio::piped())
@@ -284,7 +284,7 @@ fn spawn_host() -> Result<HostProcess, String> {
                             break;
                         }
                     }
-                    Err(error) => eprintln!("[gt-plugin-host] invalid stdout frame: {error}"),
+                    Err(error) => eprintln!("[na-plugin-host] invalid stdout frame: {error}"),
                 },
                 Ok(BoundedLine::TooLarge) => {
                     let _ = sender.try_send(HostReaderEvent::TransportError(
@@ -294,7 +294,7 @@ fn spawn_host() -> Result<HostProcess, String> {
                 }
                 Ok(BoundedLine::Eof) => break,
                 Err(error) => {
-                    eprintln!("[gt-plugin-host] stdout error: {error}");
+                    eprintln!("[na-plugin-host] stdout error: {error}");
                     break;
                 }
             }
@@ -305,16 +305,16 @@ fn spawn_host() -> Result<HostProcess, String> {
         loop {
             match read_bounded_line(&mut reader, MAX_STDERR_LINE_BYTES) {
                 Ok(BoundedLine::Line(line)) => {
-                    eprintln!("[gt-plugin-host] {}", String::from_utf8_lossy(&line));
+                    eprintln!("[na-plugin-host] {}", String::from_utf8_lossy(&line));
                 }
                 Ok(BoundedLine::TooLarge) => {
                     eprintln!(
-                        "[gt-plugin-host] stderr line exceeded {MAX_STDERR_LINE_BYTES} bytes and was discarded"
+                        "[na-plugin-host] stderr line exceeded {MAX_STDERR_LINE_BYTES} bytes and was discarded"
                     );
                 }
                 Ok(BoundedLine::Eof) => break,
                 Err(error) => {
-                    eprintln!("[gt-plugin-host] stderr error: {error}");
+                    eprintln!("[na-plugin-host] stderr error: {error}");
                     break;
                 }
             }
@@ -399,15 +399,15 @@ fn discard_until_newline<R: BufRead>(reader: &mut R) -> io::Result<()> {
 }
 
 fn resolve_host_executable() -> Option<PathBuf> {
-    if let Some(path) = std::env::var_os("GT_PLUGIN_HOST_BIN").map(PathBuf::from) {
+    if let Some(path) = std::env::var_os("NA_PLUGIN_HOST_BIN").map(PathBuf::from) {
         if is_executable_file(&path) {
             return Some(path);
         }
     }
     let file_name = if cfg!(windows) {
-        "gt-plugin-host.exe"
+        "na-plugin-host.exe"
     } else {
-        "gt-plugin-host"
+        "na-plugin-host"
     };
     if let Ok(current) = std::env::current_exe() {
         if let Some(parent) = current.parent() {
@@ -438,7 +438,7 @@ fn refresh_process_state(state: &mut SupervisorState) {
         .as_mut()
         .and_then(|process| process.child.try_wait().ok().flatten());
     if let Some(status) = finished {
-        state.last_error = Some(format!("gt-plugin-host 已退出: {status}"));
+        state.last_error = Some(format!("na-plugin-host 已退出: {status}"));
         state.process = None;
     }
 }
@@ -448,7 +448,7 @@ fn terminate_process(state: &mut SupervisorState) {
         let _ = process.child.kill();
         let _ = process.child.wait();
     }
-    state.last_error = Some("gt-plugin-host transport failed and was terminated".to_string());
+    state.last_error = Some("na-plugin-host transport failed and was terminated".to_string());
 }
 
 fn snapshot(state: &SupervisorState) -> PluginHostSnapshot {

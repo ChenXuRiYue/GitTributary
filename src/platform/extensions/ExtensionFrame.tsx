@@ -124,8 +124,8 @@ export function ExtensionFrame({
         <div className="absolute inset-0 flex items-center justify-center bg-background p-6">
           <div className="flex max-w-sm flex-col items-center text-center">
             <AlertTriangle className="text-destructive mb-3 size-6" />
-            <h2 className="gt-title-panel">插件暂时无法运行</h2>
-            <p className="text-muted-foreground gt-body mt-2 break-words">{error}</p>
+            <h2 className="na-title-panel">插件暂时无法运行</h2>
+            <p className="text-muted-foreground na-body mt-2 break-words">{error}</p>
             <Button className="mt-4" variant="outline" size="sm" onClick={retry}>
               <RefreshCw />
               重新加载

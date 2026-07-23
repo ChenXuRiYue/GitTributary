@@ -1,6 +1,6 @@
 # 安全政策
 
-Git Tributary 会处理本地 Git 仓库、remote 配置、发布目标仓库、数据中心同步配置和用户凭据。安全问题请谨慎报告，避免公开泄露 token、私钥、私有仓库地址或笔记内容。
+NoteAura 会处理本地 Git 仓库、remote 配置、发布目标仓库、数据中心同步配置和用户凭据。安全问题请谨慎报告，避免公开泄露 token、私钥、私有仓库地址或笔记内容。
 
 ## 支持版本
 
@@ -34,7 +34,7 @@ Git Tributary 会处理本地 Git 仓库、remote 配置、发布目标仓库、
 
 请尽量提供：
 
-- Git Tributary 版本号。
+- NoteAura 版本号。
 - 操作系统和芯片架构。
 - 受影响模块，例如 Git、发布、Flow、数据中心或凭据。
 - 最小复现步骤。
@@ -59,4 +59,4 @@ Git Tributary 会处理本地 Git 仓库、remote 配置、发布目标仓库、
 - 优先安装已签名和已公证的 macOS 发布包。
 - 为 GitHub token 设置最小权限并定期轮换。
 - 发布前检查 Markdown 范围和目标 Pages 仓库是否正确。
-- 不要把 `~/.git-tributary/` 或含有 token 的配置目录提交到公开仓库。
+- 不要把 `~/.noteaura/` 或含有 token 的配置目录提交到公开仓库。

@@ -83,12 +83,12 @@ function SidebarItemRow({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="gt-body-strong truncate">{item.name}</span>
+          <span className="na-body-strong truncate">{item.name}</span>
           <Badge variant="outline" className="hidden shrink-0 sm:inline-flex">
             {KIND_LABELS[item.kind]}
           </Badge>
         </div>
-        <p className="gt-caption mt-0.5 hidden truncate text-muted-foreground md:block">
+        <p className="na-caption mt-0.5 hidden truncate text-muted-foreground md:block">
           {item.description}
         </p>
       </div>
@@ -148,8 +148,8 @@ function SidebarItemSection({
   return (
     <section>
       <div className="mb-2 flex items-center justify-between gap-3">
-        <h2 className="gt-title-section">{title}</h2>
-        <span className="gt-caption text-muted-foreground">{items.length} 项</span>
+        <h2 className="na-title-section">{title}</h2>
+        <span className="na-caption text-muted-foreground">{items.length} 项</span>
       </div>
       <div className="divide-y overflow-hidden rounded-md border border-border/70 bg-background">
         {items.map((item, index) => (
@@ -208,7 +208,7 @@ export function SettingsPanel() {
                   aria-current={isActive ? "page" : undefined}
                   onClick={() => setActiveViewId(item.id)}
                   className={cn(
-                    "flex h-8 w-full items-center rounded-md px-3 text-left gt-body transition-colors",
+                    "flex h-8 w-full items-center rounded-md px-3 text-left na-body transition-colors",
                     isActive
                       ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-sidebar-accent-foreground",
@@ -229,7 +229,7 @@ export function SettingsPanel() {
           ) : (
             <>
               <div className="flex h-11 shrink-0 items-center justify-between gap-3 border-b border-border/50 px-4">
-                <span className="gt-caption text-muted-foreground">
+                <span className="na-caption text-muted-foreground">
                   显示:{visibleCount} / {items.length}
                 </span>
                 <Button type="button" variant="ghost" size="sm" onClick={reset}>

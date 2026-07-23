@@ -1,7 +1,7 @@
-//! 工作流(gt-flow)相关命令 + 应用级 Action 执行器。
+//! 工作流(na-flow)相关命令 + 应用级 Action 执行器。
 //!
-//! `AppFlowActionExecutor` 是 `gt-flow` 和业务 crate(`gt-git`/`gt-data`)
-//! 的连接层:`gt-flow` 只负责编排(顺序执行 job/step、渲染表达式),
+//! `AppFlowActionExecutor` 是 `na-flow` 和业务 crate(`na-git`/`na-data`)
+//! 的连接层:`na-flow` 只负责编排(顺序执行 job/step、渲染表达式),
 //! 真正的动作(commit/push/sync/文件操作)由这里注入执行。
 //!
 //! Core 节点暂时由 `match node.uses.as_str()` 分发；插件节点通过 manifest 注册，
@@ -11,8 +11,8 @@ use std::collections::BTreeMap;
 
 use tauri::{AppHandle, Manager, State};
 
-use gt_data::{DataHub, RunJournalRecord, RunJournalSummary};
-use gt_flow::{
+use na_data::{DataHub, RunJournalRecord, RunJournalSummary};
+use na_flow::{
     CloudEvent, EventDefinition, EventDraft, EventReceipt, FlowBuildDraft, FlowBuildRequest,
     FlowNodeDefinition, FlowNodeOwner, FlowNodeRegistry, FlowNodeSpec, FlowRecord, FlowRunReport,
     FlowRunRequest, FlowSummary,
@@ -92,7 +92,7 @@ pub(crate) fn flow_records_from_data(data: &DataHub) -> Result<Vec<FlowRecord>, 
 
 #[tauri::command]
 pub(crate) fn flow_validate(workflow: String) -> Result<FlowSummary, String> {
-    gt_flow::parse_workflow(&workflow).map_err(|e| e.to_string())
+    na_flow::parse_workflow(&workflow).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -105,7 +105,7 @@ pub(crate) fn flow_build_draft(
         event_pool.catalog()
     };
     let registry = state.node_registry.lock().unwrap();
-    gt_flow::build_flow_draft(request, &events, &registry).map_err(|e| e.to_string())
+    na_flow::build_flow_draft(request, &events, &registry).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -113,8 +113,8 @@ pub(crate) fn flow_save(
     request: FlowSaveRequest,
     state: State<'_, AppState>,
 ) -> Result<FlowRecord, String> {
-    let summary = gt_flow::parse_workflow(&request.workflow).map_err(|e| e.to_string())?;
-    let now = gt_flow::now_rfc3339();
+    let summary = na_flow::parse_workflow(&request.workflow).map_err(|e| e.to_string())?;
+    let now = na_flow::now_rfc3339();
     let mut data = state.data.lock().unwrap();
     // 保存是损坏/旧 schema Flow 的修复入口；无法解析的旧值按不存在处理并覆盖。
     let existing = data.flows().get(&summary.id).ok().flatten();
@@ -126,7 +126,7 @@ pub(crate) fn flow_save(
     let existing_folder = existing
         .as_ref()
         .and_then(|record| record.folder.as_deref());
-    let folder = gt_flow::normalize_folder(requested_folder.or(existing_folder), Some(&summary));
+    let folder = na_flow::normalize_folder(requested_folder.or(existing_folder), Some(&summary));
 
     let record = FlowRecord::new(
         request.workflow,
@@ -150,11 +150,11 @@ pub(crate) fn flow_list(state: State<'_, AppState>) -> Result<Vec<FlowListItem>,
     let mut items = flow_records_from_data(&data)?
         .into_iter()
         .map(|record| {
-            let key = gt_flow::workflow_key(&record.summary.id);
+            let key = na_flow::workflow_key(&record.summary.id);
             FlowListItem {
                 id: record.summary.id.clone(),
                 key,
-                folder: gt_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)),
+                folder: na_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)),
                 summary: record.summary,
                 enabled: record.enabled,
                 created_at: record.created_at,
@@ -198,7 +198,7 @@ pub(crate) fn flow_set_enabled(
         .get(&id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Flow 不存在: {id}"))?;
-    record.set_enabled(enabled, gt_flow::now_rfc3339());
+    record.set_enabled(enabled, na_flow::now_rfc3339());
     data.flows_mut().save(&record).map_err(|e| e.to_string())?;
     Ok(record)
 }
@@ -215,7 +215,7 @@ pub(crate) fn flow_create_folder(
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
     let mut data = state.data.lock().unwrap();
-    let folder = gt_flow::normalize_folder(Some(&path), None);
+    let folder = na_flow::normalize_folder(Some(&path), None);
     let mut folders = flow_folders_from_data(&data)?;
     if !folders.contains(&folder) {
         folders.push(folder);
@@ -229,7 +229,7 @@ pub(crate) fn flow_delete_folder(
     state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
     let mut data = state.data.lock().unwrap();
-    let folder = gt_flow::normalize_folder(Some(&path), None);
+    let folder = na_flow::normalize_folder(Some(&path), None);
     let has_children = flow_folders_from_data(&data)?
         .iter()
         .any(|item| item != &folder && item.starts_with(&format!("{folder}/")));
@@ -242,7 +242,7 @@ pub(crate) fn flow_delete_folder(
         .map_err(|e| e.to_string())?
         .into_iter()
         .any(|record| {
-            gt_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)) == folder
+            na_flow::normalize_folder(record.folder.as_deref(), Some(&record.summary)) == folder
         });
     if has_flows {
         return Err("文件夹非空: 请先移动或删除其中的 Flow".to_string());
@@ -261,11 +261,11 @@ fn flow_folders_from_data(data: &DataHub) -> Result<Vec<String>, String> {
         .folders()
         .map_err(|e| e.to_string())?
         .into_iter()
-        .map(|folder| gt_flow::normalize_folder(Some(&folder), None))
+        .map(|folder| na_flow::normalize_folder(Some(&folder), None))
         .collect::<Vec<_>>();
 
     for record in data.flows().list().map_err(|e| e.to_string())? {
-        folders.push(gt_flow::normalize_folder(
+        folders.push(na_flow::normalize_folder(
             record.folder.as_deref(),
             Some(&record.summary),
         ));
@@ -282,7 +282,7 @@ fn save_flow_folders_to_data(
 ) -> Result<Vec<String>, String> {
     let mut folders = folders
         .into_iter()
-        .map(|folder| gt_flow::normalize_folder(Some(&folder), None))
+        .map(|folder| na_flow::normalize_folder(Some(&folder), None))
         .collect::<Vec<_>>();
     folders.sort();
     folders.dedup();
@@ -338,7 +338,7 @@ pub(crate) fn flow_node_catalog(state: State<'_, AppState>) -> Vec<FlowNodeCatal
                 FlowNodeOwner::Core => FlowNodeCatalogSource {
                     kind: "core",
                     id: None,
-                    name: "GitTributary Core".to_string(),
+                    name: "NoteAura Core".to_string(),
                     version: Some(env!("CARGO_PKG_VERSION").to_string()),
                 },
                 FlowNodeOwner::Plugin(plugin_id) => {

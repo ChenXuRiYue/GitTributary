@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-use gt_flow::{
+use na_flow::{
     FlowActionExecutor, FlowActionOutcome, FlowExecutionContext, FlowNodeOwner, FlowNodeSpec,
 };
-use gt_git::GitRepo;
+use na_git::GitRepo;
 use serde_json::{json, Value};
 
 use crate::application::data::sync::sync_data_center_now;
@@ -39,17 +39,17 @@ impl FlowActionExecutor for AppFlowActionExecutor<'_> {
         node: &FlowNodeSpec,
         inputs: &BTreeMap<String, String>,
         context: &FlowExecutionContext,
-    ) -> gt_flow::Result<FlowActionOutcome> {
+    ) -> na_flow::Result<FlowActionOutcome> {
         if matches!(node.owner.as_ref(), Some(FlowNodeOwner::Plugin(_))) {
             return self.execute_plugin_node(node, inputs, context);
         }
         let outcome = match node.uses.as_str() {
-            "gittributary/files/assert-exists@v1" => self.assert_exists(inputs),
-            "gittributary/files/sync-dir@v1" => self.sync_dir(inputs),
-            "gittributary/git/commit-all@v1" => self.commit_all(inputs),
-            "gittributary/git/push@v1" => self.push(inputs),
-            "gittributary/store/sync-now@v1" => self.sync_store(),
-            _ => Err(gt_flow::FlowError::Validation(format!(
+            "noteaura/files/assert-exists@v1" => self.assert_exists(inputs),
+            "noteaura/files/sync-dir@v1" => self.sync_dir(inputs),
+            "noteaura/git/commit-all@v1" => self.commit_all(inputs),
+            "noteaura/git/push@v1" => self.push(inputs),
+            "noteaura/store/sync-now@v1" => self.sync_store(),
+            _ => Err(na_flow::FlowError::Validation(format!(
                 "节点动作未实现: {}",
                 node.uses
             ))),
@@ -64,9 +64,9 @@ impl AppFlowActionExecutor<'_> {
         node: &FlowNodeSpec,
         inputs: &BTreeMap<String, String>,
         context: &FlowExecutionContext,
-    ) -> gt_flow::Result<FlowActionOutcome> {
+    ) -> na_flow::Result<FlowActionOutcome> {
         let binding = self.plugin_bindings.get(&node.uses).ok_or_else(|| {
-            gt_flow::FlowError::Validation(format!("插件节点运行快照不存在: {}", node.uses))
+            na_flow::FlowError::Validation(format!("插件节点运行快照不存在: {}", node.uses))
         })?;
         let value = self
             .state
@@ -88,7 +88,7 @@ impl AppFlowActionExecutor<'_> {
     fn assert_exists(
         &self,
         inputs: &BTreeMap<String, String>,
-    ) -> gt_flow::Result<FlowActionOutcome> {
+    ) -> na_flow::Result<FlowActionOutcome> {
         let path = require_input(inputs, "path")?;
         let non_empty = inputs
             .get("non_empty")
@@ -96,13 +96,13 @@ impl AppFlowActionExecutor<'_> {
             .unwrap_or(false);
         let path_ref = Path::new(&path);
         if !path_ref.exists() {
-            return Err(gt_flow::FlowError::Validation(format!(
+            return Err(na_flow::FlowError::Validation(format!(
                 "路径不存在: {}",
                 path
             )));
         }
         if non_empty && is_empty_path(path_ref).map_err(to_validation_error)? {
-            return Err(gt_flow::FlowError::Validation(format!(
+            return Err(na_flow::FlowError::Validation(format!(
                 "路径为空: {}",
                 path
             )));
@@ -114,7 +114,7 @@ impl AppFlowActionExecutor<'_> {
         })
     }
 
-    fn sync_dir(&self, inputs: &BTreeMap<String, String>) -> gt_flow::Result<FlowActionOutcome> {
+    fn sync_dir(&self, inputs: &BTreeMap<String, String>) -> na_flow::Result<FlowActionOutcome> {
         let from = require_input(inputs, "from")?;
         let to = require_input(inputs, "to")?;
         let changed_count =
@@ -126,7 +126,7 @@ impl AppFlowActionExecutor<'_> {
         })
     }
 
-    fn commit_all(&self, inputs: &BTreeMap<String, String>) -> gt_flow::Result<FlowActionOutcome> {
+    fn commit_all(&self, inputs: &BTreeMap<String, String>) -> na_flow::Result<FlowActionOutcome> {
         let repo_path = require_input(inputs, "repo")?;
         let message = require_input(inputs, "message")?;
         let repo = GitRepo::open(&repo_path).map_err(to_validation_error)?;
@@ -140,7 +140,7 @@ impl AppFlowActionExecutor<'_> {
                 skipped: false,
                 message: Some("committed".to_string()),
             }),
-            Err(gt_git::GitError::NothingToCommit) => Ok(FlowActionOutcome {
+            Err(na_git::GitError::NothingToCommit) => Ok(FlowActionOutcome {
                 outputs: json!({ "commit": Value::Null, "branch": branch }),
                 skipped: true,
                 message: Some("nothing_to_commit".to_string()),
@@ -149,7 +149,7 @@ impl AppFlowActionExecutor<'_> {
         }
     }
 
-    fn push(&self, inputs: &BTreeMap<String, String>) -> gt_flow::Result<FlowActionOutcome> {
+    fn push(&self, inputs: &BTreeMap<String, String>) -> na_flow::Result<FlowActionOutcome> {
         let repo_path = require_input(inputs, "repo")?;
         let remote = require_input(inputs, "remote")?;
         let branch = require_input(inputs, "branch")?;
@@ -164,7 +164,7 @@ impl AppFlowActionExecutor<'_> {
         })
     }
 
-    fn sync_store(&self) -> gt_flow::Result<FlowActionOutcome> {
+    fn sync_store(&self) -> na_flow::Result<FlowActionOutcome> {
         let message = sync_data_center_now(self.state).map_err(to_validation_error)?;
         Ok(FlowActionOutcome {
             outputs: json!({ "message": message }),
@@ -177,30 +177,30 @@ impl AppFlowActionExecutor<'_> {
 pub(super) fn decode_plugin_node_outcome(
     uses: &str,
     value: Value,
-) -> gt_flow::Result<FlowActionOutcome> {
+) -> na_flow::Result<FlowActionOutcome> {
     let size = serde_json::to_vec(&value)
         .map_err(to_validation_error)?
         .len();
     if size > MAX_PLUGIN_NODE_OUTCOME_BYTES {
-        return Err(gt_flow::FlowError::Validation(format!(
+        return Err(na_flow::FlowError::Validation(format!(
             "插件节点返回值超过 {} bytes 限制 ({uses}): {size}",
             MAX_PLUGIN_NODE_OUTCOME_BYTES
         )));
     }
     serde_json::from_value(value).map_err(|error| {
-        gt_flow::FlowError::Validation(format!("插件节点返回值无效 ({uses}): {error}"))
+        na_flow::FlowError::Validation(format!("插件节点返回值无效 ({uses}): {error}"))
     })
 }
 
 pub(super) fn require_input(
     inputs: &BTreeMap<String, String>,
     key: &str,
-) -> gt_flow::Result<String> {
+) -> na_flow::Result<String> {
     inputs
         .get(key)
         .filter(|value| !value.trim().is_empty())
         .cloned()
-        .ok_or_else(|| gt_flow::FlowError::Validation(format!("缺少输入: {key}")))
+        .ok_or_else(|| na_flow::FlowError::Validation(format!("缺少输入: {key}")))
 }
 
 pub(super) fn is_empty_path(path: &Path) -> std::io::Result<bool> {
@@ -234,6 +234,6 @@ pub(super) fn copy_dir_recursive(from: &Path, to: &Path) -> std::io::Result<usiz
     Ok(changed_count)
 }
 
-fn to_validation_error(error: impl ToString) -> gt_flow::FlowError {
-    gt_flow::FlowError::Validation(error.to_string())
+fn to_validation_error(error: impl ToString) -> na_flow::FlowError {
+    na_flow::FlowError::Validation(error.to_string())
 }

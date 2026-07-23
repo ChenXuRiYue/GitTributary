@@ -18,7 +18,7 @@ export function Pagination({
   if (pageCount <= 1) return null;
   return (
     <div className="mt-2 flex items-center justify-end gap-1">
-      <span className="text-muted-foreground gt-caption mr-2">{total} 项 · {page + 1}/{pageCount}</span>
+      <span className="text-muted-foreground na-caption mr-2">{total} 项 · {page + 1}/{pageCount}</span>
       <Button
         variant="ghost"
         size="icon"

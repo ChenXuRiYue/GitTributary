@@ -107,22 +107,22 @@ export function InventoryPanel({
             <List className="size-4" />
           </button>
         </div>
-        <span className="text-muted-foreground gt-caption hidden shrink-0 lg:inline">
+        <span className="text-muted-foreground na-caption hidden shrink-0 lg:inline">
           {loading ? "正在扫描" : `${totalItems} 项 · ${formatBytes(report?.totalSize ?? 0)}`}
           {!loading && report && report.skippedEntries > 0 ? ` · 跳过 ${report.skippedEntries}` : ""}
         </span>
       </div>
 
-      <div className="gt-thin-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 [scrollbar-gutter:stable]">
+      <div className="na-thin-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain p-3 [scrollbar-gutter:stable]">
         {loading && !report ? (
           <div className="text-muted-foreground flex h-full items-center justify-center gap-2">
             <LoaderCircle className="size-4 animate-spin" />
-            <span className="gt-body">正在扫描附件</span>
+            <span className="na-body">正在扫描附件</span>
           </div>
         ) : items.length === 0 ? (
           <div className="text-muted-foreground flex h-full flex-col items-center justify-center text-center">
             <File className="mb-3 size-7" />
-            <span className="gt-body">没有匹配的附件</span>
+            <span className="na-body">没有匹配的附件</span>
           </div>
         ) : view === "grid" ? (
           <>

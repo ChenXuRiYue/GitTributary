@@ -86,8 +86,8 @@ export const AttachmentTile = memo(function AttachmentTile({
         )}
       </div>
       <div className="pointer-events-none p-2">
-        <div className="gt-body-strong truncate" title={item.name}>{item.name}</div>
-        <div className="text-muted-foreground gt-caption mt-1 flex items-center justify-between gap-2">
+        <div className="na-body-strong truncate" title={item.name}>{item.name}</div>
+        <div className="text-muted-foreground na-caption mt-1 flex items-center justify-between gap-2">
           <span
             className="truncate"
             title={item.kind === "link" ? [attachmentTypeLabel(item), item.domain].filter(Boolean).join(" · ") : undefined}
@@ -143,17 +143,17 @@ export const AttachmentRow = memo(function AttachmentRow({
     >
       <AttachmentIcon item={item} className={cn("text-muted-foreground size-4 shrink-0", selected && "text-primary")} />
       <span className="min-w-0 flex-1">
-        <span className="gt-body-strong block truncate">{item.name}</span>
-        <span className="text-muted-foreground gt-caption block truncate">
+        <span className="na-body-strong block truncate">{item.name}</span>
+        <span className="text-muted-foreground na-caption block truncate">
           {item.kind === "link"
             ? [attachmentTypeLabel(item), item.domain].filter(Boolean).join(" · ")
             : item.path}
         </span>
       </span>
-      <span className="text-muted-foreground gt-caption w-16 shrink-0 text-right">
+      <span className="text-muted-foreground na-caption w-16 shrink-0 text-right">
         {item.kind === "link" ? attachmentTypeLabel(item) : formatBytes(item.size)}
       </span>
-      <span className="text-muted-foreground gt-caption flex w-8 shrink-0 items-center justify-end gap-1">
+      <span className="text-muted-foreground na-caption flex w-8 shrink-0 items-center justify-end gap-1">
         <Link2 className="size-3" />{item.references.length}
       </span>
     </button>

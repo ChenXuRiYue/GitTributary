@@ -4,9 +4,9 @@
 
 use tauri::State;
 
-use gt_data::DataHub;
-use gt_flow::FlowNodeDefinition;
-use gt_git::{AuthMethod, GitRepo};
+use na_data::DataHub;
+use na_flow::FlowNodeDefinition;
+use na_git::{AuthMethod, GitRepo};
 
 use crate::support::config_dir::store_base_dir;
 use crate::support::error::classify_config_repo_check_error;
@@ -19,7 +19,7 @@ use spaces::{initialize_space, valid_space_id};
 
 pub(crate) fn flow_node_definitions() -> Vec<FlowNodeDefinition> {
     vec![FlowNodeDefinition {
-        uses: "gittributary/store/sync-now@v1".to_string(),
+        uses: "noteaura/store/sync-now@v1".to_string(),
         name: "同步数据中心".to_string(),
         node_type: "sync".to_string(),
         summary: "立即同步数据中心配置仓库".to_string(),
@@ -75,7 +75,7 @@ pub(crate) fn sync_get_config(
     _state: State<'_, AppState>,
 ) -> Result<Option<SyncConfigPayload>, String> {
     let base_dir = store_base_dir();
-    let engine = gt_data::SyncEngine::new(&base_dir);
+    let engine = na_data::SyncEngine::new(&base_dir);
     match engine.config() {
         Ok(Some(c)) => {
             let local_database_path = Some(engine.config_repo_path(&c));
@@ -138,11 +138,11 @@ pub(crate) fn bind_data_center_config_remote(
         let data = state.data.lock().unwrap();
         configured_remote_url_and_token(&data, &repo_path, &remote_name)?
     };
-    let report = gt_git::check_remote_access(&url, &AuthMethod::Token(token.clone()))
+    let report = na_git::check_remote_access(&url, &AuthMethod::Token(token.clone()))
         .map_err(|error| classify_config_repo_check_error(&error.to_string()).1)?;
 
     let base_dir = store_base_dir();
-    let engine = gt_data::SyncEngine::new(&base_dir);
+    let engine = na_data::SyncEngine::new(&base_dir);
     let existing = engine.config().map_err(|error| error.to_string())?;
     let same_remote = existing.as_ref().is_some_and(|config| config.url == url);
     let config = SyncConfigPayload {
@@ -187,13 +187,13 @@ fn apply_sync_config(config: SyncConfigPayload, state: &State<'_, AppState>) -> 
     };
 
     let base_dir = store_base_dir();
-    let engine = gt_data::SyncEngine::new(&base_dir);
+    let engine = na_data::SyncEngine::new(&base_dir);
     let active_environment_id = config
         .active_environment_id
         .clone()
         .filter(|s| !s.is_empty())
         .or_else(|| Some("default".to_string()));
-    let cfg = gt_data::SyncConfig {
+    let cfg = na_data::SyncConfig {
         url: config.url,
         branch: config.branch,
         active_environment_id,
@@ -202,7 +202,7 @@ fn apply_sync_config(config: SyncConfigPayload, state: &State<'_, AppState>) -> 
         interval_seconds: config.interval_seconds,
     };
     engine.set_config(&cfg).map_err(|e| e.to_string())?;
-    let auth = gt_data::ConfigRepoAuth { token: &token };
+    let auth = na_data::ConfigRepoAuth { token: &token };
     let checkout = engine
         .ensure_config_repo(&auth)
         .map_err(|e| e.to_string())?;
@@ -256,7 +256,7 @@ pub(crate) fn unbind_data_center_config_remote(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let base_dir = store_base_dir();
-    let engine = gt_data::SyncEngine::new(&base_dir);
+    let engine = na_data::SyncEngine::new(&base_dir);
     // 清除配置前先算出 checkout 路径,以便删除工作副本
     let checkout_to_remove = engine
         .config()
@@ -321,7 +321,7 @@ pub(crate) fn check_data_center_config_repo(
         };
     }
 
-    match gt_git::check_remote_access(&normalized_url, &AuthMethod::Token(effective_token)) {
+    match na_git::check_remote_access(&normalized_url, &AuthMethod::Token(effective_token)) {
         Ok(report) => ConfigRepoCheckReport {
             ok: true,
             status: "valid".to_string(),
@@ -349,7 +349,7 @@ pub(crate) fn sync_data_center_now(state: &AppState) -> Result<String, String> {
         let data = state.data.lock().unwrap();
         let config = {
             let base_dir = store_base_dir();
-            let engine = gt_data::SyncEngine::new(&base_dir);
+            let engine = na_data::SyncEngine::new(&base_dir);
             engine.config().map_err(|e| e.to_string())?
         }
         .ok_or_else(|| "未配置同步远程仓库".to_string())?;
@@ -364,8 +364,8 @@ pub(crate) fn sync_data_center_now(state: &AppState) -> Result<String, String> {
     };
 
     let base_dir = store_base_dir();
-    let engine = gt_data::SyncEngine::new(&base_dir);
-    let auth = gt_data::ConfigRepoAuth { token: &token };
+    let engine = na_data::SyncEngine::new(&base_dir);
+    let auth = na_data::ConfigRepoAuth { token: &token };
     let checkout = engine
         .ensure_config_repo(&auth)
         .map_err(|e| e.to_string())?;
@@ -390,9 +390,9 @@ pub(crate) fn sync_now(state: State<'_, AppState>) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub(crate) fn sync_get_state(_state: State<'_, AppState>) -> Result<gt_data::SyncState, String> {
+pub(crate) fn sync_get_state(_state: State<'_, AppState>) -> Result<na_data::SyncState, String> {
     let base_dir = store_base_dir();
-    let engine = gt_data::SyncEngine::new(&base_dir);
+    let engine = na_data::SyncEngine::new(&base_dir);
     engine.state().map_err(|e| e.to_string())
 }
 

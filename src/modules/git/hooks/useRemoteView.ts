@@ -60,7 +60,7 @@ export function repositoryName(remote: Pick<RemoteInfo, "name" | "repo_path" | "
 export function sourceLabel(source: string): string {
   switch (source) {
     case "local_git_config": return "当前仓库 .git/config";
-    case "gittributary_config": return "GitTributary 配置";
+    case "noteaura_config": return "NoteAura 配置";
     case "system_discovered": return "系统发现";
     case "imported": return "导入";
     default: return source;
@@ -106,7 +106,7 @@ export function verifyLabel(status: string): string {
 }
 
 function projectRemoteConfigs(remotes: RemoteInfo[]): RemoteInfo[] {
-  return remotes.filter((remote) => remote.source !== "gittributary_config");
+  return remotes.filter((remote) => remote.source !== "noteaura_config");
 }
 
 export function useRemoteView({

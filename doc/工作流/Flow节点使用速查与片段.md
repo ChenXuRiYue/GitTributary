@@ -7,11 +7,11 @@
 
 | uses | 作用 |
 | --- | --- |
-| `gittributary/files/assert-exists@v1` | 校验文件或目录存在，可选要求非空 |
-| `gittributary/files/sync-dir@v1` | 递归复制源目录到目标目录 |
-| `gittributary/git/commit-all@v1` | 暂存并提交全部变更 |
-| `gittributary/git/push@v1` | 推送指定分支 |
-| `gittributary/store/sync-now@v1` | 立即同步数据中心 |
+| `noteaura/files/assert-exists@v1` | 校验文件或目录存在，可选要求非空 |
+| `noteaura/files/sync-dir@v1` | 递归复制源目录到目标目录 |
+| `noteaura/git/commit-all@v1` | 暂存并提交全部变更 |
+| `noteaura/git/push@v1` | 推送指定分支 |
+| `noteaura/store/sync-now@v1` | 立即同步数据中心 |
 
 ## 当前插件节点
 
@@ -19,8 +19,8 @@
 
 | uses | 作用 |
 | --- | --- |
-| `dev.gittributary.site-publisher/scan@v1` | 扫描可发布内容 |
-| `dev.gittributary.site-publisher/build@v1` | 真实构建静态 HTML 站点 |
+| `dev.noteaura.site-publisher/scan@v1` | 扫描可发布内容 |
+| `dev.noteaura.site-publisher/build@v1` | 真实构建静态 HTML 站点 |
 
 插件被卸载后，其节点立即从节点池消失，引用它的 Flow 会显示为未注册。
 
@@ -29,7 +29,7 @@
 ```yaml
 name: 检查仓库
 
-gt:
+gn:
   id: flow.check_workspace
   enabled: false
 
@@ -38,21 +38,21 @@ on:
 
 jobs:
   check:
-    runs-on: gittributary-local
+    runs-on: noteaura-local
     steps:
       - id: repository
-        uses: gittributary/files/assert-exists@v1
+        uses: noteaura/files/assert-exists@v1
         with:
-          path: ${{ gt.workspace.active_repo }}
+          path: ${{ gn.workspace.active_repo }}
           non_empty: true
 ```
 
 ```yaml
 - id: build
-  uses: dev.gittributary.site-publisher/build@v1
+  uses: dev.noteaura.site-publisher/build@v1
   with:
-    repo_path: ${{ gt.workspace.active_repo }}
-    output_dir: /tmp/gittributary-site
+    repo_path: ${{ gn.workspace.active_repo }}
+    output_dir: /tmp/noteaura-site
     site_title: Notes
     include: '["README.md", "docs"]'
 ```

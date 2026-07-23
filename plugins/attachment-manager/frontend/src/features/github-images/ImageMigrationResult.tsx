@@ -24,8 +24,8 @@ export function ImageMigrationResult({
         {completedWithoutErrors
           ? <CircleCheck className="text-primary size-4" />
           : <AlertTriangle className="text-destructive size-4" />}
-        <h2 className="gt-title-panel">迁移结果</h2>
-        <span className="text-muted-foreground gt-caption ml-auto">{result.durationMs} ms</span>
+        <h2 className="na-title-panel">迁移结果</h2>
+        <span className="text-muted-foreground na-caption ml-auto">{result.durationMs} ms</span>
         {result.failed.length > 0 && (
           <Button variant="outline" size="sm" onClick={onRetry} disabled={retrying}>
             {retrying ? <LoaderCircle className="animate-spin" /> : <RotateCcw />}
@@ -53,8 +53,8 @@ export function ImageMigrationResult({
 function ResultMetric({ label, value }: { label: string; value: number }) {
   return (
     <div className="px-4 py-3">
-      <div className="gt-label text-muted-foreground">{label}</div>
-      <div className="gt-title-panel mt-1 tabular-nums">{value}</div>
+      <div className="na-label text-muted-foreground">{label}</div>
+      <div className="na-title-panel mt-1 tabular-nums">{value}</div>
     </div>
   );
 }
@@ -62,8 +62,8 @@ function ResultMetric({ label, value }: { label: string; value: number }) {
 function FailureRow({ failure }: { failure: GitHubImageMigrationFailure }) {
   return (
     <div className="grid gap-1 px-4 py-2 sm:grid-cols-[minmax(160px,1fr)_minmax(200px,2fr)]">
-      <span className="gt-body-strong truncate" title={failure.path}>{failure.path}</span>
-      <span className="text-destructive gt-caption break-all">{migrationError(failure.error)}</span>
+      <span className="na-body-strong truncate" title={failure.path}>{failure.path}</span>
+      <span className="text-destructive na-caption break-all">{migrationError(failure.error)}</span>
     </div>
   );
 }

@@ -1,1 +1,1 @@
-export const EXTENSIONS_CHANGED_EVENT = "gittributary:extensions-changed";
+export const EXTENSIONS_CHANGED_EVENT = "noteaura:extensions-changed";

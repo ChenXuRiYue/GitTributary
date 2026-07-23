@@ -1,4 +1,4 @@
-use gt_site::SiteBuildConfig;
+use na_site::SiteBuildConfig;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -29,18 +29,18 @@ pub fn handle_request(method: &str, payload: Value) -> Result<Value, String> {
     match method {
         "site.scan" => {
             let repo_path = required_field::<String>(&payload, "repoPath")?;
-            serialize(gt_site::scan_repo(repo_path).map_err(|error| error.to_string())?)
+            serialize(na_site::scan_repo(repo_path).map_err(|error| error.to_string())?)
         }
         "site.build" => {
             let config = required_field::<SiteBuildConfig>(&payload, "config")?;
-            serialize(gt_site::build_site(config).map_err(|error| error.to_string())?)
+            serialize(na_site::build_site(config).map_err(|error| error.to_string())?)
         }
         "flow.site.scan" => flow_scan(payload),
         "flow.site.build" => flow_build(payload),
         "site.publish.plan" => {
             let request = required_field::<SitePublishRequest>(&payload, "request")?;
             serialize(
-                gt_site::plan_publish_target(
+                na_site::plan_publish_target(
                     &request.build_config,
                     &request.target.target_local_path,
                     &request.target.publish_dir,
@@ -51,7 +51,7 @@ pub fn handle_request(method: &str, payload: Value) -> Result<Value, String> {
         "site.publish.materialize" => {
             let request = required_field::<SitePublishRequest>(&payload, "request")?;
             serialize(
-                gt_site::build_publish_artifact(
+                na_site::build_publish_artifact(
                     request.build_config,
                     &request.target.target_local_path,
                     &request.target.publish_dir,
@@ -73,7 +73,7 @@ fn flow_scan(payload: Value) -> Result<Value, String> {
         .filter(|value| !value.trim().is_empty())
         .cloned()
         .ok_or_else(|| "missing flow input: repo_path".to_string())?;
-    let report = gt_site::scan_repo(repo_path).map_err(|error| error.to_string())?;
+    let report = na_site::scan_repo(repo_path).map_err(|error| error.to_string())?;
     Ok(json!({
         "outputs": report,
         "skipped": false,
@@ -93,7 +93,7 @@ fn flow_build(payload: Value) -> Result<Value, String> {
         with_search: boolean_input(&inputs, "with_search", true)?,
         copy_assets: boolean_input(&inputs, "copy_assets", true)?,
     };
-    let report = gt_site::build_site(config).map_err(|error| error.to_string())?;
+    let report = na_site::build_site(config).map_err(|error| error.to_string())?;
     Ok(json!({
         "outputs": report,
         "skipped": false,
@@ -171,7 +171,7 @@ fn serialize<T: serde::Serialize>(value: T) -> Result<Value, String> {
 }
 
 #[no_mangle]
-pub extern "C" fn gittributary_plugin_abi_version() -> u32 {
+pub extern "C" fn noteaura_plugin_abi_version() -> u32 {
     PLUGIN_ABI_VERSION
 }
 
@@ -181,8 +181,8 @@ pub extern "C" fn gittributary_plugin_abi_version() -> u32 {
 /// # Safety
 ///
 /// `method` and `payload` must be non-null pointers to valid, NUL-terminated C strings. The
-/// returned pointer must be released exactly once with `gittributary_plugin_free_string`.
-pub unsafe extern "C" fn gittributary_plugin_handle_request(
+/// returned pointer must be released exactly once with `noteaura_plugin_free_string`.
+pub unsafe extern "C" fn noteaura_plugin_handle_request(
     method: *const c_char,
     payload: *const c_char,
 ) -> *mut c_char {
@@ -204,13 +204,13 @@ pub unsafe extern "C" fn gittributary_plugin_handle_request(
 }
 
 #[no_mangle]
-/// Releases a response allocated by `gittributary_plugin_handle_request`.
+/// Releases a response allocated by `noteaura_plugin_handle_request`.
 ///
 /// # Safety
 ///
-/// `value` must be null or a pointer returned by `gittributary_plugin_handle_request` that has not
+/// `value` must be null or a pointer returned by `noteaura_plugin_handle_request` that has not
 /// already been released.
-pub unsafe extern "C" fn gittributary_plugin_free_string(value: *mut c_char) {
+pub unsafe extern "C" fn noteaura_plugin_free_string(value: *mut c_char) {
     if !value.is_null() {
         drop(CString::from_raw(value));
     }
@@ -263,7 +263,7 @@ mod tests {
             "request": {
                 "buildConfig": {
                     "repoPath": source,
-                    "outputDir": source.join(".gittributary/site"),
+                    "outputDir": source.join(".noteaura/site"),
                     "siteTitle": "Test",
                     "include": ["README.md"],
                     "exclude": [],
@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(plan["publishPathspec"], "docs");
         let artifact = handle_request("site.publish.materialize", request).unwrap();
         assert!(artifact["artifactPath"].as_str().is_some());
-        assert!(source.join(".gittributary/site/.nojekyll").is_file());
+        assert!(source.join(".noteaura/site/.nojekyll").is_file());
     }
 
     #[test]

@@ -8,7 +8,7 @@ import { HostDriver, measureRequest } from "./host-driver.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const args = parseArgs(process.argv.slice(2));
-const hostPath = path.resolve(ROOT, args.host ?? "src-tauri/target/release/gt-plugin-host");
+const hostPath = path.resolve(ROOT, args.host ?? "src-tauri/target/release/na-plugin-host");
 const pluginPath = path.resolve(
   ROOT,
   args.plugin ?? defaultSitePluginPath(),
@@ -22,7 +22,7 @@ const counts = {
 
 const report = {
   schemaVersion: 1,
-  suite: "gittributary-plugin-ipc",
+  suite: "noteaura-plugin-ipc",
   generatedAt: new Date().toISOString(),
   environment: environmentInfo(),
   configuration: {
@@ -167,7 +167,7 @@ async function pluginMeasurements(sampleCount) {
       reason: "site plugin release library does not exist",
     };
   }
-  const fixture = await mkdtemp(path.join(tmpdir(), "gt-ipc-perf-"));
+  const fixture = await mkdtemp(path.join(tmpdir(), "na-ipc-perf-"));
   await writeFile(path.join(fixture, "README.md"), "# IPC benchmark\n");
   const driver = new HostDriver(hostPath, { cwd: ROOT, timeoutMs: 30_000 });
   try {
@@ -307,7 +307,7 @@ function environmentInfo() {
     gitFixtureVersion: "git-fixtures-v1",
     attachmentFixtureVersion: "attachment-links-v1",
     budgetVersion: "2026.07.2",
-    runnerClass: process.env.GT_PERF_RUNNER_CLASS
+    runnerClass: process.env.NA_PERF_RUNNER_CLASS
       ?? process.env.RUNNER_ENVIRONMENT
       ?? (process.env.CI ? "ci-unspecified" : "local"),
     ci: Boolean(process.env.CI),

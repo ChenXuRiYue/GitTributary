@@ -25,7 +25,7 @@ export interface SiteViewUiState {
   updatedAt: number;
 }
 
-export const SITE_VIEW_STATE_NS = "plugin.dev.gittributary.site-publisher.ui";
+export const SITE_VIEW_STATE_NS = "plugin.dev.noteaura.site-publisher.ui";
 export const SITE_VIEW_STATE_KEY = "site.view.active";
 export const SITE_MORE_STATE_KEY = "site.nav.more.open";
 export const SITE_VIEW_STATE_TTL_MS = 3 * 24 * 60 * 60 * 1000;
@@ -45,7 +45,7 @@ export const DEFAULT_CAPTURE_FILTERS: CaptureFilterState = {
   sort: "path",
 };
 
-export const TAURI_UNAVAILABLE_MESSAGE = "当前页面运行在普通浏览器预览中，无法读取 Tauri 本地数据。请在 GitTributary 应用窗口中查看发布任务。";
+export const TAURI_UNAVAILABLE_MESSAGE = "当前页面运行在普通浏览器预览中，无法读取 Tauri 本地数据。请在 NoteAura 应用窗口中查看发布任务。";
 
 export function isTauriRuntime() {
   return isPluginHostRuntime() || (typeof window !== "undefined"

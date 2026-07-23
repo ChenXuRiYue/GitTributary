@@ -14,17 +14,17 @@ type MockWindow = Window & {
   __TAURI_INTERNALS__: {
     invoke: (command: string, args?: Record<string, unknown>) => Promise<unknown>;
   };
-  __GT_TAURI_CALLS__: InvokeCall[];
-  __GT_FAIL_REPO__?: boolean;
+  __NA_TAURI_CALLS__: InvokeCall[];
+  __NA_FAIL_REPO__?: boolean;
 };
 
 const test = base.extend<{ tauri: TauriHarness }>({
   tauri: async ({ page }, use) => {
     await installTauriHarness(page);
     await use({
-      calls: () => page.evaluate(() => (window as unknown as MockWindow).__GT_TAURI_CALLS__),
+      calls: () => page.evaluate(() => (window as unknown as MockWindow).__NA_TAURI_CALLS__),
       callsFor: (command) => page.evaluate(
-        (target) => (window as unknown as MockWindow).__GT_TAURI_CALLS__.filter((call) => call.cmd === target),
+        (target) => (window as unknown as MockWindow).__NA_TAURI_CALLS__.filter((call) => call.cmd === target),
         command,
       ),
     });
@@ -34,7 +34,7 @@ const test = base.extend<{ tauri: TauriHarness }>({
 async function installTauriHarness(page: Page) {
   await page.addInitScript(() => {
     const target = window as unknown as MockWindow;
-    target.__GT_TAURI_CALLS__ = [];
+    target.__NA_TAURI_CALLS__ = [];
     const overview = {
       path: "/workspaces/notes",
       current_branch: "main",
@@ -128,8 +128,8 @@ async function installTauriHarness(page: Page) {
 
     target.__TAURI_INTERNALS__ = {
       invoke: async (command, args = {}) => {
-        target.__GT_TAURI_CALLS__.push({ cmd: command, args });
-        if (target.__GT_FAIL_REPO__ && ["get_workspace_info", "open_repo", "get_overview"].includes(command)) {
+        target.__NA_TAURI_CALLS__.push({ cmd: command, args });
+        if (target.__NA_FAIL_REPO__ && ["get_workspace_info", "open_repo", "get_overview"].includes(command)) {
           throw new Error("repository unavailable");
         }
         if (command === "get_file_diff") {
@@ -262,7 +262,7 @@ test("configures primary sidebar visibility from settings", async ({ page, tauri
 
 test("degrades to the repository empty state when backend context is unavailable", async ({ page, tauri }) => {
   await page.addInitScript(() => {
-    (window as unknown as MockWindow).__GT_FAIL_REPO__ = true;
+    (window as unknown as MockWindow).__NA_FAIL_REPO__ = true;
   });
   await page.goto("/");
   await expect(page.getByText("打开一个 Git 仓库开始工作")).toBeVisible();

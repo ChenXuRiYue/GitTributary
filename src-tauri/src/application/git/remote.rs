@@ -1,14 +1,14 @@
 //! Git 远程仓库配置命令:列表、聚合视图、clone、增删改、fetch/push/pull。
 //!
 //! 和 `application::git::commands` 的区别:这里的命令涉及认证解析(`auth::resolve_auth*`)
-//! 和凭证绑定(`gt-data` 的 CredentialsRepository),本地 Git commands
+//! 和凭证绑定(`na-data` 的 CredentialsRepository),本地 Git commands
 //! 只做纯本地仓库操作。
 
 use serde_json::json;
 use tauri::State;
 
-use gt_flow::{EventDraft, FlowNodeDefinition};
-use gt_git::{AuthMethod, GitRepo, RemoteInfo, RepoOverview};
+use na_flow::{EventDraft, FlowNodeDefinition};
+use na_git::{AuthMethod, GitRepo, RemoteInfo, RepoOverview};
 
 use crate::application::git::auth::{resolve_auth, validate_project_remote_token};
 use crate::{publish_flow_event, set_active_repo_state, AppState};
@@ -24,7 +24,7 @@ use config::{
 
 pub(crate) fn flow_node_definitions() -> Vec<FlowNodeDefinition> {
     vec![FlowNodeDefinition {
-        uses: "gittributary/git/push@v1".to_string(),
+        uses: "noteaura/git/push@v1".to_string(),
         name: "推送分支".to_string(),
         node_type: "git".to_string(),
         summary: "把指定仓库分支推送到远程".to_string(),
@@ -74,7 +74,7 @@ pub(crate) fn clone_remote_repo(
     }
     validate_project_remote_token(&url, token)?;
 
-    let repo = gt_git::clone_remote_repo_into_parent(
+    let repo = na_git::clone_remote_repo_into_parent(
         &url,
         parent_path.trim(),
         &AuthMethod::Token(token.to_string()),
@@ -261,7 +261,7 @@ pub(crate) fn git_push(
         let _ = publish_flow_event(
             &state,
             EventDraft {
-                source: "gittributary://gt-git".to_string(),
+                source: "noteaura://na-git".to_string(),
                 event_type: "git.push.completed".to_string(),
                 subject: Some(format!("repo:{repo_path}")),
                 data: json!({

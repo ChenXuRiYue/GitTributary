@@ -103,8 +103,8 @@ function TaskList({
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-border/50 flex min-h-10 shrink-0 items-center gap-2 border-b px-3 py-1.5">
         <Clock3 className="size-4" />
-        <h3 className="gt-title-section">迁移任务</h3>
-        <span className="text-muted-foreground gt-caption ml-auto tabular-nums">{tasks.length}</span>
+        <h3 className="na-title-section">迁移任务</h3>
+        <span className="text-muted-foreground na-caption ml-auto tabular-nums">{tasks.length}</span>
       </div>
       {running && (
         <>
@@ -113,11 +113,11 @@ function TaskList({
         </>
       )}
       <RailLabel label="历史" count={completed.length} bordered={Boolean(running)} />
-      <div className="gt-thin-scroll min-h-0 flex-1 divide-y divide-border/40 overflow-y-auto overscroll-contain">
+      <div className="na-thin-scroll min-h-0 flex-1 divide-y divide-border/40 overflow-y-auto overscroll-contain">
         {completed.length === 0 ? (
           <div className="text-muted-foreground flex h-full min-h-24 flex-col items-center justify-center gap-1.5 px-3 text-center">
             <CircleDashed className="size-4" />
-            <span className="gt-caption">还没有迁移记录</span>
+            <span className="na-caption">还没有迁移记录</span>
           </div>
         ) : completed.map((task) => (
           <TaskRow key={task.id} task={task} onSelect={() => onSelect(task.id)} />
@@ -130,7 +130,7 @@ function TaskList({
 function RailLabel({ label, count, bordered = false }: { label: string; count: number; bordered?: boolean }) {
   return (
     <div className={cn(
-      "border-border/50 text-muted-foreground gt-label flex min-h-8 shrink-0 items-center px-3",
+      "border-border/50 text-muted-foreground na-label flex min-h-8 shrink-0 items-center px-3",
       bordered && "border-t",
     )}>
       {label}
@@ -157,10 +157,10 @@ function TaskRow({ task, onSelect }: { task: ImageMigrationTaskRecord; onSelect:
         task.status !== "running" && task.status !== "succeeded" && "text-destructive",
       )} />
       <span className="min-w-0 flex-1">
-        <span className="gt-body-strong block truncate">
+        <span className="na-body-strong block truncate">
           {task.status === "running" ? "正在迁移" : statusLabel(task.status)} · {task.imagePaths.length} 张
         </span>
-        <span className="text-muted-foreground gt-caption mt-0.5 block truncate">
+        <span className="text-muted-foreground na-caption mt-0.5 block truncate">
           {task.library.name} · {SHORT_TIME.format(task.startedAt)}
         </span>
       </span>
@@ -203,9 +203,9 @@ function TaskDetails({
         >
           <ArrowLeft />
         </Button>
-        <h3 className="gt-title-section">任务详情</h3>
+        <h3 className="na-title-section">任务详情</h3>
         <span className={cn(
-          "gt-caption ml-auto flex items-center gap-1",
+          "na-caption ml-auto flex items-center gap-1",
           task.status === "running" && "text-primary",
           task.status !== "running" && task.status !== "succeeded" && "text-destructive",
         )}>
@@ -214,7 +214,7 @@ function TaskDetails({
         </span>
       </div>
 
-      <div className="gt-thin-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+      <div className="na-thin-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
         <section className="border-border/50 border-b px-3 py-3">
           <div className="flex items-start gap-2.5">
             <StatusIcon className={cn(
@@ -223,11 +223,11 @@ function TaskDetails({
               task.status !== "running" && task.status !== "succeeded" && "text-destructive",
             )} />
             <div className="min-w-0">
-              <div className="gt-body-strong">{taskSummary(task.status)}</div>
-              <div className="text-muted-foreground gt-caption mt-0.5">
+              <div className="na-body-strong">{taskSummary(task.status)}</div>
+              <div className="text-muted-foreground na-caption mt-0.5">
                 {task.imagePaths.length} 张图片 · {task.noteCount} 篇 Markdown
               </div>
-              <div className="text-muted-foreground gt-caption mt-1">
+              <div className="text-muted-foreground na-caption mt-1">
                 {FULL_TIME.format(task.startedAt)} · {durationLabel(task, now)}
               </div>
             </div>
@@ -257,7 +257,7 @@ function TaskDetails({
               <ResultMetric label="笔记" value={result.changedNotes} />
               <ResultMetric label="失败" value={failures.length} destructive={failures.length > 0} />
             </div>
-            <div className="border-border/30 text-muted-foreground gt-caption flex items-center gap-3 border-t px-3 py-2">
+            <div className="border-border/30 text-muted-foreground na-caption flex items-center gap-3 border-t px-3 py-2">
               <span>替换引用 <strong className="text-foreground font-medium">{result.replacedReferences}</strong></span>
               {task.settings.localFilePolicy === "delete_after_success" && (
                 <span>删除本地 <strong className="text-foreground font-medium">{result.deletedLocalPaths.length}</strong></span>
@@ -268,8 +268,8 @@ function TaskDetails({
 
         {task.error && (
           <section className="border-border/50 border-b px-3 py-2.5">
-            <div className="text-destructive gt-label mb-1">错误</div>
-            <div className="text-destructive gt-caption break-all">{task.error}</div>
+            <div className="text-destructive na-label mb-1">错误</div>
+            <div className="text-destructive na-caption break-all">{task.error}</div>
           </section>
         )}
 
@@ -278,7 +278,7 @@ function TaskDetails({
             <SectionTitle count={result.changedNotePaths.length}>已修改 Markdown</SectionTitle>
             <div className="divide-border/30 divide-y px-3 pb-1">
               {result.changedNotePaths.map((path) => (
-                <div key={path} className="gt-caption flex min-w-0 items-center gap-2 py-1.5">
+                <div key={path} className="na-caption flex min-w-0 items-center gap-2 py-1.5">
                   <FileText className="text-muted-foreground size-3.5 shrink-0" />
                   <span className="min-w-0 truncate" title={path}>{path}</span>
                 </div>
@@ -293,11 +293,11 @@ function TaskDetails({
             <div className="divide-border/30 divide-y px-3 pb-1">
               {failures.map((failure, index) => (
                 <div key={`${failure.kind}:${failure.path}:${index}`} className="py-2">
-                  <div className="gt-caption flex min-w-0 items-center gap-2">
-                    <span className="text-destructive gt-label shrink-0">{failure.kind}</span>
+                  <div className="na-caption flex min-w-0 items-center gap-2">
+                    <span className="text-destructive na-label shrink-0">{failure.kind}</span>
                     <span className="min-w-0 truncate" title={failure.path}>{failure.path}</span>
                   </div>
-                  <div className="text-destructive gt-caption mt-1 break-all">
+                  <div className="text-destructive na-caption mt-1 break-all">
                     {migrationError(failure.error)}
                   </div>
                 </div>
@@ -321,7 +321,7 @@ function SectionTitle({
 }) {
   return (
     <div className={cn(
-      "text-muted-foreground gt-label flex min-h-8 items-center px-3",
+      "text-muted-foreground na-label flex min-h-8 items-center px-3",
       destructive && "text-destructive",
     )}>
       {children}
@@ -332,7 +332,7 @@ function SectionTitle({
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="gt-caption flex min-w-0 items-center justify-between gap-3 py-1.5">
+    <div className="na-caption flex min-w-0 items-center justify-between gap-3 py-1.5">
       <dt className="text-muted-foreground shrink-0">{label}</dt>
       <dd className="min-w-0 truncate text-right" title={value}>{value}</dd>
     </div>
@@ -350,8 +350,8 @@ function ResultMetric({
 }) {
   return (
     <div className="flex min-w-0 flex-col items-center px-1 py-1">
-      <span className={cn("gt-title-section tabular-nums", destructive && "text-destructive")}>{value}</span>
-      <span className="text-muted-foreground gt-label mt-0.5">{label}</span>
+      <span className={cn("na-title-section tabular-nums", destructive && "text-destructive")}>{value}</span>
+      <span className="text-muted-foreground na-label mt-0.5">{label}</span>
     </div>
   );
 }

@@ -61,7 +61,7 @@ export function SyncConfigPanel(props: SyncConfigPanelProps) {
           </div>
           <div className="grid grid-cols-[88px_1fr] items-center gap-2">
             <span className="text-[11px] font-medium text-muted-foreground">仓库 URL</span>
-            <Input value={props.remoteUrl} onChange={(event) => props.onRemoteUrlChange(event.target.value)} placeholder="https://github.com/user/gt-config.git" className="h-7 text-xs" />
+            <Input value={props.remoteUrl} onChange={(event) => props.onRemoteUrlChange(event.target.value)} placeholder="https://github.com/user/na-config.git" className="h-7 text-xs" />
             <span className="text-[11px] font-medium text-muted-foreground">Access Token</span>
             <Input type="password" value={props.token} onChange={(event) => props.onTokenChange(event.target.value)} placeholder={hasCredential ? "留空则沿用已保存 Token" : "必填: 配置中心专用 Token"} className="h-7 text-xs" />
             <span className="text-[11px] text-muted-foreground">分支</span>

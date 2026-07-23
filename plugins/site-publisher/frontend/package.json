@@ -1,5 +1,5 @@
 {
-  "name": "@gittributary-plugin/site-publisher-frontend",
+  "name": "@noteaura-plugin/site-publisher-frontend",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -23,7 +23,7 @@
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {
-    "@gittributary/plugin-testkit": "0.1.0",
+    "@noteaura/plugin-testkit": "0.1.0",
     "@testing-library/react": "^16.3.2",
     "@tailwindcss/vite": "^4.3.1",
     "@types/react": "^19.1.8",

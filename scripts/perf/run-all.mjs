@@ -7,7 +7,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
-const outputDirectory = path.resolve(ROOT, process.env.GT_PERF_OUTPUT ?? "performance/reports/latest");
+const outputDirectory = path.resolve(ROOT, process.env.NA_PERF_OUTPUT ?? "performance/reports/latest");
 const metricsPath = path.join(outputDirectory, "metrics.json");
 rmSync(outputDirectory, { recursive: true, force: true });
 mkdirSync(outputDirectory, { recursive: true });
@@ -21,7 +21,7 @@ const tasks = [
   {
     id: "git-fixtures",
     command: "cargo",
-    args: ["test", "--manifest-path", "src-tauri/Cargo.toml", "-p", "gt-git", "--release", "--test", "performance_test", "--", "--ignored", "--nocapture", "--test-threads=1"],
+    args: ["test", "--manifest-path", "src-tauri/Cargo.toml", "-p", "na-git", "--release", "--test", "performance_test", "--", "--ignored", "--nocapture", "--test-threads=1"],
   },
   {
     id: "attachment-fixture",
@@ -65,7 +65,7 @@ try {
 } catch (error) {
   report = {
     schemaVersion: 1,
-    suite: "gittributary-performance",
+    suite: "noteaura-performance",
     generatedAt: new Date().toISOString(),
     environment: {},
     scenarios: {},
@@ -74,7 +74,7 @@ try {
   };
 }
 
-report.suite = "gittributary-performance";
+report.suite = "noteaura-performance";
 report.gates = executions.map((execution) => ({
   id: execution.id,
   command: [execution.command, ...execution.args].join(" "),
@@ -96,8 +96,8 @@ const renderArgs = [
   "--model", path.join(ROOT, "performance/model.json"),
   "--output", outputDirectory,
 ];
-if (process.env.GT_PERF_BASELINE) {
-  renderArgs.push("--baseline", path.resolve(ROOT, process.env.GT_PERF_BASELINE));
+if (process.env.NA_PERF_BASELINE) {
+  renderArgs.push("--baseline", path.resolve(ROOT, process.env.NA_PERF_BASELINE));
 }
 const render = spawnSync(process.execPath, renderArgs, {
   cwd: ROOT,

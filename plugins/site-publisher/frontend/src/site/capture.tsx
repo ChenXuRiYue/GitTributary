@@ -127,10 +127,10 @@ export function SelectionCheckbox({
 export function CandidateMeta({ candidate }: { candidate: SitePathCandidate }) {
   return (
     <>
-      <Badge variant="outline" className="h-5 shrink-0 px-1.5 gt-caption">
+      <Badge variant="outline" className="h-5 shrink-0 px-1.5 na-caption">
         {candidate.kind === "dir" ? "目录" : "文件"}
       </Badge>
-      <Badge variant="secondary" className="h-5 shrink-0 px-1.5 gt-caption">
+      <Badge variant="secondary" className="h-5 shrink-0 px-1.5 na-caption">
         {candidate.markdownCount} md
       </Badge>
     </>
@@ -154,10 +154,10 @@ export function CaptureListItem({
       <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate gt-body-strong" title={candidate.path}>{candidate.path}</span>
+          <span className="truncate na-body-strong" title={candidate.path}>{candidate.path}</span>
           <CandidateMeta candidate={candidate} />
         </div>
-        <div className="gt-caption mt-1 truncate text-muted-foreground" title={candidate.reason.join(" / ")}>
+        <div className="na-caption mt-1 truncate text-muted-foreground" title={candidate.reason.join(" / ")}>
           {candidate.reason.join(" / ")} · score {candidate.score}
         </div>
       </div>
@@ -181,7 +181,7 @@ export function CaptureTree({
   onToggleGroup: (paths: string[]) => void;
 }) {
   return (
-    <div className="gt-thin-scroll overflow-x-auto py-1">
+    <div className="na-thin-scroll overflow-x-auto py-1">
       <div className="w-max min-w-full pb-2">
         {nodes.map((node) => (
           <CaptureTreeRow
@@ -202,7 +202,7 @@ export function CaptureTree({
 
 export function CapturePreviewTree({ nodes }: { nodes: CaptureTreeNode[] }) {
   return (
-    <div className="gt-thin-scroll overflow-x-auto py-1">
+    <div className="na-thin-scroll overflow-x-auto py-1">
       <div className="w-max min-w-full pb-2">
         {nodes.map((node) => (
           <CapturePreviewTreeRow key={node.path} node={node} depth={0} />
@@ -232,17 +232,17 @@ function CapturePreviewTreeRow({
       >
         <Icon className="size-4 shrink-0 text-muted-foreground" />
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="shrink-0 whitespace-nowrap gt-body-strong" title={node.path}>
+          <span className="shrink-0 whitespace-nowrap na-body-strong" title={node.path}>
             {pathName(node.path)}
           </span>
           {node.candidate ? (
             <CandidateMeta candidate={node.candidate} />
           ) : (
             <>
-              <Badge variant="secondary" className="h-5 shrink-0 px-1.5 gt-caption">
+              <Badge variant="secondary" className="h-5 shrink-0 px-1.5 na-caption">
                 {candidatePaths.length} 项
               </Badge>
-              <Badge variant="outline" className="h-5 shrink-0 px-1.5 gt-caption">
+              <Badge variant="outline" className="h-5 shrink-0 px-1.5 na-caption">
                 {markdownCount} md
               </Badge>
             </>
@@ -305,18 +305,18 @@ function CaptureTreeRow({
         />
         <Icon className="size-4 shrink-0 text-muted-foreground" />
         <div className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="shrink-0 whitespace-nowrap gt-body-strong" title={node.path}>
+          <span className="shrink-0 whitespace-nowrap na-body-strong" title={node.path}>
             {pathName(node.path)}
           </span>
           {node.candidate ? (
             <CandidateMeta candidate={node.candidate} />
           ) : (
-            <Badge variant="secondary" className="h-5 shrink-0 px-1.5 gt-caption">
+            <Badge variant="secondary" className="h-5 shrink-0 px-1.5 na-caption">
               {candidatePaths.length} 项
             </Badge>
           )}
           {node.candidate?.reason.length ? (
-            <span className="gt-caption min-w-24 truncate text-muted-foreground">
+            <span className="na-caption min-w-24 truncate text-muted-foreground">
               {node.candidate.reason.join(" / ")}
             </span>
           ) : null}
