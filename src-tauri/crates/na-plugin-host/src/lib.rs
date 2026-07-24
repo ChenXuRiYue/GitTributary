@@ -3,11 +3,11 @@ use std::io::{self, BufRead, Write};
 use std::os::raw::c_char;
 use std::path::Path;
 
+use libloading::Library;
 use na_plugin_protocol::{
     error_code, event, method, Event, HelloPayload, HostState, HostStatus, Message, Request,
     Response, RpcError, PROTOCOL_VERSION,
 };
-use libloading::Library;
 use serde_json::json;
 
 pub const HOST_NAME: &str = "na-plugin-host";
