@@ -203,7 +203,7 @@ describe("SettingsPanel", () => {
     await user.type(token, "token-123");
     const tokenSection = screen.getByRole("heading", { name: "默认 HTTPS 凭据" }).closest("section");
     expect(tokenSection).not.toBeNull();
-    await user.click(within(tokenSection!).getByRole("button", { name: "保存", exact: true }));
+    await user.click(within(tokenSection!).getByRole("button", { name: "保存" }));
     expect(mockedInvoke).toHaveBeenCalledWith("set_git_token", { token: "token-123" });
   });
 
