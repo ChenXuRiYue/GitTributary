@@ -361,7 +361,7 @@ fn default_api_version() -> String {
 }
 
 fn default_publisher() -> String {
-    "NoteAura".to_string()
+    "Note Aura".to_string()
 }
 
 fn default_view_location() -> String {

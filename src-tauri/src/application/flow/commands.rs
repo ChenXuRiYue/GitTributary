@@ -338,7 +338,7 @@ pub(crate) fn flow_node_catalog(state: State<'_, AppState>) -> Vec<FlowNodeCatal
                 FlowNodeOwner::Core => FlowNodeCatalogSource {
                     kind: "core",
                     id: None,
-                    name: "NoteAura Core".to_string(),
+                    name: "Note Aura Core".to_string(),
                     version: Some(env!("CARGO_PKG_VERSION").to_string()),
                 },
                 FlowNodeOwner::Plugin(plugin_id) => {

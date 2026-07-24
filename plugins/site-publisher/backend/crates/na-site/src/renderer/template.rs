@@ -10,7 +10,7 @@ pub(crate) fn render_index_html(
     with_search: bool,
 ) -> String {
     let title = if config.site_title.trim().is_empty() {
-        "NoteAura Site"
+        "Note Aura Site"
     } else {
         config.site_title.trim()
     };
@@ -46,7 +46,7 @@ pub(crate) fn render_index_html(
       <div class="sidebar-resizer" role="separator" aria-label="调整侧边栏宽度" aria-orientation="vertical" tabindex="0"></div>
     </aside>
     <main class="site-index">
-      <p class="eyebrow">NoteAura Static Site</p>
+      <p class="eyebrow">Note Aura Static Site</p>
       <h1>{}</h1>
       <p class="lead">已构建 {} 篇文档。选择左侧文档开始阅读。</p>
       <p><a class="primary-link" href="{}">打开第一篇文档</a></p>
@@ -75,7 +75,7 @@ pub(crate) fn render_page_html(
     nav_html: &str,
 ) -> String {
     let title = if config.site_title.trim().is_empty() {
-        "NoteAura Site"
+        "Note Aura Site"
     } else {
         config.site_title.trim()
     };

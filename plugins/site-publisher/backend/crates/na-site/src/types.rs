@@ -9,7 +9,7 @@ pub enum SiteError {
     RepoNotDir(String),
     #[error("路径越过仓库根目录: {0}")]
     PathOutsideRepo(String),
-    #[error("输出目录非空且不是 NoteAura 站点构建目录: {0}")]
+    #[error("输出目录非空且不是 Note Aura 站点构建目录: {0}")]
     UnsafeOutputDir(String),
     #[error("发布源仓库不能与目标仓库相同: {0}")]
     PublishRepoSameAsSource(String),

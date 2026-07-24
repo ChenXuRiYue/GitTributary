@@ -6,7 +6,7 @@
   "icon": "lucide:send",
   "description": "从仓库文档构建静态站点并发布到 GitHub Pages。",
   "version": "0.1.3",
-  "publisher": "NoteAura",
+  "publisher": "Note Aura",
   "engines": {
     "noteaura": ">=0.1.3"
   },

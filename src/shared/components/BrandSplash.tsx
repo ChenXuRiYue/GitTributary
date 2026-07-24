@@ -1,4 +1,5 @@
 import { cn } from "@/shared/lib/utils";
+import { APP_DISPLAY_NAME } from "@/shared/brand";
 
 /**
  * 大尺寸品牌动画:河流水系汇入磅礴大海。
@@ -188,7 +189,7 @@ export function BrandSplash({ className }: { className?: string }) {
       {/* ─── 品牌文字 ─── */}
       <div className="absolute bottom-6 z-20 flex flex-col items-center gap-1">
         <h1 className="text-2xl font-bold tracking-tight text-white drop-shadow-lg">
-          NoteAura
+          {APP_DISPLAY_NAME}
         </h1>
         <p className="text-xs text-white/60">
           海纳百川,有容乃大

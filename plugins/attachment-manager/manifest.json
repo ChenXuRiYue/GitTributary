@@ -6,7 +6,7 @@
   "icon": "lucide:paperclip",
   "description": "盘点仓库附件与远程链接，并将 Markdown 本地图片迁移到 GitHub 图床。",
   "version": "0.4.9",
-  "publisher": "NoteAura",
+  "publisher": "Note Aura",
   "engines": {
     "noteaura": ">=0.1.3"
   },

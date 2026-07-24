@@ -1,7 +1,7 @@
 //! Commit identity(用户名/邮箱)解析。
 //!
 //! 优先级:某个远程的显式覆盖配置 > 全局 Git 凭证配置 > 应用默认值
-//! ("NoteAura" / "noteaura@local")。
+//! ("Note Aura" / "noteaura@local")。
 //!
 //! 这里同时需要 `na-data`(凭证/覆盖配置)和 `na-git`
 //! 的 `CommitIdentity` 类型,因此和 `auth.rs` 一样属于胶水层职责。
@@ -54,7 +54,7 @@ pub(crate) fn fallback_commit_identity(
             .as_ref()
             .and_then(|identity| identity.name.clone())
             .or(default_identity.name)
-            .unwrap_or_else(|| "NoteAura".to_string()),
+            .unwrap_or_else(|| "Note Aura".to_string()),
         email: remote_identity
             .as_ref()
             .and_then(|identity| identity.email.clone())
@@ -144,7 +144,7 @@ mod tests {
     fn fallback_commit_identity_uses_app_defaults_when_nothing_configured() {
         let (_dir, state) = temp_app_state();
         let identity = fallback_commit_identity(&state, None);
-        assert_eq!(identity.name, "NoteAura");
+        assert_eq!(identity.name, "Note Aura");
         assert_eq!(identity.email, "noteaura@local");
     }
 

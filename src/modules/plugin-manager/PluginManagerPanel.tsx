@@ -23,6 +23,7 @@ import { Input } from "@/shared/ui/input";
 import { ScrollArea } from "@/shared/ui/scroll-area";
 import { DomainTrail, type DomainTrailItem } from "@/shared/components/DomainTrail";
 import { resolveExtensionIcon } from "@/platform/extensions/icons";
+import { APP_DISPLAY_NAME } from "@/shared/brand";
 import { cn } from "@/shared/lib/utils";
 
 import {
@@ -93,8 +94,8 @@ export function PluginManagerPanel() {
       return;
     }
     const permissions = plugin.permissions.length > 0
-      ? `NoteAura API 权限：\n${plugin.permissions.map((permission) => `- ${permissionLabel(permission)}`).join("\n")}\n\n`
-      : "该插件未申请 NoteAura API 权限。\n\n";
+      ? `${APP_DISPLAY_NAME} API 权限：\n${plugin.permissions.map((permission) => `- ${permissionLabel(permission)}`).join("\n")}\n\n`
+      : `该插件未申请 ${APP_DISPLAY_NAME} API 权限。\n\n`;
     const storeNamespaces = plugin.storeNamespaces.length > 0
       ? `Store 命名空间：\n${plugin.storeNamespaces.map((namespace) => `- ${namespace}`).join("\n")}\n\n`
       : "";

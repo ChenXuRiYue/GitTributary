@@ -45,7 +45,7 @@ export const DEFAULT_CAPTURE_FILTERS: CaptureFilterState = {
   sort: "path",
 };
 
-export const TAURI_UNAVAILABLE_MESSAGE = "当前页面运行在普通浏览器预览中，无法读取 Tauri 本地数据。请在 NoteAura 应用窗口中查看发布任务。";
+export const TAURI_UNAVAILABLE_MESSAGE = "当前页面运行在普通浏览器预览中，无法读取 Tauri 本地数据。请在 Note Aura 应用窗口中查看发布任务。";
 
 export function isTauriRuntime() {
   return isPluginHostRuntime() || (typeof window !== "undefined"

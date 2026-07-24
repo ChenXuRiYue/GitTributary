@@ -9,7 +9,7 @@ pub(super) fn builtin_event_definitions() -> Vec<EventDefinition> {
             event_copy(
                 "应用启动",
                 "应用启动完成",
-                "NoteAura 启动并完成基础状态初始化后触发,适合驱动初始化检查、恢复任务或启动通知类 Flow。",
+                "Note Aura 启动并完成基础状态初始化后触发,适合驱动初始化检查、恢复任务或启动通知类 Flow。",
             ),
             &[],
             &[("started_at", "string")],
@@ -45,7 +45,7 @@ pub(super) fn builtin_event_definitions() -> Vec<EventDefinition> {
             event_copy(
                 "提交已创建",
                 "Git 仓库创建了新的提交",
-                "通过 NoteAura 创建 commit 成功后触发,包含仓库、分支和提交 SHA,适合触发推送、生成记录或后续质量检查。",
+                "通过 Note Aura 创建 commit 成功后触发,包含仓库、分支和提交 SHA,适合触发推送、生成记录或后续质量检查。",
             ),
             &["repositories", "branches"],
             &[("repo", "string"), ("branch", "string"), ("commit", "string")],
@@ -57,7 +57,7 @@ pub(super) fn builtin_event_definitions() -> Vec<EventDefinition> {
             event_copy(
                 "推送已完成",
                 "Git 推送完成",
-                "通过 NoteAura push 成功后触发,包含仓库、分支和 remote,适合触发同步后的通知、发布后检查或远端状态刷新。",
+                "通过 Note Aura push 成功后触发,包含仓库、分支和 remote,适合触发同步后的通知、发布后检查或远端状态刷新。",
             ),
             &["repositories", "branches"],
             &[("repo", "string"), ("branch", "string"), ("remote", "string")],

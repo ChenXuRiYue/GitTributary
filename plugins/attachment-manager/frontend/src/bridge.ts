@@ -70,7 +70,7 @@ export function registerPluginModal(backdrop: PluginModalBackdrop = "standard"):
 
 export async function invokeHost<T>(method: string, payload: unknown = {}): Promise<T> {
   if (window.parent === window) {
-    throw new Error("该页面需要在 NoteAura 插件宿主中运行");
+    throw new Error("该页面需要在 Note Aura 插件宿主中运行");
   }
   const port = hostPort ?? await hostPortReady;
   const id = crypto.randomUUID();
