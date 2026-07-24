@@ -24,11 +24,11 @@ export function RemoteViewHeader({
       <div className="flex items-center gap-2">
         <Globe className="size-4 text-muted-foreground" />
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">远程配置</div>
+          <div className="text-sm font-semibold">仓库配置</div>
           <div className="text-[11px] text-muted-foreground">
             {overview
               ? `${overview.current_branch} · ${shortPath(overview.path)}`
-              : "管理当前仓库 remote 与 NoteAura 远程配置"}
+              : "管理仓库、远端与访问方式"}
           </div>
         </div>
         {recentRepos[0] && !overview && (
@@ -36,8 +36,8 @@ export function RemoteViewHeader({
             <Clock className="size-3.5" />
           </Button>
         )}
-        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={onOpenDialog} title="打开仓库">
-          <FolderOpen className="size-3.5" />
+        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={onOpenDialog} title="添加仓库">
+          <FolderOpen className="size-3.5" /> 添加仓库
         </Button>
         <Button variant="ghost" size="sm" className="h-7 w-7 px-0" onClick={onRefresh} title="刷新">
           <RefreshCw className="size-3.5" />
@@ -69,7 +69,7 @@ export function RemoteViewNotices({
             <div className="min-w-0 flex-1">
               <div className="text-xs font-medium">未打开当前仓库</div>
               <div className="truncate text-[11px] text-muted-foreground">
-                打开已有仓库后可管理 remote,也可以在下方 Clone 新仓库。
+                添加已有仓库，或在下方克隆一个仓库。
               </div>
             </div>
           </div>
@@ -80,7 +80,7 @@ export function RemoteViewNotices({
               </Button>
             )}
             <Button variant="outline" size="sm" className="h-8" onClick={onOpenDialog}>
-              <FolderOpen className="size-3.5" /> 选择仓库
+              <FolderOpen className="size-3.5" /> 添加仓库
             </Button>
           </div>
         </div>

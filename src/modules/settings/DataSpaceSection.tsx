@@ -40,41 +40,45 @@ export function DataSpaceSection({
   };
 
   return (
-    <section aria-labelledby="data-space-heading">
-      <div className="mb-3 flex items-center gap-2 border-b border-border/70 pb-2">
-        <div className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+    <section aria-labelledby="software-data-environment-heading">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
           <Layers className="size-3.5" />
         </div>
-        <h2 id="data-space-heading" className="na-title-section">数据空间</h2>
+        <h2 id="software-data-environment-heading" className="min-w-0 flex-1 na-title-section">数据环境</h2>
         <div className="ml-auto flex items-center gap-1.5">
           <Button
             type="button"
-            variant="outline"
-            size="sm"
-            className={compactButtonClass}
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground"
             onClick={() => setCreating((visible) => !visible)}
             disabled={!bound || busyAction !== null}
+            aria-label="新建环境"
             aria-expanded={creating}
-            title={bound ? "新建空间" : "绑定仓库后可新建空间"}
+            title={bound ? "新建环境" : "绑定远程仓库后可新建环境"}
           >
-            <Plus />
-            新建空间
+            <Plus className="size-3.5" />
           </Button>
           <Button
             type="button"
-            size="sm"
-            className={compactButtonClass}
+            variant="ghost"
+            size="icon"
+            className="size-7 text-muted-foreground"
             onClick={onSync}
             disabled={!canSync || busyAction !== null}
+            aria-label={busyAction === "sync" ? "同步中" : "立即同步"}
+            title="立即同步"
           >
-            {busyAction === "sync" ? <RefreshCw className="animate-spin" /> : <CloudUpload />}
-            {busyAction === "sync" ? "同步中" : "立即同步"}
+            {busyAction === "sync"
+              ? <RefreshCw className="size-3.5 animate-spin" />
+              : <CloudUpload className="size-3.5" />}
           </Button>
         </div>
       </div>
 
       <div className="grid gap-2 sm:grid-cols-[96px_minmax(0,1fr)] sm:items-center">
-        <label htmlFor="data-sync-space" className="na-label text-muted-foreground">当前空间</label>
+        <label htmlFor="data-sync-space" className="na-label text-muted-foreground">当前环境</label>
         <select
           id="data-sync-space"
           value={activeSpace}
@@ -96,7 +100,7 @@ export function DataSpaceSection({
             void handleSubmit();
           }}
         >
-          <label htmlFor="data-sync-space-name" className="na-label text-muted-foreground">空间名称</label>
+          <label htmlFor="data-sync-space-name" className="na-label text-muted-foreground">环境名称</label>
           <Input
             id="data-sync-space-name"
             value={spaceName}

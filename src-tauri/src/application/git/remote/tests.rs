@@ -116,6 +116,50 @@ fn collect_remote_configs_includes_workspace_active_repo() {
 }
 
 #[test]
+fn collect_remote_configs_keeps_recent_repos_after_switching() {
+    let (_store_dir, state) = temp_app_state();
+    let first_dir = TempDir::new().unwrap();
+    let second_dir = TempDir::new().unwrap();
+    let first_repo = init_repo_with_commit(first_dir.path());
+    let second_repo = init_repo_with_commit(second_dir.path());
+    first_repo
+        .add_remote("origin", "https://github.com/a/first.git")
+        .unwrap();
+    second_repo
+        .add_remote("origin", "https://github.com/a/second.git")
+        .unwrap();
+    {
+        let mut store = state.data.lock().unwrap();
+        store
+            .workspace_mut()
+            .set_active_repo(&first_dir.path().display().to_string())
+            .unwrap();
+        store
+            .workspace_mut()
+            .set_active_repo(&second_dir.path().display().to_string())
+            .unwrap();
+    }
+
+    let entries = collect_remote_configs(&state).unwrap();
+    let first = entries
+        .iter()
+        .find(|entry| entry.url == "https://github.com/a/first.git")
+        .unwrap();
+    assert!(first
+        .purpose
+        .iter()
+        .any(|purpose| purpose == "saved_repo_remote"));
+    let second = entries
+        .iter()
+        .find(|entry| entry.url == "https://github.com/a/second.git")
+        .unwrap();
+    assert!(second
+        .purpose
+        .iter()
+        .any(|purpose| purpose == "current_repo_remote"));
+}
+
+#[test]
 fn collect_remote_configs_skips_non_git_workspace_active_repo() {
     let (dir, state) = temp_app_state();
     let non_git_path = dir.path().display().to_string();

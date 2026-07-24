@@ -22,7 +22,7 @@ interface DataCenterCredentialStatus {
   token_masked: string | null;
 }
 
-interface SyncConfig {
+export interface SyncConfig {
   url: string;
   branch: string;
   active_environment_id?: string | null;
@@ -50,6 +50,12 @@ interface ConfigRepoCheckReport {
   default_branch: string | null;
 }
 
+interface DataSyncSettingsProps {
+  embedded?: boolean;
+  syncConfig?: SyncConfig | null;
+  onSyncConfigChange?: (config: SyncConfig | null) => void;
+}
+
 const compactButtonClass = "h-7 gap-1 px-2 text-[11px] [&_svg]:size-3";
 
 function remoteKey(remote: RemoteRepository): string {
@@ -65,7 +71,11 @@ function remoteLabel(remote: RemoteRepository): string {
   return repository ? `${repository} / ${remote.name}` : remote.name;
 }
 
-export function DataSyncSettings() {
+export function DataSyncSettings({
+  embedded = false,
+  syncConfig: externalSyncConfig,
+  onSyncConfigChange,
+}: DataSyncSettingsProps = {}) {
   const [syncConfig, setSyncConfig] = useState<SyncConfig | null>(null);
   const [credential, setCredential] = useState<DataCenterCredentialStatus | null>(null);
   const [remotes, setRemotes] = useState<RemoteRepository[]>([]);
@@ -79,6 +89,11 @@ export function DataSyncSettings() {
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<"bind" | "direct-bind" | "sync" | "space" | "create-space" | "unbind" | "refresh" | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+
+  const updateSyncConfig = useCallback((config: SyncConfig | null) => {
+    setSyncConfig(config);
+    onSyncConfigChange?.(config);
+  }, [onSyncConfigChange]);
 
   const load = useCallback(async () => {
     try {
@@ -95,7 +110,7 @@ export function DataSyncSettings() {
         .sort((left, right) => remoteLabel(left).localeCompare(remoteLabel(right)));
       const space = config?.active_environment_id || "default";
       const boundRemote = reusableRemotes.find((remote) => remote.url === config?.url);
-      setSyncConfig(config);
+      updateSyncConfig(config);
       setCredential(credentialStatus);
       setRemotes(reusableRemotes);
       setSelectedRemoteKey((current) => {
@@ -111,11 +126,15 @@ export function DataSyncSettings() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [updateSyncConfig]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (externalSyncConfig !== undefined) setSyncConfig(externalSyncConfig);
+  }, [externalSyncConfig]);
 
   const hasCredential = Boolean(credential?.has_token);
   const canSync = Boolean(syncConfig && hasCredential);
@@ -129,14 +148,14 @@ export function DataSyncSettings() {
   const handleBind = async () => {
     if (!selectedRemote?.repo_path) return;
     setBusyAction("bind");
-    setNotice({ tone: "progress", message: "正在连接远程仓库..." });
+    setNotice({ tone: "progress", message: "正在连接软件数据远程仓库..." });
     try {
       await invoke("bind_data_center_config_remote", {
         repoPath: selectedRemote.repo_path,
         remoteName: selectedRemote.name,
       });
       await load();
-      setNotice({ tone: "success", message: "远程仓库已绑定" });
+      setNotice({ tone: "success", message: "软件数据远程仓库已绑定" });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -155,7 +174,7 @@ export function DataSyncSettings() {
     const token = directToken.trim();
     if (!url || !token) return;
     setBusyAction("direct-bind");
-    setNotice({ tone: "progress", message: "正在连接远程仓库..." });
+    setNotice({ tone: "progress", message: "正在连接软件数据远程仓库..." });
     try {
       const report = await invoke<ConfigRepoCheckReport>("check_data_center_config_repo", {
         url,
@@ -181,7 +200,7 @@ export function DataSyncSettings() {
       setShowDirectToken(false);
       setShowDirectBind(false);
       await load();
-      setNotice({ tone: "success", message: "远程仓库已绑定" });
+      setNotice({ tone: "success", message: "软件数据远程仓库已绑定" });
     } catch (error) {
       setNotice({ tone: "error", message: error instanceof Error ? error.message : String(error) });
     } finally {
@@ -210,8 +229,8 @@ export function DataSyncSettings() {
     setBusyAction("space");
     try {
       await invoke("sync_switch_environment", { environmentId: space });
-      setSyncConfig((current) => current ? { ...current, active_environment_id: space } : current);
-      setNotice({ tone: "success", message: `已切换到空间 ${space}` });
+      updateSyncConfig({ ...syncConfig, active_environment_id: space });
+      setNotice({ tone: "success", message: `已切换到环境 ${space}` });
     } catch (error) {
       setActiveSpace(previous);
       setNotice({ tone: "error", message: String(error) });
@@ -226,8 +245,8 @@ export function DataSyncSettings() {
       await invoke("sync_create_space", { spaceId: space });
       setSpaces((current) => Array.from(new Set([...current, space])).sort());
       setActiveSpace(space);
-      setSyncConfig((current) => current ? { ...current, active_environment_id: space } : current);
-      setNotice({ tone: "success", message: `空间 ${space} 已创建` });
+      if (syncConfig) updateSyncConfig({ ...syncConfig, active_environment_id: space });
+      setNotice({ tone: "success", message: `环境 ${space} 已创建` });
       return true;
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
@@ -242,11 +261,11 @@ export function DataSyncSettings() {
     setBusyAction("unbind");
     try {
       await invoke("unbind_data_center_config_remote", { clearToken: true });
-      setSyncConfig(null);
+      updateSyncConfig(null);
       setCredential(null);
       setActiveSpace("default");
       setSpaces(["default"]);
-      setNotice({ tone: "success", message: "远程仓库已解绑" });
+      setNotice({ tone: "success", message: "软件数据远程仓库已解绑" });
     } catch (error) {
       setNotice({ tone: "error", message: String(error) });
     } finally {
@@ -255,88 +274,92 @@ export function DataSyncSettings() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-4 sm:px-6">
-      <section aria-labelledby="remote-repository-heading">
-        <div className="mb-3 flex flex-wrap items-center gap-2 border-b border-border/70 pb-2">
-          <div className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+    <div className={cn(
+      "flex w-full flex-col gap-6",
+      !embedded && "mx-auto max-w-3xl px-4 py-4 sm:px-6",
+    )}>
+      <section aria-labelledby="software-data-remote-heading">
+        <div className="mb-2 flex flex-wrap items-center gap-2">
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted/60 text-muted-foreground">
             <Cloud className="size-3.5" />
           </div>
-          <div className="min-w-0 flex-1">
-            <h2 id="remote-repository-heading" className="na-title-section">远程仓库</h2>
-          </div>
+          <h2 id="software-data-remote-heading" className="min-w-0 flex-1 na-title-section">远程仓库</h2>
           <Badge variant={syncConfig ? "secondary" : "outline"} className="h-5 max-w-44 truncate px-1.5 text-[10px]">
             {syncConfig && <CheckCircle2 className="size-3" />}
             {loading ? "读取中" : repositoryLabel}
           </Badge>
+          <div className="flex items-center gap-0.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7 text-muted-foreground"
+              onClick={() => void handleRefreshRemotes()}
+              disabled={busyAction !== null}
+              aria-label="刷新远程仓库"
+              title="刷新远程仓库"
+            >
+              <RefreshCw className={cn("size-3.5", busyAction === "refresh" && "animate-spin")} />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7 text-muted-foreground"
+              onClick={() => setShowDirectBind((visible) => !visible)}
+              disabled={busyAction !== null}
+              aria-label="直接绑定"
+              aria-expanded={showDirectBind}
+              title="直接输入仓库地址"
+            >
+              <Link2 className="size-3.5" />
+            </Button>
+            {syncConfig && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 text-muted-foreground hover:text-destructive"
+                onClick={() => void handleUnbind()}
+                disabled={busyAction !== null}
+                aria-label="解绑远程仓库"
+                title="解绑远程仓库"
+              >
+                <Unplug className="size-3.5" />
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="grid gap-2 sm:grid-cols-[96px_minmax(0,1fr)] sm:items-center">
           <label htmlFor="data-sync-remote" className="na-label text-muted-foreground">远程仓库</label>
-          <select
-            id="data-sync-remote"
-            value={selectedRemoteKey}
-            onChange={(event) => setSelectedRemoteKey(event.target.value)}
-            disabled={loading || busyAction !== null || remotes.length === 0}
-            className="h-8 min-w-0 rounded-md border border-input bg-background px-2 text-xs shadow-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {remotes.length === 0 ? (
-              <option value="">暂无可绑定仓库</option>
-            ) : remotes.map((remote) => (
-              <option key={remoteKey(remote)} value={remoteKey(remote)}>
-                {remoteLabel(remote)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center justify-end gap-1.5">
-          {syncConfig && (
+          <div className="flex min-w-0 items-center gap-2">
+            <select
+              id="data-sync-remote"
+              value={selectedRemoteKey}
+              onChange={(event) => setSelectedRemoteKey(event.target.value)}
+              disabled={loading || busyAction !== null || remotes.length === 0}
+              className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs shadow-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {remotes.length === 0 ? (
+                <option value="">暂无可绑定仓库</option>
+              ) : remotes.map((remote) => (
+                <option key={remoteKey(remote)} value={remoteKey(remote)}>
+                  {remoteLabel(remote)}
+                </option>
+              ))}
+            </select>
             <Button
               type="button"
-              variant="ghost"
               size="sm"
-              className={cn(compactButtonClass, "mr-auto text-destructive hover:text-destructive")}
-              onClick={() => void handleUnbind()}
-              disabled={busyAction !== null}
+              className={compactButtonClass}
+              onClick={() => void handleBind()}
+              disabled={!selectedRemote || busyAction !== null}
             >
-              <Unplug />
-              解绑
+              <GitBranch />
+              {busyAction === "bind" ? "绑定中" : "绑定"}
             </Button>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={compactButtonClass}
-            onClick={() => void handleRefreshRemotes()}
-            disabled={busyAction !== null}
-            title="刷新远程仓库"
-          >
-            <RefreshCw className={cn(busyAction === "refresh" && "animate-spin")} />
-            刷新
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className={compactButtonClass}
-            onClick={() => setShowDirectBind((visible) => !visible)}
-            disabled={busyAction !== null}
-            aria-expanded={showDirectBind}
-          >
-            <Link2 />
-            直接绑定
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            className={compactButtonClass}
-            onClick={() => void handleBind()}
-            disabled={!selectedRemote || busyAction !== null}
-          >
-            <GitBranch />
-            {busyAction === "bind" ? "绑定中" : "绑定所选"}
-          </Button>
+          </div>
         </div>
 
         {showDirectBind && (
@@ -403,16 +426,18 @@ export function DataSyncSettings() {
         )}
       </section>
 
-      <DataSpaceSection
-        spaces={spaces}
-        activeSpace={activeSpace}
-        bound={Boolean(syncConfig)}
-        canSync={canSync}
-        busyAction={busyAction}
-        onSpaceChange={(space) => void handleSpaceChange(space)}
-        onCreateSpace={handleCreateSpace}
-        onSync={() => void handleSync()}
-      />
+      {syncConfig && (
+        <DataSpaceSection
+          spaces={spaces}
+          activeSpace={activeSpace}
+          bound
+          canSync={canSync}
+          busyAction={busyAction}
+          onSpaceChange={(space) => void handleSpaceChange(space)}
+          onCreateSpace={handleCreateSpace}
+          onSync={() => void handleSync()}
+        />
+      )}
 
       {notice && (
         <div

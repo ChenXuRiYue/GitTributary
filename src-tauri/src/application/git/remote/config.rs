@@ -219,6 +219,16 @@ pub(super) fn collect_remote_configs_with_base_dir(
         );
     }
 
+    for repo_path in workspace.recent_repos {
+        push_remote_config_entries_for_existing_repo(
+            &mut entries,
+            &data,
+            &mut seen_paths,
+            &repo_path,
+            "saved_repo_remote",
+        );
+    }
+
     let sync_config = {
         let engine = na_data::SyncEngine::new(&base_dir);
         engine.config().ok().flatten().map(|config| {

@@ -1,17 +1,13 @@
 import {
   FileStack,
   GitBranch,
-  Upload,
   History,
-  Shield,
 } from "lucide-react";
 
 import type { GitViewDescriptor } from "./types";
 import { ChangesView } from "./views/ChangesView";
 import { BranchesView } from "./views/BranchesView";
-import { RemoteView } from "./views/RemoteView";
 import { HistoryView } from "./views/HistoryView";
-import { SafetyView } from "./views/SafetyView";
 
 /**
  * Git 二级视图注册表。
@@ -39,19 +35,5 @@ export const gitViews: GitViewDescriptor[] = [
     icon: History,
     panel: HistoryView,
     pinned: true,
-  },
-  {
-    id: "remote",
-    name: "远端",
-    icon: Upload,
-    panel: RemoteView,
-    pinned: false,
-  },
-  {
-    id: "safety",
-    name: "凭据",
-    icon: Shield,
-    panel: SafetyView,
-    pinned: false,
   },
 ];

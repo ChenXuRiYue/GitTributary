@@ -62,6 +62,20 @@ beforeEach(() => {
     }
     if (command === "sync_list_environments") return Promise.resolve(["default"]);
     if (command === "get_remote_configs") return Promise.resolve([]);
+    if (command === "get_workspace_info") {
+      return Promise.resolve({ active_repo: null, recent_repos: [] });
+    }
+    if (command === "get_git_credentials") {
+      return Promise.resolve({
+        username: "octocat",
+        email: "octocat@example.com",
+        remote_url: "https://github.com/octocat/docs.git",
+        token_masked: "••••••••",
+        has_token: true,
+        ssh_key_path: "~/.ssh/id_ed25519",
+        has_ssh_passphrase: false,
+      });
+    }
     return Promise.resolve(undefined);
   });
 });
@@ -84,27 +98,52 @@ function renderSettingsPanel() {
 }
 
 describe("SettingsPanel", () => {
-  it("opens data sync as a concise settings category", async () => {
+  it("groups settings by data space and Git purpose", async () => {
     renderSettingsPanel();
 
     const trail = screen.getByRole("navigation", { name: "当前位置" });
-    expect(within(trail).getByText("数据同步")).toHaveAttribute("aria-current", "page");
+    expect(within(trail).getByText("软件数据")).toHaveAttribute("aria-current", "page");
+    const pageTitle = screen.getByRole("banner", { name: "设置页标题" });
+    expect(within(pageTitle).getByText("位置 · 远程仓库 · 同步策略")).toBeVisible();
 
     const settingsNavigation = screen.getByRole("navigation", { name: "设置分类" });
-    expect(within(settingsNavigation).getByRole("button", { name: "数据同步" }))
+    const dataGroup = within(settingsNavigation).getByRole("group", { name: "数据空间" });
+    const gitGroup = within(settingsNavigation).getByRole("group", { name: "Git" });
+    const interfaceGroup = within(settingsNavigation).getByRole("group", { name: "界面" });
+    expect(dataGroup).toBeVisible();
+    expect(interfaceGroup).toBeVisible();
+    expect(within(dataGroup).queryByRole("button", { name: "主笔记空间" })).toBeNull();
+    expect(within(dataGroup).getByRole("button", { name: "软件数据" })).toBeVisible();
+    expect(within(dataGroup).queryByRole("button", { name: "已打开仓库" })).toBeNull();
+    expect(within(gitGroup).getByRole("button", { name: "全局提交身份" })).toBeVisible();
+    expect(within(gitGroup).getByRole("button", { name: "已打开仓库" })).toBeVisible();
+    expect(within(interfaceGroup).getByRole("button", { name: "侧边栏" })).toBeVisible();
+    expect(within(interfaceGroup).queryByRole("button", { name: "全局提交身份" })).toBeNull();
+    expect(within(settingsNavigation).getByRole("button", { name: "软件数据" }))
       .toHaveAttribute("aria-current", "page");
+    expect(within(settingsNavigation).getByRole("button", { name: "全局提交身份" })).toBeVisible();
+    expect(within(settingsNavigation).getByRole("button", { name: "已打开仓库" })).toBeVisible();
     expect(within(settingsNavigation).getByRole("button", { name: "侧边栏" })).toBeVisible();
     expect(settingsNavigation.querySelector("svg")).toBeNull();
+    expect(screen.getByRole("heading", { name: "软件数据位置" })).toBeVisible();
+    expect(screen.getByText("Note Aura 产生的设置、环境、插件状态和运行记录统一存放在这里，并可独立同步。")).toBeVisible();
     expect(screen.getByRole("heading", { name: "远程仓库" })).toBeVisible();
-    expect(screen.getByRole("heading", { name: "数据空间" })).toBeVisible();
+    const remoteSection = screen.getByRole("heading", { name: "远程仓库" }).closest("section");
+    expect(remoteSection).not.toBeNull();
+    expect(within(remoteSection!).queryByText("软件数据")).toBeNull();
+    expect(screen.queryByRole("heading", { name: "数据环境" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "同步策略" })).toBeNull();
     expect(await screen.findByRole("combobox", { name: "远程仓库" })).toBeVisible();
     expect(screen.queryByLabelText("仓库 URL")).toBeNull();
     expect(screen.queryByLabelText("Access Token")).toBeNull();
     expect(screen.queryByText("命名空间")).toBeNull();
     expect(screen.queryByText(/profile/i)).toBeNull();
+    expect(screen.queryByText("主笔记空间")).toBeNull();
+    expect(screen.queryByRole("switch", { name: "自动同步软件数据" })).toBeNull();
 
     await userEvent.click(within(settingsNavigation).getByRole("button", { name: "侧边栏" }));
     expect(within(trail).getByText("侧边栏")).toHaveAttribute("aria-current", "page");
+    expect(within(pageTitle).getByText("入口顺序与显示")).toBeVisible();
     expect(screen.getByText("显示:3 / 4")).toBeVisible();
 
     const mainSection = screen.getByRole("heading", { name: "主导航" }).closest("section");
@@ -117,6 +156,161 @@ describe("SettingsPanel", () => {
     expect(within(systemSection!).getByText("2 项")).toBeVisible();
     expect(within(systemSection!).getByText("插件")).toBeVisible();
     expect(within(systemSection!).getByText("设置")).toBeVisible();
+  });
+
+  it("manages the global Git identity and repository access defaults", async () => {
+    const user = userEvent.setup();
+    renderSettingsPanel();
+
+    const settingsNavigation = screen.getByRole("navigation", { name: "设置分类" });
+    await user.click(within(settingsNavigation).getByRole("button", { name: "全局提交身份" }));
+
+    const trail = screen.getByRole("navigation", { name: "当前位置" });
+    expect(within(trail).getByText("Git")).toBeVisible();
+    expect(within(trail).getByText("全局提交身份")).toHaveAttribute("aria-current", "page");
+    expect(within(screen.getByRole("banner", { name: "设置页标题" }))
+      .getByText("用户名 · 邮箱 · 默认访问")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "全局提交身份" })).toBeVisible();
+    expect(screen.getByText("未设置仓库提交身份时使用")).toBeVisible();
+
+    const username = await screen.findByLabelText("用户名");
+    const email = screen.getByLabelText("邮箱");
+    expect(username).toHaveValue("octocat");
+    expect(email).toHaveValue("octocat@example.com");
+
+    await user.clear(username);
+    await user.type(username, "new-user");
+    await user.clear(email);
+    await user.type(email, "new@example.com");
+    await user.click(screen.getByRole("button", { name: "保存身份" }));
+
+    await waitFor(() => {
+      expect(mockedInvoke).toHaveBeenCalledWith("set_git_username", { username: "new-user" });
+    });
+    expect(mockedInvoke).toHaveBeenCalledWith("set_git_email", { email: "new@example.com" });
+
+    await user.click(screen.getByText("默认访问与凭据"));
+    expect(screen.getByRole("heading", { name: "默认远端" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "默认 HTTPS 凭据" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "默认 SSH 凭据" })).toBeVisible();
+
+    const remoteUrl = screen.getByLabelText("仓库 URL");
+    await user.clear(remoteUrl);
+    await user.type(remoteUrl, "https://github.com/octocat/draft.git");
+    expect(remoteUrl).toHaveValue("https://github.com/octocat/draft.git");
+
+    const token = screen.getByLabelText("Access Token");
+    await user.type(token, "token-123");
+    const tokenSection = screen.getByRole("heading", { name: "默认 HTTPS 凭据" }).closest("section");
+    expect(tokenSection).not.toBeNull();
+    await user.click(within(tokenSection!).getByRole("button", { name: "保存", exact: true }));
+    expect(mockedInvoke).toHaveBeenCalledWith("set_git_token", { token: "token-123" });
+  });
+
+  it("keeps Git drafts while moving between settings sections", async () => {
+    const user = userEvent.setup();
+    renderSettingsPanel();
+
+    const settingsNavigation = screen.getByRole("navigation", { name: "设置分类" });
+    await user.click(within(settingsNavigation).getByRole("button", { name: "全局提交身份" }));
+
+    const username = await screen.findByLabelText("用户名");
+    await user.clear(username);
+    await user.type(username, "draft-user");
+    await user.click(within(settingsNavigation).getByRole("button", { name: "侧边栏" }));
+    await user.click(within(settingsNavigation).getByRole("button", { name: "全局提交身份" }));
+
+    expect(await screen.findByLabelText("用户名")).toHaveValue("draft-user");
+  });
+
+  it("shows the actual usage of each configured repository", async () => {
+    mockedInvoke.mockImplementation((command) => {
+      if (command === "sync_get_config") return Promise.resolve(null);
+      if (command === "get_data_center_config_credential_status") {
+        return Promise.resolve({ has_token: false, token_masked: null });
+      }
+      if (command === "sync_list_environments") return Promise.resolve(["default"]);
+      if (command === "get_workspace_info") {
+        return Promise.resolve({ active_repo: null, recent_repos: [] });
+      }
+      if (command === "get_git_credentials") {
+        return Promise.resolve({
+          username: null,
+          email: null,
+          remote_url: null,
+          token_masked: null,
+          has_token: false,
+          ssh_key_path: null,
+          has_ssh_passphrase: false,
+        });
+      }
+      if (command === "get_remote_configs") {
+        return Promise.resolve([
+          {
+            name: "origin",
+            url: "https://github.com/example/current.git",
+            push_url: null,
+            repo_path: "/repo/current",
+            source: "local_git_config",
+            purpose: ["current_repo_remote", "data_center_sync"],
+            credential_mode: "repo_token",
+            credential_ref: null,
+            commit_name: null,
+            commit_email: null,
+            verify_status: "configured",
+            capabilities: "unknown",
+          },
+          {
+            name: "upstream",
+            url: "https://github.com/example/upstream.git",
+            push_url: null,
+            repo_path: "/repo/current",
+            source: "local_git_config",
+            purpose: ["current_repo_remote"],
+            credential_mode: "repo_token",
+            credential_ref: null,
+            commit_name: null,
+            commit_email: null,
+            verify_status: "configured",
+            capabilities: "unknown",
+          },
+          {
+            name: "origin",
+            url: "https://github.com/example/saved.git",
+            push_url: null,
+            repo_path: "/repo/saved",
+            source: "local_git_config",
+            purpose: ["bound_repo_remote"],
+            credential_mode: "none",
+            credential_ref: null,
+            commit_name: null,
+            commit_email: null,
+            verify_status: "unverified",
+            capabilities: "unknown",
+          },
+        ]);
+      }
+      return Promise.resolve(undefined);
+    });
+    const user = userEvent.setup();
+    renderSettingsPanel();
+
+    const settingsNavigation = screen.getByRole("navigation", { name: "设置分类" });
+    await user.click(within(settingsNavigation).getByRole("button", { name: "已打开仓库" }));
+
+    expect(within(screen.getByRole("banner", { name: "设置页标题" }))
+      .getByText("远端 · 仓库提交身份 · 凭据")).toBeVisible();
+    expect(within(screen.getByRole("navigation", { name: "当前位置" })).getByText("Git")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "已打开仓库" })).toBeVisible();
+
+    expect((await screen.findAllByText("使用情况"))).toHaveLength(2);
+    expect(screen.getByText("当前工作仓库")).toBeVisible();
+    expect(screen.getByText("空间同步")).toBeVisible();
+    expect(screen.getByText("未关联")).toBeVisible();
+    expect(screen.getByText("/repo/current")).toBeVisible();
+    expect(screen.getByText("2 个远端")).toBeVisible();
+    expect(screen.getByText("upstream")).toBeVisible();
+    expect(screen.queryByText("当前仓库 remote")).toBeNull();
   });
 
   it("forwards visibility, move, and reset actions while protecting fixed entries", async () => {
@@ -182,7 +376,7 @@ describe("SettingsPanel", () => {
 
     const repository = await screen.findByRole("combobox", { name: "远程仓库" });
     expect(repository).toHaveValue("/repo/data::origin");
-    const bindButton = screen.getByRole("button", { name: "绑定所选" });
+    const bindButton = screen.getByRole("button", { name: "绑定" });
     await waitFor(() => expect(bindButton).toBeEnabled());
     await user.click(bindButton);
 
@@ -234,7 +428,7 @@ describe("SettingsPanel", () => {
     });
   });
 
-  it("switches the data space through the sync repository API", async () => {
+  it("switches the software data environment through the sync repository API", async () => {
     mockedInvoke.mockImplementation((command) => {
       if (command === "sync_get_config") {
         return Promise.resolve({
@@ -256,7 +450,7 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     renderSettingsPanel();
 
-    const space = await screen.findByLabelText("当前空间");
+    const space = await screen.findByLabelText("当前环境");
     await user.selectOptions(space, "staging");
 
     expect(mockedInvoke).toHaveBeenCalledWith("sync_switch_environment", {
@@ -264,7 +458,7 @@ describe("SettingsPanel", () => {
     });
   });
 
-  it("creates and activates a new data space", async () => {
+  it("creates and activates a new software data environment", async () => {
     mockedInvoke.mockImplementation((command) => {
       if (command === "sync_get_config") {
         return Promise.resolve({
@@ -286,14 +480,14 @@ describe("SettingsPanel", () => {
     const user = userEvent.setup();
     renderSettingsPanel();
 
-    const createEntry = await screen.findByRole("button", { name: "新建空间" });
+    const createEntry = await screen.findByRole("button", { name: "新建环境" });
     await waitFor(() => expect(createEntry).toBeEnabled());
     await user.click(createEntry);
-    await user.type(screen.getByLabelText("空间名称"), "staging");
+    await user.type(screen.getByLabelText("环境名称"), "staging");
     await user.click(screen.getByRole("button", { name: "创建" }));
 
     expect(mockedInvoke).toHaveBeenCalledWith("sync_create_space", { spaceId: "staging" });
-    expect(screen.getByLabelText("当前空间")).toHaveValue("staging");
+    expect(screen.getByLabelText("当前环境")).toHaveValue("staging");
     expect(screen.getByRole("option", { name: "staging" })).toBeVisible();
   });
 });

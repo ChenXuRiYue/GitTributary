@@ -215,8 +215,6 @@ export function GitPanel() {
     : "未打开仓库";
   const secondaryDomainStats = (() => {
     switch (activeId) {
-      case "remote": return `远程:${overview?.remote_url ? 1 : 0}`;
-      case "safety": return `仓库:${overview ? 1 : 0}`;
       case "branches": return "按需加载分支";
       case "history": return "按需加载历史";
       case "changes":
