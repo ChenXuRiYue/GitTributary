@@ -176,7 +176,7 @@ secrets.jsonl\n";
 
         let sig = repo
             .signature()
-            .or_else(|_| git2::Signature::now("NoteAura", "sync@noteaura"))
+            .or_else(|_| git2::Signature::now("Note Aura", "sync@noteaura"))
             .map_err(|e| StoreError::Internal(e.message().to_string()))?;
 
         let parents: Vec<git2::Commit> = if let Ok(head) = repo.head() {

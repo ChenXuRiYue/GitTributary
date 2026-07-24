@@ -15,8 +15,8 @@ use model::{
 };
 
 pub use abi::{
-    noteaura_plugin_abi_version, noteaura_plugin_free_string,
-    noteaura_plugin_handle_request, PLUGIN_ABI_VERSION,
+    noteaura_plugin_abi_version, noteaura_plugin_free_string, noteaura_plugin_handle_request,
+    PLUGIN_ABI_VERSION,
 };
 
 pub fn handle_request(method: &str, payload: Value) -> Result<Value, String> {

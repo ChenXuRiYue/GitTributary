@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { invoke } from "@tauri-apps/api/core";
 
 import { IconNav, type NavItem } from "@/shared/components/IconNav";
+import { APP_DISPLAY_NAME } from "@/shared/brand";
 
 import { coreModules } from "./registry";
 import {
@@ -124,6 +125,10 @@ function App() {
 
   const active = orderedWorkbenchItems.find((item) => item.id === activeId) ?? visibleWorkbenchItems[0];
   const isFullHeightPanel = active?.fullHeight === true;
+  // Settings contains several nested navigation levels. Keep it mounted while the
+  // user visits another workbench module so a half-filled form and current section
+  // are not discarded on the next visit.
+  const persistentFullHeightItems = orderedWorkbenchItems.filter((item) => item.id === "settings");
 
   // 分组(展开态用)
   const mainItems = visibleWorkbenchItems.filter((item) => item.group === "main");
@@ -292,7 +297,7 @@ function App() {
                 className="text-sidebar-foreground hover:bg-sidebar-accent/70 hover:text-sidebar-accent-foreground flex min-w-0 flex-1 items-center justify-between gap-2 overflow-hidden rounded-md px-2 py-1 text-left transition-colors"
                 title="打开项目仓库"
               >
-                <span className="block min-w-0 truncate text-sm font-semibold leading-4">NoteAura</span>
+                <span className="block min-w-0 truncate text-sm font-semibold leading-4">{APP_DISPLAY_NAME}</span>
                 <ExternalLink className="text-muted-foreground size-4 shrink-0" />
               </button>
             )}
@@ -389,7 +394,16 @@ function App() {
           )}
           {isFullHeightPanel ? (
             <div className="min-h-0 flex-1 overflow-hidden">
-              {active?.content}
+              {persistentFullHeightItems.map((item) => (
+                <div
+                  key={item.id}
+                  className={cn("h-full", active?.id !== item.id && "hidden")}
+                  aria-hidden={active?.id !== item.id}
+                >
+                  {item.content}
+                </div>
+              ))}
+              {active && active.id !== "settings" && active.content}
             </div>
           ) : (
             <ScrollArea className="flex-1">

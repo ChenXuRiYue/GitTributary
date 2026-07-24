@@ -37,7 +37,7 @@ export const coreModules: CoreModuleDescriptor[] = [
   {
     id: "settings",
     name: "设置",
-    description: "管理数据同步、界面与应用行为。",
+    description: "管理数据空间与 Git 配置、界面。",
     icon: Settings,
     panel: SettingsPanel,
     group: "system",

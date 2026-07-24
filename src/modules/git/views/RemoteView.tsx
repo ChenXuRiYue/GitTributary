@@ -10,8 +10,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import type { GitViewProps } from "../types";
 import { RemoteViewHeader, RemoteViewNotices } from "../components/RemoteViewHeader";
 import {
-  credentialLabel, purposeLabel, remoteKey, repositoryName,
+  credentialLabel, remoteKey, repositoryName,
   sourceLabel, useRemoteView, verifyLabel,
+  usageLabels,
 } from "../hooks/useRemoteView";
 
 export function RemoteView({
@@ -37,6 +38,7 @@ export function RemoteView({
     openRepository,
     refreshRepository,
   });
+  const repositoryCount = new Set(remotes.map((remote) => remote.repo_path ?? remote.url)).size;
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -58,17 +60,17 @@ export function RemoteView({
         onOpenDialog={() => void openFromDialog()}
       />
 
-      {/* 远程配置列表 */}
+      {/* 仓库配置列表 */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm">
-            <Globe className="size-4" /> 已配置远程仓库
-            <Badge variant="secondary" className="ml-auto h-5 px-1.5 text-[9px]">{remotes.length}</Badge>
+            <Globe className="size-4" /> 已配置仓库
+            <Badge variant="secondary" className="ml-auto h-5 px-1.5 text-[9px]">{repositoryCount}</Badge>
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {remotes.length === 0 ? (
-            <p className="text-xs text-muted-foreground">暂无远程仓库配置</p>
+            <p className="text-xs text-muted-foreground">暂无已配置仓库</p>
           ) : (
             remotes.map((r) => {
               const isLocalRemote = r.source === "local_git_config";
@@ -82,12 +84,19 @@ export function RemoteView({
               };
               const isBusy = remoteBusyKey === key;
               const isExpanded = expandedRemoteKeys[key] ?? false;
+              const repositoryPurposes = remotes
+                .filter((candidate) => (
+                  r.repo_path && candidate.repo_path
+                    ? r.repo_path === candidate.repo_path
+                    : r.url === candidate.url
+                ))
+                .flatMap((candidate) => candidate.purpose);
               return (
               <div key={`${r.source}:${key}`} className="flex flex-col rounded-md border px-2.5 py-2">
                 <div className="grid grid-cols-[minmax(120px,0.8fr)_minmax(0,1.2fr)_auto] items-center gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-xs font-medium">{repositoryName(r)}</div>
-                    <div className="truncate text-[10px] text-muted-foreground">{r.name}</div>
+                    <div className="truncate text-[10px] text-muted-foreground">远端 · {r.name}</div>
                   </div>
                   <div className="min-w-0 space-y-0.5">
                     <div className="truncate font-mono text-[11px] text-muted-foreground">
@@ -105,13 +114,16 @@ export function RemoteView({
                     <ChevronDown className={`size-3.5 transition-transform ${isExpanded ? "rotate-180" : ""}`} />
                   </Button>
                 </div>
+                <div className="mt-2 flex flex-wrap items-center gap-1">
+                  <span className="mr-1 text-[10px] text-muted-foreground">使用情况</span>
+                  {usageLabels(repositoryPurposes).map((label) => (
+                    <Badge key={label} variant="secondary" className="h-5 px-1.5 text-[9px]">{label}</Badge>
+                  ))}
+                </div>
                 {isExpanded && (
                   <div className="mt-3 flex flex-col gap-3 border-t pt-3">
                     <div className="flex flex-wrap gap-1">
                       <Badge variant="outline" className="h-5 px-1.5 text-[9px]">{sourceLabel(r.source)}</Badge>
-                      {r.purpose.map((item) => (
-                        <Badge key={item} variant="outline" className="h-5 px-1.5 text-[9px]">{purposeLabel(item)}</Badge>
-                      ))}
                       <Badge variant="outline" className="h-5 px-1.5 text-[9px]">{credentialLabel(r.credential_mode)}</Badge>
                       <Badge variant="outline" className="h-5 px-1.5 text-[9px]">能力 {r.capabilities}</Badge>
                       {r.push_url && <Badge variant="outline" className="h-5 px-1.5 text-[9px]">push-url</Badge>}
@@ -161,14 +173,14 @@ export function RemoteView({
                           <Input
                             value={draft.commitName}
                             onChange={(e) => updateRemoteDraft(key, { commitName: e.target.value })}
-                            placeholder="留空则使用安全配置"
+                            placeholder="留空则使用通用身份"
                             className="h-8 text-xs"
                           />
                           <span className="text-[11px] font-medium text-muted-foreground">提交邮箱</span>
                           <Input
                             value={draft.commitEmail}
                             onChange={(e) => updateRemoteDraft(key, { commitEmail: e.target.value })}
-                            placeholder="留空则使用安全配置"
+                            placeholder="留空则使用通用身份"
                             className="h-8 text-xs"
                           />
                         </div>
@@ -208,7 +220,7 @@ export function RemoteView({
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm">
-              <Plus className="size-4" /> 新增远程仓库
+              <Plus className="size-4" /> 添加远端
               <Badge variant="outline" className="text-[9px]">当前仓库</Badge>
             </CardTitle>
           </CardHeader>
@@ -249,20 +261,20 @@ export function RemoteView({
               <Input
                 value={addRemoteDraft.commitName}
                 onChange={(e) => setAddRemoteDraft((draft) => ({ ...draft, commitName: e.target.value }))}
-                placeholder="留空则使用安全配置"
+                placeholder="留空则使用通用身份"
                 className="h-8 text-xs"
               />
               <span className="text-[11px] text-muted-foreground">提交邮箱</span>
               <Input
                 value={addRemoteDraft.commitEmail}
                 onChange={(e) => setAddRemoteDraft((draft) => ({ ...draft, commitEmail: e.target.value }))}
-                placeholder="留空则使用安全配置"
+                placeholder="留空则使用通用身份"
                 className="h-8 text-xs"
               />
             </div>
             <div className="flex items-center justify-between gap-2">
               <p className="text-[10px] text-muted-foreground">
-                提交身份会保存在远程仓库配置中;为空时提交使用安全配置中的全局名称和邮箱。
+                提交身份会保存在远端配置中;留空时使用全局默认提交身份。
               </p>
               <Button
                 size="sm"
@@ -277,11 +289,11 @@ export function RemoteView({
         </Card>
       )}
 
-      {/* Clone 远程仓库 */}
+      {/* Clone 仓库 */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-sm">
-            <Plus className="size-4" /> Clone 远程仓库
+            <Plus className="size-4" /> 克隆仓库
             <Badge variant="outline" className="text-[9px] text-destructive/70">仅本地 · L0</Badge>
           </CardTitle>
         </CardHeader>
@@ -327,14 +339,14 @@ export function RemoteView({
             <Input
               value={cloneCommitName}
               onChange={(e) => setCloneCommitName(e.target.value)}
-              placeholder="留空则使用安全配置"
+              placeholder="留空则使用通用身份"
               className="h-8 text-xs"
             />
             <span className="text-[11px] text-muted-foreground">提交邮箱</span>
             <Input
               value={cloneCommitEmail}
               onChange={(e) => setCloneCommitEmail(e.target.value)}
-              placeholder="留空则使用安全配置"
+              placeholder="留空则使用通用身份"
               className="h-8 text-xs"
             />
           </div>

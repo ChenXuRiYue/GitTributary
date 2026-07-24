@@ -285,7 +285,7 @@ export function shortPath(path: string): string {
   return parts.length > 3 ? `.../${parts.slice(-3).join("/")}` : path;
 }
 
-export function defaultTitleFromRepo(repoPath: string, fallback = "NoteAura Site") {
+export function defaultTitleFromRepo(repoPath: string, fallback = "Note Aura Site") {
   const parts = repoPath.replace(/\\/g, "/").split("/").filter(Boolean);
   return parts.length > 0 ? parts[parts.length - 1] : fallback;
 }

@@ -102,7 +102,7 @@ impl GitRepo {
         self.commit_with_identity(
             message,
             &CommitIdentity {
-                name: "NoteAura".to_string(),
+                name: "Note Aura".to_string(),
                 email: "noteaura@local".to_string(),
             },
         )

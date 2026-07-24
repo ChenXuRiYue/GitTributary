@@ -158,21 +158,21 @@
 @utility na-title-app {
   font-size: 1.125rem;
   line-height: 1.5rem;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: 0;
 }
 
 @utility na-title-panel {
   font-size: 0.9375rem;
   line-height: 1.25rem;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: 0;
 }
 
 @utility na-title-section {
   font-size: 0.8125rem;
   line-height: 1.125rem;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: 0;
 }
 

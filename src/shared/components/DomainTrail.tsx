@@ -44,7 +44,7 @@ export function DomainTrail({
                 "truncate",
                 index === 0
                   ? "max-w-[9rem] text-foreground na-title-panel"
-                  : "max-w-[8rem] text-muted-foreground na-body-strong",
+                  : "max-w-[8rem] text-muted-foreground na-title-section",
               )}
               title={item.title ?? item.label}
             >

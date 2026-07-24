@@ -28,10 +28,8 @@ fn rejects_missing_na_id() {
 
 #[test]
 fn rejects_step_without_uses() {
-    let workflow = VALID_WORKFLOW.replace(
-        "        uses: noteaura/git/push@v1",
-        "        name: Push",
-    );
+    let workflow =
+        VALID_WORKFLOW.replace("        uses: noteaura/git/push@v1", "        name: Push");
     let err = parse_workflow(&workflow).unwrap_err().to_string();
 
     assert!(err.contains("steps[1].uses"));

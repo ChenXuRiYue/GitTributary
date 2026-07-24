@@ -40,6 +40,14 @@ beforeEach(() => {
 });
 
 describe("application shell plugin modal backdrop", () => {
+  it("uses the public product name in the sidebar", () => {
+    render(<App />);
+    const expandButton = screen.queryByTitle("展开");
+    if (expandButton) fireEvent.click(expandButton);
+
+    expect(screen.getByText("Note Aura")).toBeVisible();
+  });
+
   it("dims and disables the primary sidebar until the plugin preview closes", () => {
     render(<App />);
     const sidebar = screen.getByTestId("primary-sidebar");

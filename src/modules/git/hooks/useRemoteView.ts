@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
+import { APP_DISPLAY_NAME } from "@/shared/brand";
 
 import type { GitViewProps, RepoOverview } from "../types";
 import {
@@ -60,23 +61,28 @@ export function repositoryName(remote: Pick<RemoteInfo, "name" | "repo_path" | "
 export function sourceLabel(source: string): string {
   switch (source) {
     case "local_git_config": return "当前仓库 .git/config";
-    case "noteaura_config": return "NoteAura 配置";
+    case "noteaura_config": return `${APP_DISPLAY_NAME} 配置`;
     case "system_discovered": return "系统发现";
     case "imported": return "导入";
     default: return source;
   }
 }
 
-export function purposeLabel(purpose: string): string {
-  switch (purpose) {
-    case "current_repo_remote": return "当前仓库 remote";
-    case "bound_repo_remote": return "绑定仓库 remote";
-    case "data_center_sync": return "数据中心同步";
-    case "backup_target": return "备份目标";
-    case "publish_target": return "发布目标";
-    case "mirror": return "镜像";
-    default: return purpose;
-  }
+export function usageLabels(purposes: string[]): string[] {
+  const labels = purposes.flatMap((purpose) => {
+    switch (purpose) {
+      case "current_repo_remote": return ["当前工作仓库"];
+      case "bound_repo_remote": return [];
+      case "saved_repo_remote": return [];
+      case "data_center_sync": return ["空间同步"];
+      case "backup_target": return ["备份"];
+      case "publish_target": return ["发布"];
+      case "mirror": return ["镜像"];
+      default: return [purpose];
+    }
+  });
+  const uniqueLabels = Array.from(new Set(labels));
+  return uniqueLabels.length > 0 ? uniqueLabels : ["未关联"];
 }
 
 export function credentialLabel(mode: string): string {
